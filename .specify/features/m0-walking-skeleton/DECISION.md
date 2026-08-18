@@ -122,6 +122,33 @@ MCP adapter, Learning Store, correction UI, macro-dictionary learning, diagram a
 - **`qwen2-math` as semantic checker (M1+).** Text-only, so it cannot recognize; but it can read emitted LaTeX and flag statements that do not follow — the `|||| < ||||` class. Alibaba's own multimodal math demo uses exactly this pairing: a VLM to see, a math model to reason. This is the only mechanism identified that addresses semantic falsity.
 - **Colour as a first-class channel.** Unmodelled in the brief, load-bearing in the manuscript.
 
+## Competitive position — researched 2026-08-18
+
+**D2's differentiator is real but narrower than claimed.** Two 2025–2026 papers independently
+converged on compilability-as-signal: **TexOCR** (arXiv 2604.22880) trains a 2B model with RL
+rewards from "LaTeX unit tests that directly enforce compilability," and **olmOCR 2**
+(arXiv 2510.19817) uses renderable-HTML unit tests as reward. Both use it as a **training
+signal**. Neither ships an inference-time, user-facing refusal.
+
+- **Good news:** independent convergence says the idea is sound, not a dead end.
+- **Bad news:** we cannot borrow their evaluation numbers. "Refuses to hand you broken LaTeX"
+  as a *product behaviour* still needs its own validation.
+
+**Duplication risk to check before assuming greenfield:** **Pix2Text** — actively maintained
+(pushed Feb 2026, 3.2k stars), explicitly positioned as a free Mathpix alternative, handles
+layout/tables/formulas → Markdown. This is the Skeptic's dissent with a URL attached. Nothing
+found does reMarkable *vector ink* → LaTeX locally via a VLM, but Pix2Text should be run
+against our fixtures before further investment.
+
+**One clean gap, and it is our hardest problem.** Inline pictorial elements functioning as
+*grammatical constituents* — a stick figure as a noun, a `↰` annotating the line above, a `✓`
+asserting an axiom holds — have **no prior art**. Everything found treats figures as
+block-level regions to caption or segment. Budget this as novel R&D, not integration.
+
+**Also confirmed:** VLMs hallucinate and omit more than classical OCR on document
+transcription (Qwen3-VL-235B at 80.6% vs specialist PP-OCRv6 at 93.2% on a hallucination
+benchmark), which is the risk D6 and §5.5 exist to manage.
+
 ## Open questions for the design panel
 
 1. Should the recognizer target an intermediate AST rather than LaTeX text directly? Structural argued LaTeX-as-intermediate forces the Normalizer to do semantic correction and syntax rendering through one string format. The colour and glyph findings sharpen this.

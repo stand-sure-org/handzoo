@@ -1,7 +1,8 @@
 # HandZoo M0 — Technical Design
 
-**Version:** 1.3 (num_ctx, pylatexenc, expanded corpus)
+**Version:** 1.4 (research spike folded in)
 **Date:** 2026-08-18
+**Changes since 1.3:** Blank-response root cause identified as an open Ollama defect; the documented workaround tested and rejected; early detection measured and rejected (§3.2). Substitution named as "over-correction" with prompting shown ineffective (§5.5.1) and defences ranked by evidence (§5.5.2). HITL research folded in — `keep` split into reviewed/unreviewed (§7.1). `--target markdown` reinstated as M1. Competitive position recorded in DECISION.
 **Changes since 1.2:** `num_ctx` established as a **correctness** constraint — Ollama's 262k default allocated 42 GB and swamped the host, causing nondeterminism that read as hard pages. Preflight health check added (§3.1). Normalizer rebuilt on `pylatexenc`: 71% → 88% on identical input. Emitter now always owns the preamble. Assembly model (`\input`/`\include`) specified (§6.1). Corpus expanded to four documents (§10.1); `--target markdown` cut challenged by a prose-only document.
 **Changes since 1.1:** Normalizer rules R1–R4 added, each traced to a measured gate failure. Diagram markers must never be emitted raw into the body (design correction, not just normalization). Corpus identified as **two distributions** that must be measured separately. Latency revised — symbolic content runs 3–4× faster than pedagogical.
 **1.1 changes:** D6 mechanism revised to two independent passes (empirically adjudicated). `handzoo review` added to scope. Confidence markers, colour, streaming/resume added. Four cuts applied. Golden-test strategy corrected.
@@ -117,6 +118,52 @@ hit any page, driven by host state.
 
 A per-attempt **timeout** is also mandatory. Unbounded retry cannot recover from a stall of
 unbounded duration; the 10-minute hang would have consumed the whole run.
+
+### 3.2 The blank response — root cause known, early detection measured and rejected
+
+**Root cause is an open Ollama defect, not our usage.** `qwen3-vl:8b` ships
+`RENDERER qwen3-vl-thinking` with a bare `TEMPLATE {{ .Prompt }}` carrying **no**
+think-control logic — verified directly. `ollama/ollama#13353` confirms `Qwen3VLRenderer.Render()`
+discards the `thinkValue` argument and the parser never forwards it; **open, unfixed**.
+Related: `#14716` (vision inputs route output into `thinking`, content stays empty),
+`#14798` (VL template lacks the `$.IsThinkSet` logic the text variants have), `#14793`
+(`/api/generate` ignores `think:false`, matching our measurement).
+
+**The documented workaround does not work — tested.** Rebuilding the model with
+`RENDERER/PARSER qwen3-vl-instruct` does not stop the model thinking; it stops the parser
+*separating* the thinking. Raw `<think>` text lands in `content` and the model entered a
+repetition loop (one line 23×, another 10×): 22,778 chars of non-LaTeX where the page
+yields ~650. That is worse than the bug, because it is plausible-looking garbage rather than
+an obvious empty. Variant deleted.
+
+**Early detection: measured, and it does not work.** Streaming `/api/chat` and recording time
+to first content token across three good and three blank pages:
+
+| | t_first | think at first content | think total | rep/1k chars |
+|---|---|---|---|---|
+| good ch16 p3 | 3.1s | 6,110 | 6,110 | 66 |
+| good ch16 p8 | 5.1s | 12,848 | 12,848 | 100 |
+| good ch16 p1 | 2.0s | **14,912** | 14,912 | 136 |
+| blank top p7 | 8.7s | — | 15,716 | **127** |
+| blank nt p10 | 2.2s | — | 16,364 | 243 |
+| blank nt p40 | 7.1s | — | 15,254 | 346 |
+
+- **Time to first token does not separate** the classes (2.0–8.7s in both).
+- **Thinking length overlaps.** A good page reached 14,912 characters before emitting content;
+  blanks finish at 15,254–16,364. Any threshold catching blanks also aborts good pages.
+- **Repetition density overlaps.** Good `ch16 p1` (136/1k) scores *higher* than blank
+  `top p7` (127/1k).
+- Blanks **terminate normally** at thinking lengths comparable to successes. There is no
+  runaway to catch; the difference only becomes observable when `done` arrives.
+
+**Therefore: do not predict, detect and retry.** An empty `content` with `done_reason: "stop"`
+is a normal outcome to be caught at completion, which is what the recognizer port already
+specifies. The lever is cost per attempt, not foresight.
+
+**Blanks are per-attempt, not per-page.** Three separate pages have now flipped between blank
+and success on identical input and settings: ch16 p9 (blank ×3, then a >10-minute stall, then
+a clean 89s success), and nt p40 (success at 182s in the corpus batch, blank on re-run). Never
+record a page as "hard" on the strength of a blank.
 
 **On the GPU:** Ollama is already fully Metal-accelerated — measured at 100% GPU, model
 entirely in VRAM, on an M5 Max (40 cores, Metal 4). There is no unused accelerator to switch
@@ -257,6 +304,33 @@ The ch16 run added three more, all of which pass every gate after normalization:
 The second is the most instructive: inconsistency *within a single page* means this cannot be
 fixed by a better prompt alone. Two identical inputs took different paths in one pass.
 
+### 5.5.1 This failure has a name, and prompting will not fix it
+
+Substitution is a named, measured phenomenon in the 2026 literature: **"over-correction"** —
+a VLM silently improving what is on the page instead of transcribing it. Measured across 15
+VLMs at **42–66% of outputs**, *worse in stronger models*, and prompting ("transcribe exactly
+as written") reduced it by only **~4 points**
+([arXiv 2604.22774](https://arxiv.org/html/2604.22774v1), PINK metric).
+
+Our tally-marks→Roman-numerals case is a textbook instance: the model "corrected" a
+pedagogical distinction into the notation it considered more plausible.
+
+**Consequence: prompt engineering is not a candidate mitigation.** Retire it.
+
+### 5.5.2 Candidate defences, ranked by evidence
+
+Researched 2026-08-18. Two of the three mechanisms this design was leaning toward are weaker
+than assumed.
+
+| Defence | Verdict |
+|---|---|
+| **Deterministic symbolic check** on structured claims | **Best value.** `\|\|\|\| < \|\|\|\|` needs no model at all — a count/inequality evaluator catches it deterministically and more reliably than `qwen2-math`. Simplifies the design. |
+| **LLM-as-judge self-contradiction pass** over emitted output | Directly targets the contradictory-bullets case. General method well evidenced; domain-specific evidence thin. |
+| **Round-trip render-and-compare** to the source crop | **Weaker than expected.** No precedent for comparing against the *original ink* without ground-truth LaTeX. Fatal case: tally `\|\|` and Roman `II` are near-identical as strokes, so it would likely miss precisely what we most need. Would catch dropped-glyph shape mismatches. |
+| **Self-consistency**, N samples | **Structurally blind to our worst case.** Catches genuine variance — the `\mathcal{I}` / `\mathbf{I}` instability — but systematic biases reproduce identically every run, so tally→Roman passes. |
+| **Logprob / entropy flagging** | Available: Ollama exposes logprobs since 0.12.11. Unvalidated as a transcription-error signal — instrument opportunistically, never gate on it. |
+| **Independent second reader (Tesseract) + Jaccard** | Already measured and rejected — see §5.6. |
+
 D6 converts silent *loss* into loud loss. It leaves silent *substitution* as silent as it was. The only mechanism identified is a math-reasoning model reading the emitted LaTeX (`qwen2-math`, M1+).
 
 **Per binding condition 3, this qualification lives in DECISION.md D2 alongside the positioning claim, not only here — the louder claim must not ship before the hedge.** The CLI never prints an unqualified PASS; a passing page reports what was *not* checked.
@@ -296,7 +370,22 @@ validates it is effectively free to run on every page. Worth keeping for that re
 
 ## 6. Emitter
 
-`--target latex`, `--standalone|--fragment`. `--target markdown` **cut** — the deliverable is LaTeX and no evidence exists that Markdown is needed.
+`--target latex`, `--standalone|--fragment`.
+
+**`--target markdown` — reinstated as an M1 feature, not M0.** The panel cut it as scope creep
+on the grounds that "the deliverable is LaTeX." That was true of the two documents visible at
+the time and is false of the corpus. Three independent arguments accumulated since:
+
+1. **Team of Teams contains no mathematics at all** — 17 pages of book notes. Forcing prose
+   through a LaTeX compile gate is the wrong target for that document entirely.
+2. **The author's downstream workflow is Markdown** (Typora with embedded LaTeX blocks), not a
+   `.tex` manuscript.
+3. **`render_tikz.py` already exists** and consumes ` ```latex ` fenced blocks inside Markdown —
+   the author-later diagram path (§6.0) is Markdown-shaped.
+
+Deferred out of M0 to keep the first increment honest, but the design must not preclude it:
+the Normalizer's delimiter policy already branches on target, and diagram disposition (§6.0)
+is written target-agnostically for this reason.
 
 Block marks emit as a referenced cropped PNG plus `% TODO: author diagram`. Inline marks emit as an inline marker that survives to the human. Never `tikz`.
 
@@ -397,6 +486,33 @@ Line-at-a-time terminal walk — no curses, no HTTP. For each inventory mark and
 ```
 
 A flat append log — no Learning Store, no schema migration. It is the flywheel's first turn, and it is cheaper to build than the coverage gate.
+
+### 7.1 What the research changes about this
+
+**The interaction shape is settled practice.** Transkribus, eScriptorium and OCR-D all converge
+on **line-by-line stacked correction**: the segmented line image directly above its editable
+text, Enter to accept and advance. Confidence-routing — showing only what the model is unsure
+about rather than everything uniformly — is standard (Textract A2I, Prodigy). No controlled
+evidence was found comparing side-by-side against in-image overlay editing; every serious tool
+uses crop-adjacent-to-text, which is convergent design rather than measured proof.
+
+**`keep` must not be one verdict.** Automation bias is measured, not theoretical: agreement
+with incorrect AI output is the most consistent finding across a 35-study review, and human
+inspectors miss 20–30% of defects under repetitive review load. A page kept *without being
+read* and a page kept *after inspection* are different facts about the corpus, and collapsing
+them into "verified" manufactures exactly the false confidence D2's positioning is supposed to
+prevent. **The log must record `keep-reviewed` and `keep-unreviewed`/`skip` distinctly.**
+
+**Log the wrong output, not just the right one.** The convergent regret across OCR fine-tuning
+pipelines is teams that stored only the corrected text: `(image, wrong, correct)` triples are
+what make evaluation and regression tracking possible later. §7's schema already does this.
+
+**The exit criterion has literature behind it.** Machine-translation post-editing research
+finds correction runs 14–65% faster than working from scratch — **but the advantage shrinks
+and can invert when baseline quality is poor**. No study measures the abandonment threshold
+for a transcription tool directly. This is precisely §11's open question, and it means the
+`keep`/`edit`/`flag` timestamps in `corrections.jsonl` are the fastest route to a real answer
+for this corpus — instrument them from the first run.
 
 ## 8. CLI behaviour
 
