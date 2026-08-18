@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from pylatexenc import latexwalker
 from pylatexenc.latexencode import unicode_to_latex
 
+from .declarations import declarations_for, find_undefined
+
 # Macros that are only legal inside math mode. Seeded from measured failures, not speculation.
 MATH_ONLY = frozenset(
     """
@@ -51,7 +53,19 @@ PREAMBLE = (
     "\\usepackage[T1]{fontenc}\n"
     "\\usepackage[margin=1in]{geometry}\n"
     + "".join(f"\\newtheorem{{{e}}}{{{e.capitalize()}}}\n" for e in THEOREM_ENVS)
-    + "\\begin{document}\n"
+)
+
+
+# R6 — `\\` is only legal in horizontal mode. Measured failures: `\end{center} \\`
+# (Number theory p75) and a bare `\\` after a blank line (Topology p2), both giving
+# "There's no line here to end."
+_VMODE_BREAK = re.compile(r"(\\end\{[^}]+\}[ \t]*)\\\\|^[ \t]*\\\\[ \t]*$", re.M)
+
+# R7 — list environments nested inside a tabular cell blow up with "Extra }" unless the
+# column is a p{} type (Team of Teams p15). Unwrap rather than drop: content survives.
+_LIST_IN_TABULAR = re.compile(
+    r"(\\begin\{tabular\}.*?)(\\begin\{(itemize|enumerate)\}.*?\\end\{\3\})(.*?\\end\{tabular\})",
+    re.S,
 )
 
 _DIAGRAM = re.compile(r"\[\[DIAGRAM:\s*(.*?)\]\]", re.S)
@@ -64,6 +78,7 @@ class Result:
     text: str
     rules: list[str] = field(default_factory=list)
     residual_non_ascii: list[str] = field(default_factory=list)
+    undefined_macros: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -129,9 +144,32 @@ def _walk(nodes, rules: list[str]) -> str:
     return "".join(out)
 
 
+def _fix_vertical_mode_breaks(text: str, rules: list[str]) -> str:
+    """R6 — drop `\\\\` where LaTeX is in vertical mode and there is no line to end."""
+    def repl(m: "re.Match[str]") -> str:
+        rules.append("R6 vertical-mode line break removed")
+        return m.group(1) or ""
+    return _VMODE_BREAK.sub(repl, text)
+
+
+def _unwrap_lists_in_tabular(text: str, rules: list[str]) -> str:
+    """R7 — flatten itemize/enumerate nested in a tabular cell; keep every item."""
+    def repl(m: "re.Match[str]") -> str:
+        rules.append("R7 list unwrapped inside tabular")
+        items = re.findall(r"\\item\s+(.*?)(?=\\item|\\end\{)", m.group(2), re.S)
+        flat = "; ".join(" ".join(i.split()) for i in items)
+        return f"{m.group(1)}{flat}% TODO: was a nested list{m.group(4)}"
+    prev = None
+    while prev != text:
+        prev, text = text, _LIST_IN_TABULAR.sub(repl, text)
+    return text
+
+
 def normalize(markup: str, standalone: bool = True) -> Result:
     rules: list[str] = []
     text = _mask_diagrams(markup, rules)
+    text = _unwrap_lists_in_tabular(text, rules)
+    text = _fix_vertical_mode_breaks(text, rules)
 
     try:
         nodes, _, _ = latexwalker.LatexWalker(text, tolerant_parsing=True).get_latex_nodes()
@@ -150,7 +188,19 @@ def normalize(markup: str, standalone: bool = True) -> Result:
             body = text
             rules.append("R4 fragment -> standalone")
         body = body.split("\\end{document}")[0]
-        text = PREAMBLE + body + "\n\\end{document}\n"
+        residual = sorted({c for c in body if ord(c) > 127})
+        undefined = find_undefined(body)
+        decls = declarations_for(undefined, residual)
+        if undefined:
+            rules.append(f"R8 declared {len(undefined)} undefined macro(s): "
+                         + ", ".join("\\" + u for u in undefined))
+        text = PREAMBLE + decls + "\\begin{document}\n" + body + "\n\\end{document}\n"
+    else:
+        undefined = find_undefined(text)
+        if undefined:
+            rules.append("R8 undefined macros (fragment, not declared here): "
+                         + ", ".join("\\" + u for u in undefined))
 
     residual = sorted({c for c in text if ord(c) > 127})
-    return Result(text=text, rules=rules, residual_non_ascii=residual)
+    return Result(text=text, rules=rules, residual_non_ascii=residual,
+                  undefined_macros=undefined)
