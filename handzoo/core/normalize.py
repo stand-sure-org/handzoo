@@ -111,7 +111,12 @@ def _mask_diagrams(text: str, rules: list[str]) -> str:
         desc = unicode_to_latex(desc, non_ascii_only=True)
         desc = _FRAGILE.sub("", desc)
         desc = "".join(c for c in desc if ord(c) < 128)
-        return f"\\texttt{{[diagram: {desc}]}}% TODO: author diagram\n"
+        # No `%` comment and no newline. Both are unsafe: a comment swallows the rest of
+        # the line, and an added newline creates a blank line that ends the paragraph —
+        # illegal inside math mode, which is exactly where Naive Math p5 put four of these
+        # (inside `$$\begin{array}`), giving "Missing $ inserted".
+        # The marker stays greppable as "TODO diagram".
+        return f"\\texttt{{[TODO diagram: {desc}]}}"
 
     return _DIAGRAM.sub(repl, text)
 
