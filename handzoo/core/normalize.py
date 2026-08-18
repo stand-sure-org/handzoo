@@ -80,6 +80,10 @@ _DIAGRAM = re.compile(r"\[\[DIAGRAM:\s*(.*?)\]\]", re.S)
 _SUBSUP = re.compile(r"(?<![\\$])([A-Za-z0-9])([_^])([A-Za-z0-9])")
 _FRAGILE = re.compile(r"[{}$&#_^~%\\]")
 
+# R10 — specials surviving in a text span. `\ensuremath` handles X_Y (R5); this catches
+# the rest, e.g. the literal `___` in "carry the ___" (Naive Math p9).
+_BARE_SPECIAL = re.compile(r"(?<!\\)[_^&#](?![a-zA-Z]*\{)")
+
 
 @dataclass
 class Result:
@@ -120,6 +124,11 @@ def _fix_text_span(chunk: str, rules: list[str]) -> str:
     if _SUBSUP.search(chunk):
         chunk = _SUBSUP.sub(lambda m: f"\\ensuremath{{{m.group(1)}{m.group(2)}{m.group(3)}}}", chunk)
         rules.append("R5 text-mode sub/superscript wrapped")
+    # R10 — a bare `_` or `^` left in text mode is a hard error ("Missing $ inserted").
+    # R5 only catches the X_Y shape; Naive Math p9 wrote `carry the ___` as literal prose.
+    if _BARE_SPECIAL.search(chunk):
+        chunk = _BARE_SPECIAL.sub(lambda m: "\\" + m.group(0), chunk)
+        rules.append("R10 bare text-mode special escaped")
     return chunk
 
 
