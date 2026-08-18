@@ -304,6 +304,63 @@ Block marks emit as a referenced cropped PNG plus `% TODO: author diagram`. Inli
 
 **Colour** (binding condition 5): colour-bearing ink is a `ColorSpan`. Silent loss of it is a hard fail under the coverage gate. Faithful reconstruction is deferred; *silent* discard is not permitted. On the fixtures, R/G/B houses written in red/green/blue carry the labelling.
 
+### 6.0 Diagram disposition — three outcomes, not two
+
+v1.0 treated every diagram identically: crop, reference, `% TODO: author diagram`. That framing
+assumes the crop is a **placeholder awaiting replacement**. For a first-principles book it
+often is not — the hand-drawn houses and stick figures in Naive Math *are* the content, and
+redrawing them in `tikz` would make the book worse. A universal TODO is also actively harmful:
+if most will never be actioned, the TODO list becomes noise, and noise trains the author to
+stop reading TODOs — the same vigilance erosion the panel flagged about unqualified PASS.
+
+| Disposition | Output | TODO? |
+|---|---|---|
+| **Keep as drawing** | vector crop + `\includegraphics` | **No.** This is the finished artifact. |
+| **Author later** | vector crop + a `tikzcd` stub the human fills in | Yes |
+| **Auto-convert** | — | **Never.** Unchanged. |
+
+**Default is a project-level binary preference**, because it follows from what the document
+*is*, not from what each diagram looks like: a pedagogical book keeps drawings, a formal paper
+authors them. Per-diagram override belongs in `handzoo review` as a "use the drawing instead"
+action — which for most users will never be touched, and that is the point.
+
+**Inline marks are not diagrams and are not covered by this.** A stick figure used as a noun
+inside a sentence (Naive Math), a `↰` annotation arrow (ch16), a `✓` under `∪` (Topology)
+cannot be cropped out without destroying the sentence. They remain the coverage gate's
+problem (§5.4), not the emitter's.
+
+#### The crop must be vector
+
+Measured 2026-08-18: reMarkable exports contain **no embedded rasters and no fonts** — the ink
+is vector (550 paths on one page). The PNG we feed the recognizer is a lossy derivative *we*
+generate.
+
+This matters precisely because "keep as drawing" makes the crop final. A 150 DPI raster is
+adequate for a model and poor for a printed figure; a vector crop is neither.
+
+```
+pdftocairo -pdf -f N -l N -x X -y Y -W W -H H -r 72  notes.pdf  fig.pdf
+```
+
+Verified end to end: a cropped region of the houses diagram retained 133 vector paths, is
+14 KB, and drops straight into `\includegraphics` and compiles.
+
+Consequences: the rasterizer produces *two* derivatives from one source — a raster for
+recognition (DPI is ours to choose, and can be raised for hard pages) and a vector crop for
+emission. Diagram crops should never be resampled from the recognition raster.
+
+#### Downstream, for the Markdown target
+
+Where a diagram is *authored later*, the Markdown target should emit a `​```latex` fenced block
+containing a `tikzcd` stub rather than a bare comment, because that is the exact shape the
+author's existing `render_tikz.py` consumes: it compiles such blocks via `latex` → `dvisvgm`
+to a content-hashed SVG and appends an image link, idempotently. The TODO then becomes
+actionable in place — author the diagram, re-run, get a rendered figure.
+
+Verified against the brief's own `len` commutative square: 13 KB SVG, 18 paths, first run.
+Note this is a **DVI-route** dependency (`latex`, `dvisvgm`, `tikz-cd`), distinct from the
+`pdflatex` binary the compile gate uses.
+
 ### 6.1 Assembly — pages into sections into chapters
 
 M0 emits per-page files. It must not paint itself out of assembling them, so the file layout
