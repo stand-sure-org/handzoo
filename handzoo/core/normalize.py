@@ -68,6 +68,14 @@ _LIST_IN_TABULAR = re.compile(
     re.S,
 )
 
+# R9 — fabricated graphics. The recognizer is told never to invent tikz, and does it
+# anyway (Naive Math p21 emitted \begin{tikzpicture}); it also invents \includegraphics
+# references to files that do not exist (p5, p6: \includegraphics{pie1}). Both are the
+# never-fabricate violation in the emitter rather than the recognizer. Replacing them
+# with a diagram marker keeps the fact that something was there, which deleting would not.
+_FAB_TIKZ = re.compile(r"\\begin\{tikzpicture\}.*?\\end\{tikzpicture\}", re.S)
+_FAB_GRAPHIC = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]*)\}")
+
 _DIAGRAM = re.compile(r"\[\[DIAGRAM:\s*(.*?)\]\]", re.S)
 _SUBSUP = re.compile(r"(?<![\\$])([A-Za-z0-9])([_^])([A-Za-z0-9])")
 _FRAGILE = re.compile(r"[{}$&#_^~%\\]")
@@ -165,9 +173,24 @@ def _unwrap_lists_in_tabular(text: str, rules: list[str]) -> str:
     return text
 
 
+def _strip_fabricated_graphics(text: str, rules: list[str]) -> str:
+    """R9 — a tikzpicture or an \\includegraphics the recognizer invented becomes a marker."""
+    def tikz(_m):
+        rules.append("R9 fabricated tikzpicture -> diagram marker")
+        return "[[DIAGRAM: recognizer emitted tikz despite instruction; redraw or crop]]"
+
+    def graphic(m):
+        rules.append("R9 invented \\includegraphics -> diagram marker")
+        return f"[[DIAGRAM: recognizer referenced a nonexistent file {m.group(1)}]]"
+
+    text = _FAB_TIKZ.sub(tikz, text)
+    return _FAB_GRAPHIC.sub(graphic, text)
+
+
 def normalize(markup: str, standalone: bool = True) -> Result:
     rules: list[str] = []
-    text = _mask_diagrams(markup, rules)
+    text = _strip_fabricated_graphics(markup, rules)
+    text = _mask_diagrams(text, rules)
     text = _unwrap_lists_in_tabular(text, rules)
     text = _fix_vertical_mode_breaks(text, rules)
 
@@ -190,7 +213,7 @@ def normalize(markup: str, standalone: bool = True) -> Result:
         body = body.split("\\end{document}")[0]
         residual = sorted({c for c in body if ord(c) > 127})
         undefined = find_undefined(body)
-        decls = declarations_for(undefined, residual)
+        decls = declarations_for(undefined, residual, source=body)
         if undefined:
             rules.append(f"R8 declared {len(undefined)} undefined macro(s): "
                          + ", ".join("\\" + u for u in undefined))

@@ -116,8 +116,25 @@ should never have been reasoning.
 because the *memory* finding (`num_ctx`, §3 below) and the *content* findings (§5.5
 substitution, §5.6) are checkpoint-independent and still hold.
 
-**Re-measure required** before trusting: per-document pass rates, the two-distribution claim,
-and whether over-correction (§5.5.1) persists on Instruct.
+#### What the Instruct switch did NOT fix: over-correction
+
+Measured on Naive Math p2, the tally-marks page, immediately after the switch:
+
+| Source | Instruct emitted |
+|---|---|
+| tally marks `\|\|\|` `\|\|\|` `\|\|\|\|` in a table | `III` `III` `IIII` — Roman numerals, identical to Thinking |
+| `1 → 11 → 111 → 1111 → ЖHT` (tallies) | `I \to II \to III \to IIII \to V \to VI` |
+| a tally expression `ЖHT ЖHT ЖHT ЖHT III = …` | **`$$IV + IX = XIV$$` — a fabricated equation, and false (4+9≠14)** |
+| `))))` vs `ЖHT` | `III < V in fingers` — wrong counts |
+
+**The Instruct checkpoint fixes blanks and truncation. It does not touch substitution**, and on
+this page it additionally *invented* a false equation where the source had a tally expression.
+
+This is exactly what §5.5.1 predicts: over-correction was measured across **15 different VLMs**
+at 42–66%. It is a property of the model class, not of a checkpoint. Do not expect a model
+swap to solve it — the defences in §5.5.2 remain necessary.
+
+**Re-measure required** before trusting: per-document pass rates and the two-distribution claim.
 
 ### Hard constraints on any Ollama-backed provider (measured, D5)
 
@@ -243,10 +260,37 @@ Ink distribution is computable exactly from the vector source and shows what sho
 covered — p42 has ink in all ten vertical bands, with 15% of it in the bottom 10% (the clock).
 A completeness check is therefore possible in principle. One naive form was tried and failed:
 an ink-points-per-output-character ratio does not separate (complete pages span 6.5–16.9, and
-the one truncated sample lands inside that range once measured correctly). **Left as an open
-problem**, with the most promising direction being positional: the inventory pass already
-returns marks with placement, so a mark reported in the bottom band with no corresponding
-output is detectable by the mechanism D6 already specifies.
+the one truncated sample lands inside that range once measured correctly).
+
+**Researched 2026-08-18: there is no prior art. Nobody ships this.**
+
+- Textract, Google Document AI and Azure Document Intelligence expose per-field confidence and
+  route low-confidence work to humans — but confidence is computed **only on what was
+  extracted**. None flag absence.
+- OCR-D's quality spec requires ground-truth transcriptions to compute CER/WER — unusable
+  per-page in production.
+- Transkribus treats completeness as a human judgement made during correction.
+- **GutenOCR** (arXiv 2601.14490) is the closest anyone has come: it designs bounding boxes so
+  that *"missing text manifests as gaps in box coverage"* — and then explicitly delegates
+  spotting those gaps to human reviewers. No algorithm.
+- olmOCR's retry-with-temperature-escalation targets the **opposite** failure (repetition
+  looping). Our case — well-formed, schema-valid, EOS emitted on time — sails straight through
+  its gate.
+- No published work predicts expected transcription length from image features.
+
+So the ink-ratio idea failing is not us missing a known technique; **the field has no answer.**
+Two directions worth building, neither borrowed:
+
+1. **Ink-band diff.** Ask the fast VLM (4s/page) for the lowest ink band its transcription
+   reaches, and diff against the band distribution computed independently from the vector
+   source. This is GutenOCR's human-facing idea, automated using data we already have.
+2. **Direct completeness question** as a second pass — *"does this transcription account for
+   all handwritten content visible, and describe anything below the last transcribed line."*
+   Trivially cheap at current latency.
+
+The positional route also composes with D6: the inventory pass already returns marks with
+placement, so a mark reported in the bottom band with no corresponding output is detectable by
+machinery the design already specifies.
 
 ### 3.2.2 Split-and-recover — untestable, because blanks cannot be reproduced
 

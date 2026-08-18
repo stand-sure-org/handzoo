@@ -75,6 +75,18 @@ _OPERATOR_SHAPED = re.compile(r"^[a-z]{2,6}$")
 _MACRO = re.compile(r"\\([a-zA-Z]+)")
 
 
+def takes_argument(latex: str, name: str) -> bool:
+    """Is this macro used as `\\name{...}` anywhere in the source?
+
+    Name shape is not a reliable signal. An earlier version keyed off
+    "short all-lowercase word" and so declared `\\ding` as a zero-argument
+    `\\DeclareMathOperator`; `\\ding{172}` then dumped `{172}` into text mode and the
+    document failed with "Missing $ inserted" (Naive Math p1, p2, p9). Usage is the
+    evidence; the name is a guess.
+    """
+    return re.search(r"\\" + re.escape(name) + r"\s*[\[{]", latex) is not None
+
+
 def find_undefined(latex: str) -> list[str]:
     """Every control sequence used but not provided by the standard preamble.
 
@@ -111,18 +123,28 @@ def _guard(name: str, declaration: str, note: str) -> str:
     return f"\\ifdefined\\{name}\\else{declaration}\\fi  % {note}"
 
 
-def declarations_for(undefined: list[str], unmapped_chars: list[str] | None = None) -> str:
-    """Build the declaration block that makes an unruly document compile honestly."""
+def declarations_for(undefined: list[str], unmapped_chars: list[str] | None = None,
+                     source: str = "") -> str:
+    """Build the declaration block that makes an unruly document compile honestly.
+
+    `source` is the document body, used to decide whether each macro takes an argument.
+    Without it we fall back to the name-shape guess, which is known to be wrong.
+    """
     lines: list[str] = []
     for name in undefined:
         if name in REPAIRS:
             lines.append(_guard(name, REPAIRS[name],
                                 f"auto-repaired: recognizer invented \\{name}"))
+        elif source and takes_argument(source, name):
+            # Used as \name{...}: an operator declaration would drop the argument into
+            # the surrounding mode and break the build.
+            lines.append(_guard(name, f"\\providecommand{{\\{name}}}[1]{{#1}}",
+                                f"TODO: recognizer invented \\{name}; define or correct"))
         elif _OPERATOR_SHAPED.match(name):
             lines.append(_guard(name, f"\\DeclareMathOperator{{\\{name}}}{{{name}}}",
                                 "TODO: confirm operator name"))
         else:
-            lines.append(_guard(name, f"\\providecommand{{\\{name}}}[1]{{#1}}",
+            lines.append(_guard(name, f"\\providecommand{{\\{name}}}{{}}",
                                 f"TODO: recognizer invented \\{name}; define or correct"))
 
     for ch in unmapped_chars or []:

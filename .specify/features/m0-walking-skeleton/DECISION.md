@@ -153,6 +153,33 @@ block-level regions to caption or segment. Budget this as novel R&D, not integra
 transcription (Qwen3-VL-235B at 80.6% vs specialist PP-OCRv6 at 93.2% on a hallucination
 benchmark), which is the risk D6 and §5.5 exist to manage.
 
+### Alternative checkpoints worth testing (researched 2026-08-18)
+
+Having found that checkpoint choice mattered enormously (D5), the obvious follow-up is whether
+a *better* one exists. No candidate has direct handwriting evidence beating
+`qwen3-vl:8b-instruct` outright, but three are worth an A/B:
+
+| Candidate | Signal | Availability |
+|---|---|---|
+| **olmOCR-2-7B** | Scored highest on semantic similarity and cursive consistency in an independent handwriting benchmark — the strongest direct handwriting signal found | MLX build exists (`mlx-community/olmocr-2`) |
+| **Nanonets-OCR2-3B** | Explicitly trained on handwriting *and* math/equations; but weakest in one general benchmark and reportedly poor on cursive | GGUF for Ollama, and MLX |
+| `q8_0` of our current model | One Qwen2-VL data point: BF16 81.0% vs 4-bit 78.8–79.5% OCR accuracy — a ~2pt gap is gate-pass-rate-sized, and 64 GB has headroom | already available |
+
+**Ruled out:** GOT-OCR2.0 (explicitly weak on handwriting), InternVL3-8B (lower OCRBench, no
+handwriting evidence), dots.ocr (immature GGUF, open Ollama/macOS vision bugs). No evidence
+either way for Florence-2, SmolVLM, Granite-Vision, Moondream — all trained on printed corpora.
+
+**Specialization is measurably worth something:** under text-perturbation stress, general VLMs
+degraded up to 4.5 WER points, OCR-specialized VLMs 0.2–2, traditional OCR under 0.6
+(arXiv 2607.21617). That ordering argues for testing a specialist against our general VLM.
+
+**On the ensemble idea — the right version.** Our Tesseract/Jaccard rejection was correct, but
+for a fixable reason: we compared against a *weak* reader using literal token overlap.
+**Consensus Entropy** (arXiv 2504.11101, CVPR 2026) uses two *comparably capable* VLMs and
+measures output-distribution agreement entropy rather than token match, improving error
+detection F1 by 42% over VLM-as-judge, training-free. `qwen3-vl:8b-instruct` + `olmOCR-2-7B`
+is the natural pairing, and it targets the substitution class nothing else catches.
+
 ## Open questions for the design panel
 
 1. Should the recognizer target an intermediate AST rather than LaTeX text directly? Structural argued LaTeX-as-intermediate forces the Normalizer to do semantic correction and syntax rendering through one string format. The colour and glyph findings sharpen this.
