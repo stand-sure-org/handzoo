@@ -1,7 +1,8 @@
 # HandZoo M0 — Technical Design
 
-**Version:** 1.4 (research spike folded in)
+**Version:** 1.5 (self-prediction probes; the base-13 counterexample)
 **Date:** 2026-08-18
+**Changes since 1.4:** Self-prediction probes measured and rejected as failure predictors; the reasoned form retained as a review attention router (§3.3). Naive symbolic checking downgraded — the `6 x 9 = 42` fixture is a correct page a naive checker would flag (§5.5.3). Formal verification (Lean/Agda) scoped and deferred.
 **Changes since 1.3:** Blank-response root cause identified as an open Ollama defect; the documented workaround tested and rejected; early detection measured and rejected (§3.2). Substitution named as "over-correction" with prompting shown ineffective (§5.5.1) and defences ranked by evidence (§5.5.2). HITL research folded in — `keep` split into reviewed/unreviewed (§7.1). `--target markdown` reinstated as M1. Competitive position recorded in DECISION.
 **Changes since 1.2:** `num_ctx` established as a **correctness** constraint — Ollama's 262k default allocated 42 GB and swamped the host, causing nondeterminism that read as hard pages. Preflight health check added (§3.1). Normalizer rebuilt on `pylatexenc`: 71% → 88% on identical input. Emitter now always owns the preamble. Assembly model (`\input`/`\include`) specified (§6.1). Corpus expanded to four documents (§10.1); `--target markdown` cut challenged by a prose-only document.
 **Changes since 1.1:** Normalizer rules R1–R4 added, each traced to a measured gate failure. Diagram markers must never be emitted raw into the body (design correction, not just normalization). Corpus identified as **two distributions** that must be measured separately. Latency revised — symbolic content runs 3–4× faster than pedagogical.
@@ -165,6 +166,34 @@ and success on identical input and settings: ch16 p9 (blank ×3, then a >10-minu
 a clean 89s success), and nt p40 (success at 182s in the corpus batch, blank on re-run). Never
 record a page as "hard" on the strength of a blank.
 
+### 3.3 Asking the model to predict its own failure — measured
+
+Three probes tested. Two fail as failure predictors; the third is valuable for something else.
+
+| Probe | Cost | Result |
+|---|---|---|
+| "How many distinct non-text marks?" | **100s** | **BLANK.** Counting requires careful enumeration, which drives long thinking and triggers the same failure it was meant to detect. Rejected. |
+| "EASY or HARD?" | 17–37s | **Does not predict blanks.** All three blank-prone pages answered EASY. Tracks content complexity, not failure risk. |
+| **"EASY or HARD, and if HARD why?"** | 20–85s | **Does not predict blanks either — but is useful.** See below. |
+
+**The reasoned form is an attention router, not a gate.** On the Naive Math houses page it
+answered HARD and named *"colored house icons, stick figures"* — **precisely the marks its own
+transcription pass silently deletes**. On Topology p5 it flagged *"`{a,b3}` intended as
+`{a,b}`"*, catching the curly-brace-versus-3 ambiguity in this hand. On the base-13 page it
+correctly identified the circular arrow diagram as needing TikZ.
+
+Two consequences:
+
+1. **The information is available to the model; the transcription pass just does not preserve
+   it.** This is independent confirmation of the two-pass coverage design (§5.4), reached from
+   a different direction than the inventory experiment.
+2. **It belongs in `handzoo review`, ordering what the human looks at first** — which the
+   research (§7.1) identifies as standard practice. It must never be presented as a
+   correctness signal, because it demonstrably is not one.
+
+**Self-prediction of failure is rejected.** The model has no privileged access to whether it
+is about to blank.
+
 **On the GPU:** Ollama is already fully Metal-accelerated — measured at 100% GPU, model
 entirely in VRAM, on an M5 Max (40 cores, Metal 4). There is no unused accelerator to switch
 on. Apple Silicon's memory is *unified*, so an oversized KV cache does not merely fill "VRAM"
@@ -324,7 +353,7 @@ than assumed.
 
 | Defence | Verdict |
 |---|---|
-| **Deterministic symbolic check** on structured claims | **Best value.** `\|\|\|\| < \|\|\|\|` needs no model at all — a count/inequality evaluator catches it deterministically and more reliably than `qwen2-math`. Simplifies the design. |
+| **Deterministic symbolic check** on structured claims | **Downgraded — see §5.5.3.** Catches `\|\|\|\| < \|\|\|\|` for free, but a naive arithmetic evaluator produces false positives on correct pages that declare a non-standard context. Only safe on claims whose context is explicit. |
 | **LLM-as-judge self-contradiction pass** over emitted output | Directly targets the contradictory-bullets case. General method well evidenced; domain-specific evidence thin. |
 | **Round-trip render-and-compare** to the source crop | **Weaker than expected.** No precedent for comparing against the *original ink* without ground-truth LaTeX. Fatal case: tally `\|\|` and Roman `II` are near-identical as strokes, so it would likely miss precisely what we most need. Would catch dropped-glyph shape mismatches. |
 | **Self-consistency**, N samples | **Structurally blind to our worst case.** Catches genuine variance — the `\mathcal{I}` / `\mathbf{I}` instability — but systematic biases reproduce identically every run, so tally→Roman passes. |
@@ -334,6 +363,54 @@ than assumed.
 D6 converts silent *loss* into loud loss. It leaves silent *substitution* as silent as it was. The only mechanism identified is a math-reasoning model reading the emitted LaTeX (`qwen2-math`, M1+).
 
 **Per binding condition 3, this qualification lives in DECISION.md D2 alongside the positioning claim, not only here — the louder claim must not ship before the hedge.** The CLI never prints an unqualified PASS; a passing page reports what was *not* checked.
+
+### 5.5.3 The `6 × 9 = 42` counterexample — why naive symbolic checking is unsafe
+
+Fixture: `Quick sheets.pdf` page 42 (42 pages; the answer is on page 42). The page asserts
+`6 × 9 = 42` and then writes **"which is true"**. A naive arithmetic checker flags it.
+
+The checker would be wrong. The page establishes its own context:
+
+```
+4 × 13 = 52
+52 + 2 = 54
+6 × 9  = 54
+so   6₁₃ × 9₁₃ = 42₁₃      i.e.  42 in base 13 = 4·13 + 2 = 54 = 6 × 9
+```
+
+The claim is **correct**, under a base the page declares three lines earlier.
+
+**This is a false positive on the defence ranked highest in §5.5.2**, and it is the more
+dangerous failure direction: a validator that cries wrong on correct work destroys trust far
+faster than one that misses an error. It also mirrors the recognizer's own failure — the model
+"corrects" tallies into Roman numerals by assuming a context the page did not intend, and a
+naive checker would "correct" base 13 into base 10 the same way. **Both errors are the same
+mistake: supplying a context the author did not state.**
+
+Constraint that follows: a symbolic check may only fire on claims whose **context is explicit
+in the extracted structure**. `|||| < ||||` qualifies — it is self-contradictory in any
+ordering. `6 × 9 = 42` does not, because the base is carried in a subscript three lines up.
+
+#### Formal verification (Lean / Agda) — deferred, but this is the principled answer
+
+Raised as a long-standing wish. Its relevance here is specific: a proof assistant **cannot
+express a claim without its context**. `6 * 9 = 42` does not typecheck until you say *in what
+structure*, which is exactly the discipline a naive evaluator lacks.
+
+Honest scoping:
+
+- **As an M0 transcription gate: no.** Most pages are prose and sketches, not formalizable
+  propositions. Neither `lean` nor `agda` is installed. Translating handwritten notes to a
+  proof assistant is a strictly harder problem than transcribing them.
+- **As a narrow near-term play: plausible.** Extract only claims that are decidable *and*
+  context-complete — this page's own chain (`4×13=52`, `52+2=54`, `6×9=54`) is entirely
+  decidable by `norm_num`, or frankly by Python.
+- **As a feature of the book rather than the tool: strong.** "Naive Math" is a
+  first-principles text; machine-checked claims would differentiate the manuscript. That is a
+  goal for the author, not a gate in the pipeline.
+
+Recorded so the design does not preclude it: the structured-claim extraction that a symbolic
+check needs is the same extraction a proof assistant would consume.
 
 ### 5.6 Independent second reader (deferred to M1) — measured, does not work yet
 
@@ -624,6 +701,7 @@ swapping machine — treat them as upper bounds, not characteristics.
 | Cheng ch14–16 | 26+ | monochrome purple | Dense symbolic math, labelled arrows, theorem environments |
 | **Number theory** | **126** | monochrome | Long-run consistency; the only document large enough to test drift |
 | **Topology** | **8** | blue | Deep set-brace nesting, `∪`/`∩`/`∉`, **checkmarks as inline annotations**, circled and boxed elements |
+| **Quick sheets** | **42** | black | **`6 x 9 = 42` in base 13** — a correct claim a naive arithmetic checker flags; shape-recognized circle; arrow chain wrapping mod 13 |
 | **Team of Teams** | **17** | black | **Prose only, zero math** — plus rotated marginalia, enclosure-as-emphasis, margin markers |
 
 ### Two findings from the new documents, before any run
