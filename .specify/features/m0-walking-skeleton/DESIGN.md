@@ -1,7 +1,8 @@
 # HandZoo M0 — Technical Design
 
-**Version:** 1.5 (self-prediction probes; the base-13 counterexample)
+**Version:** 1.6 (silent truncation; split-recovery untestable)
 **Date:** 2026-08-18
+**Changes since 1.5:** Silent truncation identified as a failure worse than the blank and invisible to every gate (§3.2.1) — no completeness check exists, and one naive form was tried and failed. Split-and-recover found untestable: blanks cannot be reproduced, now on five flipped pages (§3.2.2).
 **Changes since 1.4:** Self-prediction probes measured and rejected as failure predictors; the reasoned form retained as a review attention router (§3.3). Naive symbolic checking downgraded — the `6 x 9 = 42` fixture is a correct page a naive checker would flag (§5.5.3). Formal verification (Lean/Agda) scoped and deferred.
 **Changes since 1.3:** Blank-response root cause identified as an open Ollama defect; the documented workaround tested and rejected; early detection measured and rejected (§3.2). Substitution named as "over-correction" with prompting shown ineffective (§5.5.1) and defences ranked by evidence (§5.5.2). HITL research folded in — `keep` split into reviewed/unreviewed (§7.1). `--target markdown` reinstated as M1. Competitive position recorded in DECISION.
 **Changes since 1.2:** `num_ctx` established as a **correctness** constraint — Ollama's 262k default allocated 42 GB and swamped the host, causing nondeterminism that read as hard pages. Preflight health check added (§3.1). Normalizer rebuilt on `pylatexenc`: 71% → 88% on identical input. Emitter now always owns the preamble. Assembly model (`\input`/`\include`) specified (§6.1). Corpus expanded to four documents (§10.1); `--target markdown` cut challenged by a prose-only document.
@@ -165,6 +166,53 @@ specifies. The lever is cost per attempt, not foresight.
 and success on identical input and settings: ch16 p9 (blank ×3, then a >10-minute stall, then
 a clean 89s success), and nt p40 (success at 182s in the corpus batch, blank on re-run). Never
 record a page as "hard" on the strength of a blank.
+
+### 3.2.1 Silent truncation — worse than the blank, and no gate sees it
+
+Attempting to recover a blank by splitting the page produced a failure far more dangerous
+than the one it was meant to fix.
+
+`Quick sheets.pdf` p42, bottom half. **Passes every gate** — ASCII-clean, balanced, compiles:
+
+```latex
+$6 \times 9 = 42$
+which is true
+$6 \times 9 = 42 \pmod{13}$
+$4 \times 13 - \leq ?$
+```
+
+Then it stops. Absent: `52+2=54`, `6×9=54`, `6₁₃ × 9₁₃ = 42₁₃`, the `=₁₃` notation, the arrow
+chain, the clock diagram. The top half stopped after "Why?" — 50 bytes for a third of a page.
+
+**It kept the claim and deleted the justification.** A correct, carefully argued page became an
+apparently false assertion that compiles cleanly. Worse, a symbolic checker (§5.5.3) would then
+flag it as false — a correct flag, on wrong output, for entirely the wrong reason.
+
+Blank and truncation are the same failure — premature stop — but truncation is **invisible to
+every gate we have**, because what it emits is well-formed. The blank at least announces itself.
+
+**Nothing in M0 currently checks that the output covers the page.** The coverage gate (§5.4)
+compares marks, not text extent. This is a real hole.
+
+Ink distribution is computable exactly from the vector source and shows what should have been
+covered — p42 has ink in all ten vertical bands, with 15% of it in the bottom 10% (the clock).
+A completeness check is therefore possible in principle. One naive form was tried and failed:
+an ink-points-per-output-character ratio does not separate (complete pages span 6.5–16.9, and
+the one truncated sample lands inside that range once measured correctly). **Left as an open
+problem**, with the most promising direction being positional: the inventory pass already
+returns marks with placement, so a mark reported in the bottom band with no corresponding
+output is detectable by the mechanism D6 already specifies.
+
+### 3.2.2 Split-and-recover — untestable, because blanks cannot be reproduced
+
+The recovery hypothesis (halve the page, reduce what the model holds at once) could not be
+tested: **both pages that blanked reliably an hour earlier succeeded on the whole-page control
+run** — `qs42` in 19s having blanked at 216s, `top7` in 146s having blanked at 201s. The
+experiment lost its control.
+
+That is itself the finding, and it now rests on **five** flipped pages. Blank-recovery
+strategies cannot be evaluated because a blank cannot be reliably produced. Retry is not merely
+the pragmatic answer; it is the only one that can be validated.
 
 ### 3.3 Asking the model to predict its own failure — measured
 
@@ -400,7 +448,8 @@ structure*, which is exactly the discipline a naive evaluator lacks.
 Honest scoping:
 
 - **As an M0 transcription gate: no.** Most pages are prose and sketches, not formalizable
-  propositions. Neither `lean` nor `agda` is installed. Translating handwritten notes to a
+  propositions. (`lean`, `lake` and `agda` were installed 2026-08-18; Lean still needs
+  `elan default stable`. A worked example of the page-42 chain is in the session scratchpad.) Translating handwritten notes to a
   proof assistant is a strictly harder problem than transcribing them.
 - **As a narrow near-term play: plausible.** Extract only claims that are decidable *and*
   context-complete — this page's own chain (`4×13=52`, `52+2=54`, `6×9=54`) is entirely
