@@ -25,12 +25,18 @@ BRANCH=$(git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEA
 BRANCH_SLUG=$(echo "$BRANCH" | tr '/' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | cut -c1-40)
 
 # Resolve session ID
-if [ -n "$GEMINI_SESSION_ID" ]; then
+# Claude Code exports CLAUDE_CODE_SESSION_ID, not CLAUDE_SESSION_ID. Earlier copies
+# of this script only checked the latter, so the branch never matched: every commit
+# fell through to "adopt any unsealed chain" and was recorded as agent=unknown on
+# whatever branch happened to open that chain. Check both, new name first.
+CLAUDE_SID="${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
+
+if [ -n "${GEMINI_SESSION_ID:-}" ]; then
     SESSION_ID="$GEMINI_SESSION_ID"
     AGENT_TYPE="gemini-cli"
     CONVERSATION_ID="$GEMINI_SESSION_ID"
-elif [ -n "$CLAUDE_SESSION_ID" ]; then
-    SESSION_ID="$CLAUDE_SESSION_ID"
+elif [ -n "$CLAUDE_SID" ]; then
+    SESSION_ID="$CLAUDE_SID"
     AGENT_TYPE="${CLAUDE_AGENT_TYPE:-claude-code}"
     CONVERSATION_ID="${CLAUDE_CONVERSATION_ID:-$SESSION_ID}"
 elif [ -f "$LEDGER_FILE" ]; then
