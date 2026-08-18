@@ -1,7 +1,8 @@
 # HandZoo M0 — Technical Design
 
-**Version:** 1.6 (silent truncation; split-recovery untestable)
+**Version:** 1.7 (INSTRUCT checkpoint — supersedes the blank investigation)
 **Date:** 2026-08-18
+**Changes since 1.6:** `qwen3-vl:8b` identified as an alias for the *Thinking* checkpoint. Switching to `qwen3-vl:8b-instruct` eliminated blanks entirely (2/26 -> 0/26), raised pass rate 81% -> 96%, and cut median latency 92s -> 4s. Root cause was our checkpoint choice, not Ollama (§3.0). Most of §3.1-3.3 is now investigation record.
 **Changes since 1.5:** Silent truncation identified as a failure worse than the blank and invisible to every gate (§3.2.1) — no completeness check exists, and one naive form was tried and failed. Split-and-recover found untestable: blanks cannot be reproduced, now on five flipped pages (§3.2.2).
 **Changes since 1.4:** Self-prediction probes measured and rejected as failure predictors; the reasoned form retained as a review attention router (§3.3). Naive symbolic checking downgraded — the `6 x 9 = 42` fixture is a correct page a naive checker would flag (§5.5.3). Formal verification (Lean/Agda) scoped and deferred.
 **Changes since 1.3:** Blank-response root cause identified as an open Ollama defect; the documented workaround tested and rejected; early detection measured and rejected (§3.2). Substitution named as "over-correction" with prompting shown ineffective (§5.5.1) and defences ranked by evidence (§5.5.2). HITL research folded in — `keep` split into reviewed/unreviewed (§7.1). `--target markdown` reinstated as M1. Competitive position recorded in DECISION.
@@ -73,6 +74,50 @@ class Recognition:
 ```
 
 `Tally` exists specifically because baseline page 2 converted `1 → 11 → 111` into `I → II → III`, collapsing the exact distinction the page teaches. An integer count cannot make that drift.
+
+### 3.0 Use the INSTRUCT checkpoint. This supersedes most of §3.1–§3.3.
+
+**`qwen3-vl:8b` is an alias for the *Thinking* checkpoint.** `qwen3-vl:8b-instruct` is a
+separate model — different post-training weights, not a renderer setting. Qwen positions
+Instruct for *"high-volume production, OCR pipelines"*; Thinking for STEM tutoring and
+step-reasoning tasks. **We had been using a reasoning model for a transcription task.**
+
+Full ch16 corpus, same prompt, same options, same normalizer, same gates — only the
+checkpoint differs:
+
+| | Thinking (`qwen3-vl:8b`) | **Instruct (`qwen3-vl:8b-instruct`)** |
+|---|---|---|
+| Blank responses | 2 / 26 | **0 / 26** |
+| ASCII gate | 21 / 24 | **26 / 26** |
+| Compile gate | 21 / 24 | **25 / 26** |
+| Overall pass | 21 / 26 (81%) | **25 / 26 (96%)** |
+| Median latency | 92s | **4s** |
+| Corpus wall clock | ~60 min | **1.9 min** |
+
+**23× faster, zero blanks, and higher accuracy.** Quality improved on both diagnostic
+failures, not just throughput:
+
+- **`Quick sheets` p42** — Thinking truncated after four lines, deleting the base-13
+  justification (§3.2.1). Instruct transcribed the whole argument including `6_{13} \times
+  9_{13} = 42_{13}` and the subscripted relation `6 \times 9 =_{13} 42`.
+- **Naive Math p1** — Thinking silently deleted the inline glyphs, producing two contradictory
+  bullets. Instruct emits a **placeholder at each glyph position** instead of dropping it. Not
+  correct identification, but loud rather than silent — exactly what D6 requires, and now the
+  coverage gate has something to match.
+
+**The root cause was our checkpoint choice, not Ollama.** Ollama's broken `think` control
+(§3.2) is real and blocked the obvious mitigation, but the deeper error was selecting a
+reasoning model by accepting a default alias. The blanks were reasoning loops in a model that
+should never have been reasoning.
+
+**Measurements taken on the Thinking checkpoint are obsolete for latency and blank behaviour**
+— the two-distributions latency split (§10), the `:4b` comparison, and everything in
+§3.2–§3.3 describe a model we no longer use. They are retained as investigation record, and
+because the *memory* finding (`num_ctx`, §3 below) and the *content* findings (§5.5
+substitution, §5.6) are checkpoint-independent and still hold.
+
+**Re-measure required** before trusting: per-document pass rates, the two-distribution claim,
+and whether over-correction (§5.5.1) persists on Instruct.
 
 ### Hard constraints on any Ollama-backed provider (measured, D5)
 

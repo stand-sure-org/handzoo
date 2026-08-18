@@ -87,7 +87,11 @@ Every fallback recognizer named in the brief (`pix2tex`, `texify`/Surya, `TrOCR`
 ### D4 — No heuristic segmenter in M0
 Structural and Operational converged on this independently, and the baseline supports it: the VLM already emits inline region markers in reading order, which a bounding-box segmenter would have to reconstruct. Reading-order recovery is the hard part and the VLM does it for free. A dedicated segmenter is added only against a named failure it demonstrably fixes.
 
-### D5 — Recognizer: `qwen3-vl:8b`, superseding the brief's Qwen2.5-VL
+### D5 — Recognizer: `qwen3-vl:8b-instruct` (REVISED 2026-08-18)
+
+**Use the Instruct checkpoint, not Thinking.** `qwen3-vl:8b` is an alias for Thinking; `-instruct` is separate weights. Measured on the full ch16 corpus: blanks 2/26 -> **0/26**, pass rate 81% -> **96%**, median latency 92s -> **4s**, corpus wall clock ~60min -> **1.9min**. Quality improved on both diagnostic failures. See DESIGN 3.0.
+
+**Original D5 (Thinking checkpoint), retained as record:**
 Current flagship; OCR across 32 languages (up from 10), explicitly better on blurred marks and rare characters, tuned to reconstruct fine structure in long documents. 6.1GB against qwen2.5vl:7b's 6.0GB — same cost, newer model.
 
 **Two hard constraints on the recognizer port, discovered by measurement:**
