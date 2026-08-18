@@ -59,11 +59,9 @@ KNOWN = frozenset(
     """.split()
 )
 
-# Redefining a real command is worse than leaving it alone. Anything whose name could
-# plausibly be a builtin is never turned into an operator; it is reported instead.
-# (Measured: \S \not \top \bot \colon \hrule \because \textemdash were all flagged as
-# "undefined" by a thinner list, and \DeclareMathOperator then broke ch16 p1, p20, p22.)
-NEVER_DECLARE = frozenset(KNOWN)
+# KNOWN exists only to keep the generated block small and readable. It is NOT a
+# correctness mechanism: every emitted declaration is \ifdefined-guarded, so a name
+# wrongly absent from this list costs a redundant no-op guard, never a clobbered command.
 
 # Macros the recognizer has been measured to invent, and what it plainly meant.
 REPAIRS = {
@@ -92,24 +90,43 @@ def find_undefined(latex: str) -> list[str]:
     return sorted(used - KNOWN - defined)
 
 
+def _guard(name: str, declaration: str, note: str) -> str:
+    """Wrap a declaration so it only fires when the command is genuinely undefined.
+
+    `\\ifdefined` is an e-TeX primitive supported by pdfTeX, XeTeX and LuaTeX. It is
+    side-effect free: it does not expand or define the command it tests.
+
+    This is what makes the whole scheme safe. A static Python list of "known" commands
+    cannot be correct — it is a guess about base LaTeX *plus whatever packages load*.
+    Guarding moves the decision to compile time, where the answer is authoritative.
+
+    Measured why this matters: an earlier version emitted a bare `\\DeclareMathOperator`
+    for anything its list did not recognise. `\\DeclareMathOperator` *overrides*, so
+    `\\S \\not \\top \\bot \\colon \\hrule \\because \\textemdash` were all clobbered and
+    ch16 p1/p20/p22 broke. Guarded, those become no-ops.
+
+    Note: do NOT use the legacy `\\@ifundefined` for this. It defines the tested command as
+    `\\relax` as a side effect, so testing a name brings it into existence.
+    """
+    return f"\\ifdefined\\{name}\\else{declaration}\\fi  % {note}"
+
+
 def declarations_for(undefined: list[str], unmapped_chars: list[str] | None = None) -> str:
     """Build the declaration block that makes an unruly document compile honestly."""
     lines: list[str] = []
     for name in undefined:
         if name in REPAIRS:
-            lines.append(REPAIRS[name] + f"  % auto-repaired: recognizer invented \\{name}")
-        elif name in NEVER_DECLARE:
-            continue  # a real command; declaring it would clobber the real definition
+            lines.append(_guard(name, REPAIRS[name],
+                                f"auto-repaired: recognizer invented \\{name}"))
         elif _OPERATOR_SHAPED.match(name):
-            # \DeclareMathOperator overrides, so it is only safe for names we are confident
-            # LaTeX does not already own.
-            lines.append(f"\\DeclareMathOperator{{\\{name}}}{{{name}}}"
-                         f"  % TODO: confirm operator name")
+            lines.append(_guard(name, f"\\DeclareMathOperator{{\\{name}}}{{{name}}}",
+                                "TODO: confirm operator name"))
         else:
-            lines.append(f"\\providecommand{{\\{name}}}[1]{{#1}}"
-                         f"  % TODO: recognizer invented \\{name}; define or correct")
+            lines.append(_guard(name, f"\\providecommand{{\\{name}}}[1]{{#1}}",
+                                f"TODO: recognizer invented \\{name}; define or correct"))
 
     for ch in unmapped_chars or []:
+        # \DeclareUnicodeCharacter has no \ifdefined equivalent; redeclaring is harmless.
         lines.append(f"\\DeclareUnicodeCharacter{{{ord(ch):04X}}}{{\\ensuremath{{\\bullet}}}}"
                      f"  % TODO: {ch!r} has no mapping; choose a representation")
 
