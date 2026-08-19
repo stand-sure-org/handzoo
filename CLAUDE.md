@@ -54,7 +54,12 @@ Environment, verified on this machine:
 3. **Four gates, all hard fails:** zero non-ASCII (unless the `--standalone` preamble supports it) · delimiter and environment balance · compiles clean under `pdflatex` · **no silent mark loss**.
 4. **Never fabricate `tikz`.** Diagrams are cropped, referenced, and flagged `% TODO: author diagram`.
 5. **Never silently drop, reword, or renotate a mark.** This is the same principle as (4), applied where the baseline proved it was missing.
-6. **Local-first.** `fixtures/` is gitignored — the manuscript is unpublished IP and this repo is intended for public release.
+6. **Absence of evidence is not evidence of absence.** A check that did not run must never
+   read as a check that passed. The codebase has rediscovered this three times —
+   `GateResult.checked`, `coverage_gate` on an empty inventory, and `Emission.verdict` — each
+   time by defaulting an unknown into the reassuring answer. **When adding a gate, decide what
+   it returns when it cannot run, and test that case directly.** See DESIGN §5.7.
+7. **Local-first.** `fixtures/` is gitignored — the manuscript is unpublished IP and this repo is intended for public release.
 
 ## What is built, and what is not
 
@@ -62,8 +67,9 @@ Environment, verified on this machine:
 |---|---|
 | `handzoo/core/normalize.py` | **Working.** Ten rules (R1–R10), each traced to a measured gate failure. Built on `pylatexenc`, not regex. |
 | `handzoo/core/declarations.py` | **Working.** Generates `\ifdefined`-guarded declarations for macros the recognizer invents. |
-| Rasterizer, recognizer, gates, emitter, pipeline, CLI | **Not built.** No entry point exists yet — `pyproject.toml` declares no `[project.scripts]`. |
-| Tests | **None.** The fixture corpus is acting as a regression suite, run by hand. |
+| Rasterizer, recognizer, gates, emitter, pipeline, CLI | **Working.** `handzoo convert` is a real command. |
+| `handzoo review` — the correction loop | **Not built.** PLAN Wave 5, and the M0 exit criterion depends on it. |
+| Tests | **102**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
 
 Measured state of the Normalizer, on identical raw recognizer output (Naive Math, the hardest
 document): 16/22 → **22/22**. Older Thinking-checkpoint corpora hold at 30/34 as a fixed
