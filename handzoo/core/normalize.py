@@ -24,6 +24,7 @@ from pylatexenc import latexwalker
 from pylatexenc.latexencode import unicode_to_latex
 
 from .declarations import declarations_for, find_undefined
+from .validate.ascii_gate import non_ascii_chars
 
 # Macros that are only legal inside math mode. Seeded from measured failures, not speculation.
 MATH_ONLY = frozenset(
@@ -111,7 +112,7 @@ def _mask_diagrams(text: str, rules: list[str]) -> str:
 
 def _fix_text_span(chunk: str, rules: list[str]) -> str:
     """Apply R1 and R5 to a span already known to be outside math mode."""
-    if any(ord(c) > 127 for c in chunk):
+    if non_ascii_chars(chunk):
         chunk = unicode_to_latex(chunk, non_ascii_only=True)
         rules.append("R1 unicode mapped")
     if _SUBSUP.search(chunk):
@@ -213,7 +214,7 @@ def normalize(markup: str, standalone: bool = True) -> Result:
             body = text
             rules.append("R4 fragment -> standalone")
         body = body.split("\\end{document}")[0]
-        residual = sorted({c for c in body if ord(c) > 127})
+        residual = non_ascii_chars(body)
         undefined = find_undefined(body)
         decls = declarations_for(undefined, residual, source=body)
         if undefined:
@@ -226,6 +227,6 @@ def normalize(markup: str, standalone: bool = True) -> Result:
             rules.append("R8 undefined macros (fragment, not declared here): "
                          + ", ".join("\\" + u for u in undefined))
 
-    residual = sorted({c for c in text if ord(c) > 127})
+    residual = non_ascii_chars(text)
     return Result(text=text, rules=rules, residual_non_ascii=residual,
                   undefined_macros=undefined)
