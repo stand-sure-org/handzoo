@@ -13,11 +13,16 @@ Estimates are complexity points (Fibonacci), not time. Ordering follows the Oper
 | Wave | Task | State |
 |---|---|---|
 | 0.1 | `uv` scaffold, package layout | **done** |
-| 0.2 | `Inline`/`Mark`/`Recognition` types | not started |
-| 0.3 | AST import-boundary test | not started |
+| 0.2 | `Inline`/`Mark`/`Recognition` types | **done** |
+| 0.3 | AST import-boundary test | **done** — verified by introducing both violation forms |
 | 1.4 | Normalizer | **done, and larger than planned** — ten rules R1–R10 on `pylatexenc`, plus `declarations.py`. Measured 16/22 → 22/22 on the hardest document. |
-| 2.2 | Recognizer transcribe pass | prototyped in scratch only; **`baseline/recognize.py` is historical and must not be copied** (Thinking checkpoint, uncapped context) |
-| all others | — | not started |
+| 1.1–1.3 | ascii / delimiter / compile gates | **done** |
+| 2.1–2.3 | Rasterizer, recognizer, inventory pass | **done**. `baseline/recognize.py` is historical and must not be copied (Thinking checkpoint, uncapped context) |
+| 3.1 | Coverage gate | **done** — catches the page-1 glyph loss live |
+| 3.2 | Ink cross-check | **partial** — `rasterize.ink_profile` exists and is wired only for the empty-inventory case |
+| 4.1–4.5 | Emitter, pipeline, CLI | **done**. `handzoo` is a real command |
+| 5.1–5.2 | `handzoo review` | **not started** — the M0 exit criterion depends on it |
+| 6.1–6.2 | Test consolidation | **partial** — 104 tests exist; CI never calls a model |
 
 **Estimate revision.** 1.4 was scoped at 5 points and consumed far more, because every rule
 came from a measured failure rather than from the spec. Expect the same for the gates: the

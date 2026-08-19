@@ -25,7 +25,33 @@ import re
 # Control sequences provided by the standard preamble: base LaTeX + amsmath/amssymb/amsthm.
 # Not exhaustive by design — anything absent gets declared rather than assumed.
 KNOWN = frozenset(
-    ["begin", "end", "item", "documentclass", "usepackage", "newtheorem", "section", "subsection", "subsubsection", "paragraph", "noindent", "indent", "textbf", "textit", "texttt", "textrm", "textsf", "emph", "underline", "text", "mathrm", "mathbf", "mathit", "mathsf", "mathtt", "mathbb", "mathcal", "mathfrak", "frac", "dfrac", "tfrac", "sqrt", "sum", "prod", "int", "oint", "lim", "sup", "inf", "max", "min", "left", "right", "big", "Big", "bigg", "Bigg", "langle", "rangle", "lfloor", "rfloor", "lceil", "rceil", "quad", "qquad", "hspace", "vspace", "hfill", "vfill", "newline", "linebreak", "pagebreak", "clearpage", "newpage", "label", "ref", "eqref", "cite", "footnote", "caption", "centering", "raggedright", "raggedleft", "hline", "cline", "multicolumn", "multirow", "rule", "textwidth", "linewidth", "textheight", "ensuremath", "providecommand", "newcommand", "renewcommand", "DeclareMathOperator", "DeclareUnicodeCharacter", "textcircled", "circ", "cdot", "cdots", "ldots", "vdots", "ddots", "dots", "alpha", "beta", "gamma", "delta", "epsilon", "varepsilon", "zeta", "eta", "theta", "vartheta", "iota", "kappa", "lambda", "mu", "nu", "xi", "pi", "varpi", "rho", "varrho", "sigma", "varsigma", "tau", "upsilon", "phi", "varphi", "chi", "psi", "omega", "Gamma", "Delta", "Theta", "Lambda", "Xi", "Pi", "Sigma", "Upsilon", "Phi", "Psi", "Omega", "in", "notin", "ni", "subset", "supset", "subseteq", "supseteq", "subsetneq", "supsetneq", "cup", "cap", "bigcup", "bigcap", "setminus", "emptyset", "varnothing", "forall", "exists", "nexists", "neg", "lnot", "land", "lor", "leq", "geq", "neq", "equiv", "approx", "sim", "simeq", "cong", "propto", "mid", "nmid", "parallel", "perp", "to", "gets", "mapsto", "rightarrow", "leftarrow", "leftrightarrow", "longrightarrow", "longleftarrow", "Rightarrow", "Leftarrow", "Leftrightarrow", "implies", "impliedby", "iff", "uparrow", "downarrow", "xrightarrow", "xleftarrow", "hookrightarrow", "twoheadrightarrow", "rightsquigarrow", "times", "div", "pm", "mp", "ast", "star", "dagger", "oplus", "otimes", "odot", "infty", "partial", "nabla", "overline", "underline", "overbrace", "underbrace", "widehat", "widetilde", "hat", "tilde", "bar", "vec", "dot", "ddot", "pmod", "bmod", "mod", "gcd", "deg", "det", "dim", "ker", "exp", "log", "ln", "sin", "cos", "tan", "arg", "textquotedblleft", "textquotedblright", "textquoteleft", "textquoteright", "ldots", "S", "P", "dag", "ddag", "copyright", "pounds", "textemdash", "textendash", "textbackslash", "textasciitilde", "not", "top", "bot", "colon", "hrule", "vrule", "because", "therefore", "models", "vdash", "dashv", "lnot", "lneq", "gneq", "ll", "gg", "prec", "succ", "preceq", "succeq", "asymp", "doteq", "triangleq", "binom", "choose", "over", "atop", "overset", "underset", "stackrel", "substack", "mathop", "mathbin", "mathrel", "mathpunct", "mathopen", "mathclose", "limits", "nolimits", "displaystyle", "textstyle", "scriptstyle", "scriptscriptstyle", "smallskip", "medskip", "bigskip", "par", "relax", "empty", "null"]
+    """
+    begin end item documentclass usepackage newtheorem section subsection subsubsection
+    paragraph noindent indent textbf textit texttt textrm textsf emph underline text mathrm
+    mathbf mathit mathsf mathtt mathbb mathcal mathfrak frac dfrac tfrac sqrt sum prod int
+    oint lim sup inf max min left right big Big bigg Bigg langle rangle lfloor rfloor lceil
+    rceil quad qquad hspace vspace hfill vfill newline linebreak pagebreak clearpage newpage
+    label ref eqref cite footnote caption centering raggedright raggedleft hline cline
+    multicolumn multirow rule textwidth linewidth textheight ensuremath providecommand
+    newcommand renewcommand DeclareMathOperator DeclareUnicodeCharacter textcircled circ cdot
+    cdots ldots vdots ddots dots alpha beta gamma delta epsilon varepsilon zeta eta theta
+    vartheta iota kappa lambda mu nu xi pi varpi rho varrho sigma varsigma tau upsilon phi
+    varphi chi psi omega Gamma Delta Theta Lambda Xi Pi Sigma Upsilon Phi Psi Omega in notin
+    ni subset supset subseteq supseteq subsetneq supsetneq cup cap bigcup bigcap setminus
+    emptyset varnothing forall exists nexists neg lnot land lor leq geq neq equiv approx sim
+    simeq cong propto mid nmid parallel perp to gets mapsto rightarrow leftarrow
+    leftrightarrow longrightarrow longleftarrow Rightarrow Leftarrow Leftrightarrow implies
+    impliedby iff uparrow downarrow xrightarrow xleftarrow hookrightarrow twoheadrightarrow
+    rightsquigarrow times div pm mp ast star dagger oplus otimes odot infty partial nabla
+    overline overbrace underbrace widehat widetilde hat tilde bar vec dot ddot pmod bmod mod
+    gcd deg det dim ker exp log ln sin cos tan arg textquotedblleft textquotedblright
+    textquoteleft textquoteright S P dag ddag copyright pounds textemdash textendash
+    textbackslash textasciitilde not top bot colon hrule vrule because therefore models vdash
+    dashv lneq gneq ll gg prec succ preceq succeq asymp doteq triangleq binom choose over atop
+    overset underset stackrel substack mathop mathbin mathrel mathpunct mathopen mathclose
+    limits nolimits displaystyle textstyle scriptstyle scriptscriptstyle smallskip medskip
+    bigskip par relax empty null
+    """.split()  # noqa: SIM905 - 294 words read better wrapped than as a literal
 )
 
 # KNOWN exists only to keep the generated block small and readable. It is NOT a

@@ -28,13 +28,17 @@ The original brief calls this `inkwell`. That name is taken and abandoned. The b
 
 ## Commands
 
-No source code exists yet — `PLAN.md` Wave 0 is the starting point. Python end-to-end with `uv` (D3).
+Python end-to-end with `uv` (D3). The PDF is the first positional argument — there is no
+`convert` subcommand and no `--target` flag; both appeared in earlier drafts of this file and
+never existed in the code.
 
 ```
-handzoo convert notes.pdf --target latex --standalone   # → .tex
-handzoo convert notes.pdf --pages 1-5 --resume          # triage; resume from manifest
-handzoo review page-01                                  # terminal correction loop
+handzoo notes.pdf -o out/                 # fragments, for assembly with \input
+handzoo notes.pdf -o out/ --standalone    # complete documents; compile gate can run
+handzoo notes.pdf --pages 1-5 --resume    # triage a range; resume from the manifest
 ```
+
+`handzoo review` does not exist yet — PLAN Wave 5.
 
 Environment, verified on this machine:
 
@@ -138,4 +142,4 @@ Not a code artifact, and no amount of green gates substitutes for it:
 
 `HandZoo™` and `"let there be text"™` are trademarks; the SVGs in `assets/brand/` are trademarked assets, not freely-licensed source. Code is Apache-2.0. See `TRADEMARK.md`.
 
-*(Note: `README.md` still says `[MIT / Apache 2.0 - CHOOSE ONE]` while `LICENSE` is Apache-2.0, and `TRADEMARK.md` has an unfilled `[INSERT_EMAIL_ADDRESS]`. Author's call to resolve.)*
+*(Note: `TRADEMARK.md` still has an unfilled `[INSERT_EMAIL_ADDRESS]`. Author's call.)*

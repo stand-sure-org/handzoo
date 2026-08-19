@@ -18,12 +18,12 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterator
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
 from . import rasterize
 from .emit import Emission, emit
-from .recognize.base import Recognizer
+from .recognize.base import Recognition, Recognizer
 from .recognize.ollama_vlm import RecognitionError
 from .validate import ascii_gate, compile_gate, coverage_gate, delimiter_gate
 
@@ -127,7 +127,7 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
         yield outcome
 
 
-def _validate(recognition, pdf: Path, page: int, *, mode: str) -> Emission:
+def _validate(recognition: Recognition, pdf: Path, page: int, *, mode: str) -> Emission:
     draft = emit(recognition, mode=mode, page=page)
     try:
         ink = rasterize.ink_profile(pdf, page)
@@ -139,7 +139,10 @@ def _validate(recognition, pdf: Path, page: int, *, mode: str) -> Emission:
         compile_gate.check(draft.text) if mode == "standalone" else _skip_compile(),
         coverage_gate.check(draft.text, recognition.inventory, ink=ink),
     )
-    return emit(recognition, gates, mode=mode, page=page)
+    # Reuse the draft rather than normalising a second time. Deterministic today, but
+    # nothing enforced that the two runs agreed, and a divergence would have meant the
+    # gates judged text the caller never receives.
+    return replace(draft, gates=gates)
 
 
 def _skip_compile():
