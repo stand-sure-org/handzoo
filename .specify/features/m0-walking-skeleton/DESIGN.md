@@ -583,10 +583,52 @@ is the whole thesis of this project applied one level deeper.
 It also composes with what already exists: step 1 is the inventory pass, step 4 is
 `rasterize.crop_vector` (§6.0), and step 5 is the marker convention the coverage gate checks.
 
-**Untested.** Two things would have to be measured before committing to it: whether masking
-degrades transcription of the surrounding text, and whether the inventory's positions are
-accurate enough to mask by — they were measured trustworthy for *presence and order*, which
-is a weaker claim than pixel-accurate bounding boxes.
+#### Tested 2026-08-19, n=3. Both risks cleared; the effect is real but not uniform.
+
+Fixtures: three pages of `Cheng pp161-179`, chosen because the author describes his own
+drawings there as sloppy.
+
+**Localisation works.** Asked for bounding boxes, the model returns them on a **0–1000
+normalised grid** regardless of being asked for percentages — detect the scale rather than
+assume it, since a coordinate above 100 cannot be a percentage. On p9 the returned box
+(x 231–483, y 318–439 px) matched the diagram closely enough to mask cleanly, with only two
+small fragments surviving at the right edge. Pad the box: a clipped fragment is exactly the
+thing the model will try to interpret.
+
+**Masking does not degrade the surrounding text.** On all three pages the prose survived
+intact. On p9 it improved: `gfs = gft` became `g \circ f_s = g \circ f_t`, the composition
+made explicit.
+
+**The target effect, on p9.** Unmasked, the model *fabricated mathematical structure* — it
+emitted an `array` with two `\downarrow` arrows and a `1 \longrightarrow 1` row that are not
+on the page, and it emitted **no marker at all**. Masked, the fabrication is simply gone and
+the prose either side is preserved.
+
+That is the hypothesis holding: the model did not smooth over the hole, because a hole offers
+no plausible reading to substitute. It is worth being precise about what happened — the
+content was not *marked*, it was *omitted*. Which is the intended outcome, because **we hold
+the coordinates.** Step 5 of the grille is ours to perform: reinstate a marker and a vector
+crop at a location we already know. The model is not asked to be honest about the gap; it is
+prevented from filling it.
+
+**Not uniform.** On p5 and p14 masking changed nothing measurable — no fabrication either way.
+So the grille addresses pages that provoke fabrication, which is a subset. n=3 is thin.
+
+#### The finding that matters more than the grille
+
+**The model almost never emits the `[[DIAGRAM: …]]` marker we ask for.** Across eight recent
+transcriptions: zero. Faced with a drawing it either fabricates `tikz`/`array` or omits the
+region silently. It does not mark.
+
+This undercuts the coverage gate's mechanism (§5.4), which counts markers as evidence that a
+mark was preserved. If markers are essentially never produced, then a coverage failure reads
+"N marks seen, 0 accounted for" almost by construction, and the gate is measuring *what the
+inventory found* rather than *what the transcription preserved*. The gate still catches real
+loss — that is why page 1 fails correctly — but its precision is much lower than the design
+assumed, and the block-mark limitation above is a symptom of the same thing.
+
+**The grille is the more promising route precisely because it does not depend on the model
+choosing to mark anything.** The marker is inserted by us, at coordinates we measured.
 
 **Not M0.** Recorded so the design does not preclude it, and because it is the only proposal
 on the table for a problem with no published solution.
