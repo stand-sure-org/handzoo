@@ -557,6 +557,40 @@ Honest scoping:
 Recorded so the design does not preclude it: the structured-claim extraction that a symbolic
 check needs is the same extraction a proof assistant would consume.
 
+### 5.5.4 The inverted Cardan grille — a proposal for the inline-glyph problem
+
+**Author's idea, 2026-08-19.** Research found *no prior art* for inline pictorial elements
+functioning as grammatical constituents, so this is the first concrete mechanism anyone has
+put forward for it here.
+
+A Cardan grille is a mask with holes that reveals hidden text. **Inverted**, it masks the
+glyph out and leaves everything else visible:
+
+```
+1. locate the inline glyph regions (the inventory pass already reports where they are)
+2. white them out of the page raster
+3. transcribe the masked image  -> clean prose with visible gaps
+4. handle each masked region separately: vector-crop it, or classify it
+5. reassemble, putting a marker back at each hole
+```
+
+**Why it should work where prompting does not.** Over-correction is a model smoothing over
+what it cannot name — it reads "HAS MORE 🧍 THAN" and writes the sentence it expects. A hole
+cannot be smoothed over the same way: there is nothing there to read, so the model has no
+plausible reading to substitute. The failure mode changes from *silent* to *structural*, which
+is the whole thesis of this project applied one level deeper.
+
+It also composes with what already exists: step 1 is the inventory pass, step 4 is
+`rasterize.crop_vector` (§6.0), and step 5 is the marker convention the coverage gate checks.
+
+**Untested.** Two things would have to be measured before committing to it: whether masking
+degrades transcription of the surrounding text, and whether the inventory's positions are
+accurate enough to mask by — they were measured trustworthy for *presence and order*, which
+is a weaker claim than pixel-accurate bounding boxes.
+
+**Not M0.** Recorded so the design does not preclude it, and because it is the only proposal
+on the table for a problem with no published solution.
+
 ### 5.6 Independent second reader (deferred to M1) — measured, does not work yet
 
 Proposed: run Tesseract per page as a reader with *uncorrelated* failure modes and score

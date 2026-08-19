@@ -58,15 +58,19 @@ def check(latex: str, inventory: tuple[Mark, ...], *,
             instead of a marker, whereas an inline mark has nowhere else to go.
     """
     if not inventory:
-        # An empty inventory is not evidence that the page had no marks — it is evidence
-        # that we do not know. Reporting it as a pass would be the exact false confidence
-        # this gate exists to prevent.
+        # Two different things produce an empty inventory, and only one of them is evidence.
         #
-        # Ink is the one signal here no vision model produced, so it can distinguish
-        # "genuinely blank page" from "the inventory pass under-reported".
-        if ink is not None and ink.is_blank and not inventory_failed:
-            return GateResult(GATE)
-        return GateResult(GATE, checked=False)
+        # The pass FAILED to be read — we do not know what is on the page. Not a pass.
+        if inventory_failed:
+            return GateResult(GATE, checked=False)
+        # The pass RAN and found no pictures. That is a finding, not a silence, and treating
+        # it as unverifiable would leave every clean symbolic page permanently unverified —
+        # which is the content this tool handles best.
+        #
+        # Residual risk, stated rather than hidden: an inventory that silently under-reports
+        # is indistinguishable from one with nothing to report. Ink cannot separate them
+        # either, since on a symbolic page all the ink is legitimately notation.
+        return GateResult(GATE)
 
     expected = [m for m in inventory
                 if m.placement == "inline" or (require_block_marks and m.placement == "block")]

@@ -49,8 +49,14 @@ TRANSCRIBE_PROMPT = (
 )
 
 INVENTORY_PROMPT = (
-    "Inventory every distinct hand-drawn NON-TEXT mark on this page (stick figures, animals, "
-    "houses, hand drawings, tally strokes, arrows, checkmarks). Do NOT transcribe the words. "
+    "Inventory every hand-drawn PICTURE on this page: stick figures, animals, houses, "
+    "hands, faces, sketches, tally strokes, and annotation marks that point at or comment on "
+    "other content.\n"
+    "EXCLUDE anything that is ordinary mathematical or textual notation, even though it was "
+    "written by hand. If it can be written as a LaTeX command, it is NOT a picture: arrows "
+    "inside an expression (0 -> 1 -> 2), set and logic symbols, Greek letters, operators, "
+    "braces, equals and inequality signs, and underlines are all notation, not pictures.\n"
+    "Do NOT transcribe the words. "
     'Return STRICT JSON only:\n{"marks":[{"description":"...","context":"...",'
     '"inline_or_block":"inline|block","count":N}]}\n'
     "A mark is 'inline' if it sits INSIDE a sentence or table cell as if it were a word.\n"

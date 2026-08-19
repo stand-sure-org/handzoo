@@ -215,3 +215,19 @@ def test_normalization_converges() -> None:
         text = normalize(text).text
         sizes.append(len(text))
     assert len(set(sizes[1:])) == 1, f"normalization does not converge: {sizes}"
+
+
+def test_no_tikzpicture_survives_normalization() -> None:
+    r"""An unterminated `\begin{tikzpicture}` slipped past the paired pattern and failed the
+    build with "Environment tikzpicture undefined" (Naive Math p1). The recognizer is told
+    never to invent tikz; when it does anyway, none of it may reach the document.
+    """
+    from handzoo.core.normalize import normalize
+
+    for markup in (
+        r"before \begin{tikzpicture}[scale=0.5]\draw (0,0);\end{tikzpicture} after",
+        r"before \begin{tikzpicture}[scale=0.5]\draw (0,0); no closer at all",
+    ):
+        out = normalize(markup).text
+        assert "tikzpicture" not in out, out[:200]
+        assert "fabricated" in out, "the fabrication must be recorded, not merely deleted"
