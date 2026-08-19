@@ -20,19 +20,36 @@ Every acceptance gate is a feature:
 Never fabricates `tikz`. Hand-drawn diagrams are cropped as vector, referenced, and flagged for
 a human — never invented.
 
-## Status: early. The tool does not work yet.
+## Status: early. It runs; it is not finished.
 
-This repository currently contains the design, the measured evidence behind it, and the first
-piece of the engine.
+The pipeline runs end to end. It is not yet a tool you should rely on.
 
 | | State |
 |---|---|
-| `handzoo/core/normalize.py` | **Working** — ten rules, each traced to a measured failure |
-| `handzoo/core/declarations.py` | **Working** — guarded declarations for macros the recognizer invents |
-| Rasterizer, recognizer, gates, emitter, pipeline, CLI | **Not built** |
-| Tests | **None** — a fixture corpus serves as a regression suite, run by hand |
+| Rasterizer, recognizer, normalizer, gates, emitter, pipeline, CLI | **Working** |
+| Four gates: ascii, delimiters, compile, coverage | **Working** |
+| `handzoo review` — the correction loop | **Not built** |
+| Markdown target | **Not built** (M1) |
+| Tests | 102, plus a frozen fixture corpus as a regression suite |
 
-There is no entry point. You cannot yet run `handzoo convert`.
+`handzoo convert` runs:
+
+```
+$ handzoo convert notes.pdf --pages 1-3
+page    1  FAIL  ascii=pass  delimiters=pass  compile=skipped  coverage=fail
+page    2  ok    ascii=pass  delimiters=pass  compile=pass     coverage=pass
+page    3  ?     ascii=pass  delimiters=pass  compile=skipped  coverage=pass
+```
+
+**Three verdicts, not two.** `ok` means everything checkable was checked and nothing refused.
+`FAIL` means a gate refused the page — it is written as `.fail.tex` so a build cannot consume
+it by accident. **`?` means a gate could not run**, which is neither a pass nor a failure:
+a fragment has no preamble, so it cannot be compiled in isolation. Use `--standalone` to
+check a single page fully.
+
+Collapsing that third state is a mistake this project has made and measured. Reported as a
+failure, every fragment failed and the signal meant nothing; reported as a pass, it would
+claim a check that never happened.
 
 **The unsolved problem is substitution, not syntax.** Vision models silently "improve" what is
 on the page — a measured phenomenon across 15 VLMs at 42–66%, which prompting moves by about

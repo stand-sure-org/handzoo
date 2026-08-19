@@ -583,6 +583,33 @@ fine-tuning question: downstream of `handzoo review`, not upstream of it.
 edit distance. Tesseract costs **0.2s/page against the VLM's 92s**, so if a proxy ever
 validates it is effectively free to run on every page. Worth keeping for that reason alone.
 
+## 5.7 Absence of evidence is not evidence of absence
+
+**A check that did not run must never read as a check that passed.**
+
+This is stated as a standing principle rather than a note on one bug, because the codebase has
+now rediscovered it three separate times — each in a different component, each time by
+defaulting an unknown into the reassuring answer:
+
+| Where | The temptation | What it would have caused |
+|---|---|---|
+| `GateResult.checked` (§5) | a gate that could not run returns `passed` | a missing `pdflatex` turns the suite green while verifying nothing |
+| `coverage_gate` (§5.4) | an empty inventory means "no marks on the page" | a page whose inventory pass failed reports full coverage |
+| `Emission.verdict` (§6) | "not verified" folds into "failed" | **measured:** every fragment failed, so the verdict carried no information at all |
+
+The third was found by running the CLI, not by review. Fragments have no preamble, so the
+compile gate can never run on them; folding that into `fail` marked every page red, and folding
+it into `pass` would have claimed a check that never happened. Neither is true, which is why
+there are three verdicts.
+
+**Test for it directly.** Each of the three has a test asserting the *unverified* case
+specifically — not merely that failures fail. A suite that only checks pass and fail cannot
+tell the difference between "verified good" and "never looked", which is the whole point.
+
+**When adding a gate**, answer this before writing it: *what does this return when it cannot
+run?* If the answer is "it always can", say why in a comment — that assumption is the one that
+breaks first on someone else's machine.
+
 ## 6. Emitter
 
 `--target latex`, `--standalone|--fragment`.
