@@ -27,19 +27,7 @@ from .declarations import declarations_for, find_undefined
 
 # Macros that are only legal inside math mode. Seeded from measured failures, not speculation.
 MATH_ONLY = frozenset(
-    """
-    oplus otimes odot uparrow downarrow leftarrow rightarrow longrightarrow to mapsto
-    leq geq neq approx equiv in notin subset supset subseteq supseteq cup cap setminus
-    forall exists nexists cdots ldots vdots times div circ pm mp cdot ast
-    alpha beta gamma delta epsilon varepsilon zeta eta theta iota kappa lambda mu nu xi
-    pi rho sigma tau upsilon phi varphi chi psi omega
-    Gamma Delta Theta Lambda Xi Pi Sigma Upsilon Phi Psi Omega
-    mathbb mathcal mathfrak mathrm mathbf mathsf sqrt frac sum prod int infty partial
-    varnothing emptyset langle rangle xrightarrow xleftarrow
-    Rightarrow Leftarrow Leftrightarrow leftrightarrow Longrightarrow implies iff
-    hookrightarrow twoheadrightarrow rightsquigarrow simeq cong sim propto
-    text quad qquad colon bmod
-    """.split()
+    ["oplus", "otimes", "odot", "uparrow", "downarrow", "leftarrow", "rightarrow", "longrightarrow", "to", "mapsto", "leq", "geq", "neq", "approx", "equiv", "in", "notin", "subset", "supset", "subseteq", "supseteq", "cup", "cap", "setminus", "forall", "exists", "nexists", "cdots", "ldots", "vdots", "times", "div", "circ", "pm", "mp", "cdot", "ast", "alpha", "beta", "gamma", "delta", "epsilon", "varepsilon", "zeta", "eta", "theta", "iota", "kappa", "lambda", "mu", "nu", "xi", "pi", "rho", "sigma", "tau", "upsilon", "phi", "varphi", "chi", "psi", "omega", "Gamma", "Delta", "Theta", "Lambda", "Xi", "Pi", "Sigma", "Upsilon", "Phi", "Psi", "Omega", "mathbb", "mathcal", "mathfrak", "mathrm", "mathbf", "mathsf", "sqrt", "frac", "sum", "prod", "int", "infty", "partial", "varnothing", "emptyset", "langle", "rangle", "xrightarrow", "xleftarrow", "Rightarrow", "Leftarrow", "Leftrightarrow", "leftrightarrow", "Longrightarrow", "implies", "iff", "hookrightarrow", "twoheadrightarrow", "rightsquigarrow", "simeq", "cong", "sim", "propto", "text", "quad", "qquad", "colon", "bmod"]
 )
 
 # Environments the recognizer emits unprompted. Good recognition the emitter must support.
@@ -59,13 +47,13 @@ PREAMBLE = (
 # R6 — `\\` is only legal in horizontal mode. Measured failures: `\end{center} \\`
 # (Number theory p75) and a bare `\\` after a blank line (Topology p2), both giving
 # "There's no line here to end."
-_VMODE_BREAK = re.compile(r"(\\end\{[^}]+\}[ \t]*)\\\\|^[ \t]*\\\\[ \t]*$", re.M)
+_VMODE_BREAK = re.compile(r"(\\end\{[^}]+\}[ \t]*)\\\\|^[ \t]*\\\\[ \t]*$", re.MULTILINE)
 
 # R7 — list environments nested inside a tabular cell blow up with "Extra }" unless the
 # column is a p{} type (Team of Teams p15). Unwrap rather than drop: content survives.
 _LIST_IN_TABULAR = re.compile(
     r"(\\begin\{tabular\}.*?)(\\begin\{(itemize|enumerate)\}.*?\\end\{\3\})(.*?\\end\{tabular\})",
-    re.S,
+    re.DOTALL,
 )
 
 # R9 — fabricated graphics. The recognizer is told never to invent tikz, and does it
@@ -73,10 +61,10 @@ _LIST_IN_TABULAR = re.compile(
 # references to files that do not exist (p5, p6: \includegraphics{pie1}). Both are the
 # never-fabricate violation in the emitter rather than the recognizer. Replacing them
 # with a diagram marker keeps the fact that something was there, which deleting would not.
-_FAB_TIKZ = re.compile(r"\\begin\{tikzpicture\}.*?\\end\{tikzpicture\}", re.S)
+_FAB_TIKZ = re.compile(r"\\begin\{tikzpicture\}.*?\\end\{tikzpicture\}", re.DOTALL)
 _FAB_GRAPHIC = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]*)\}")
 
-_DIAGRAM = re.compile(r"\[\[DIAGRAM:\s*(.*?)\]\]", re.S)
+_DIAGRAM = re.compile(r"\[\[DIAGRAM:\s*(.*?)\]\]", re.DOTALL)
 _SUBSUP = re.compile(r"(?<![\\$])([A-Za-z0-9])([_^])([A-Za-z0-9])")
 _FRAGILE = re.compile(r"[{}$&#_^~%\\]")
 
@@ -103,7 +91,7 @@ def _mask_diagrams(text: str, rules: list[str]) -> str:
     Emitting it raw breaks the build the moment a description contains LaTeX.
     """
 
-    def repl(m: "re.Match[str]") -> str:
+    def repl(m: re.Match[str]) -> str:
         rules.append("R3 diagram marker escaped")
         # Sanitize fully here: the result lands inside a macro argument, which the
         # node walker emits verbatim, so R1 never gets another chance at it.
@@ -168,7 +156,7 @@ def _walk(nodes, rules: list[str]) -> str:
 
 def _fix_vertical_mode_breaks(text: str, rules: list[str]) -> str:
     """R6 — drop `\\\\` where LaTeX is in vertical mode and there is no line to end."""
-    def repl(m: "re.Match[str]") -> str:
+    def repl(m: re.Match[str]) -> str:
         rules.append("R6 vertical-mode line break removed")
         return m.group(1) or ""
     return _VMODE_BREAK.sub(repl, text)
@@ -176,9 +164,9 @@ def _fix_vertical_mode_breaks(text: str, rules: list[str]) -> str:
 
 def _unwrap_lists_in_tabular(text: str, rules: list[str]) -> str:
     """R7 — flatten itemize/enumerate nested in a tabular cell; keep every item."""
-    def repl(m: "re.Match[str]") -> str:
+    def repl(m: re.Match[str]) -> str:
         rules.append("R7 list unwrapped inside tabular")
-        items = re.findall(r"\\item\s+(.*?)(?=\\item|\\end\{)", m.group(2), re.S)
+        items = re.findall(r"\\item\s+(.*?)(?=\\item|\\end\{)", m.group(2), re.DOTALL)
         flat = "; ".join(" ".join(i.split()) for i in items)
         return f"{m.group(1)}{flat}% TODO: was a nested list{m.group(4)}"
     prev = None
@@ -211,7 +199,7 @@ def normalize(markup: str, standalone: bool = True) -> Result:
     try:
         nodes, _, _ = latexwalker.LatexWalker(text, tolerant_parsing=True).get_latex_nodes()
         text = _walk(nodes, rules)
-    except Exception as exc:  # a parse failure must be loud, not silently skipped
+    except Exception as exc:  # noqa: BLE001 - a parse failure must be loud, never silently skipped
         rules.append(f"PARSE FAILED ({type(exc).__name__}) - rules not applied")
 
     if standalone:
