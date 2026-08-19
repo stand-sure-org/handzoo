@@ -1,0 +1,13 @@
+[project]
+name = "handzoo"
+version = "0.1.0"
+description = "Handwritten math notes to compilable LaTeX, gated so broken output is refused."
+requires-python = ">=3.11"
+dependencies = ["pylatexenc>=2.10"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100

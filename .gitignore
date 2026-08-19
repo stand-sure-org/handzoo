@@ -1,0 +1,11 @@
+# Fixtures are the author's unpublished manuscript IP — never tracked.
+# The brief is explicit: "Math notes can be unpublished IP."
+fixtures/
+baseline/*.png
+*.aux
+*.log
+*.out
+__pycache__/
+.venv/
+.venv/
+*.pdf
