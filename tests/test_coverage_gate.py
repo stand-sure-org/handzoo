@@ -92,15 +92,26 @@ def test_failures_point_at_a_line_using_context_not_description() -> None:
 # --------------------------------------------------------------- absence of evidence
 
 
-def test_an_empty_inventory_does_not_pass() -> None:
-    """An empty inventory means we do not know, not that the page was clean.
+def test_a_failed_inventory_does_not_pass() -> None:
+    """The pass could not be read, so we do not know what is on the page.
 
     Reporting it green would be exactly the false confidence this gate exists to prevent.
     """
-    result = coverage_gate.check("some markup", ())
+    result = coverage_gate.check("some markup", (), inventory_failed=True)
     assert not result.passed
     assert not result.checked
     assert "not a pass" in result.report()
+
+
+def test_an_inventory_that_ran_and_found_nothing_is_evidence() -> None:
+    """A check that ran and found nothing is not the same as a check that did not run.
+
+    Measured: a symbolic page the author confirmed correct reported zero pictures. Treating
+    that as unverifiable would leave every clean page permanently unverified — the content
+    this tool handles best. The residual risk (a silently under-reporting inventory) is
+    documented in the gate rather than papered over.
+    """
+    assert coverage_gate.check("some markup", ()).passed
 
 
 def test_ink_distinguishes_a_blank_page_from_an_under_reporting_inventory() -> None:
@@ -110,10 +121,9 @@ def test_ink_distinguishes_a_blank_page_from_an_under_reporting_inventory() -> N
     same family of system and can be wrong in correlated ways. Ink cannot.
     """
     blank = InkProfile(points=3, bands=(0.0,) * 10)
-    inked = InkProfile(points=4731, bands=(0.1,) * 10)
 
     assert coverage_gate.check("markup", (), ink=blank).passed
-    assert not coverage_gate.check("markup", (), ink=inked).checked
+    assert not coverage_gate.check("markup", (), ink=blank, inventory_failed=True).checked
 
 
 # --------------------------------------------------------------- the honest limit
@@ -154,3 +164,17 @@ def test_an_unreadable_inventory_is_not_a_blank_page() -> None:
     blank = InkProfile(points=3, bands=(0.0,) * 10)
     assert coverage_gate.check("x", (), ink=blank).passed
     assert not coverage_gate.check("x", (), ink=blank, inventory_failed=True).checked
+
+
+def test_a_fabrication_report_is_not_evidence_a_mark_survived() -> None:
+    """R9 replaces invented tikz with a marker. That marker says the model made something
+    up — the opposite of evidence that a real mark was preserved.
+
+    Measured: a page emitted 22 fabrication markers and passed a coverage check it should
+    have failed, because both marker kinds shared one syntax.
+    """
+    fabricated = " ".join("\\texttt{[TODO fabricated: invented tikz]}" for _ in range(22))
+    assert not coverage_gate.check(fabricated, (_mark(), _mark())).passed
+
+    real = "\\texttt{[TODO diagram: a stick figure]} " * 2
+    assert coverage_gate.check(real, (_mark(), _mark())).passed

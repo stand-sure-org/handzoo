@@ -63,9 +63,13 @@ _LIST_IN_TABULAR = re.compile(
 # never-fabricate violation in the emitter rather than the recognizer. Replacing them
 # with a diagram marker keeps the fact that something was there, which deleting would not.
 _FAB_TIKZ = re.compile(r"\\begin\{tikzpicture\}.*?\\end\{tikzpicture\}", re.DOTALL)
+_FAB_TIKZ_OPEN = re.compile(r"\\begin\{tikzpicture\}(?:\[[^\]]*\])?")
 _FAB_GRAPHIC = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]*)\}")
 
-_DIAGRAM = re.compile(r"\[\[DIAGRAM:\s*(.*?)\]\]", re.DOTALL)
+# Both marker words. FABRICATED means the recognizer invented a drawing;
+# DIAGRAM means it marked a real one. The coverage gate must never treat the
+# first as evidence that a real mark survived.
+_DIAGRAM = re.compile(r"\[\[(?P<kind>DIAGRAM|FABRICATED):\s*(?P<desc>.*?)\]\]", re.DOTALL)
 _SUBSUP = re.compile(r"(?<![\\$])([A-Za-z0-9])([_^])([A-Za-z0-9])")
 _FRAGILE = re.compile(r"[{}$&#_^~%\\]")
 
@@ -96,7 +100,8 @@ def _mask_diagrams(text: str, rules: list[str]) -> str:
         rules.append("R3 diagram marker escaped")
         # Sanitize fully here: the result lands inside a macro argument, which the
         # node walker emits verbatim, so R1 never gets another chance at it.
-        desc = _FRAGILE.sub("", m.group(1)).strip()
+        kind = "fabricated" if m.group("kind") == "FABRICATED" else "diagram"
+        desc = _FRAGILE.sub("", m.group("desc")).strip()
         desc = unicode_to_latex(desc, non_ascii_only=True)
         desc = _FRAGILE.sub("", desc)
         desc = "".join(c for c in desc if ord(c) < 128)
@@ -105,7 +110,7 @@ def _mask_diagrams(text: str, rules: list[str]) -> str:
         # illegal inside math mode, which is exactly where Naive Math p5 put four of these
         # (inside `$$\begin{array}`), giving "Missing $ inserted".
         # The marker stays greppable as "TODO diagram".
-        return f"\\texttt{{[TODO diagram: {desc}]}}"
+        return f"\\texttt{{[TODO {kind}: {desc}]}}"
 
     return _DIAGRAM.sub(repl, text)
 
@@ -183,14 +188,22 @@ def _unwrap_lists_in_tabular(text: str, rules: list[str]) -> str:
 def _strip_fabricated_graphics(text: str, rules: list[str]) -> str:
     """R9 — a tikzpicture or an \\includegraphics the recognizer invented becomes a marker."""
     def tikz(_m):
-        rules.append("R9 fabricated tikzpicture -> diagram marker")
-        return "[[DIAGRAM: recognizer emitted tikz despite instruction; redraw or crop]]"
+        rules.append("R9 fabricated tikzpicture -> fabrication marker")
+        return "[[FABRICATED: recognizer emitted tikz despite instruction; redraw or crop]]"
 
     def graphic(m):
-        rules.append("R9 invented \\includegraphics -> diagram marker")
-        return f"[[DIAGRAM: recognizer referenced a nonexistent file {m.group(1)}]]"
+        rules.append("R9 invented \\includegraphics -> fabrication marker")
+        return f"[[FABRICATED: recognizer referenced a nonexistent file {m.group(1)}]]"
 
-    text = _FAB_TIKZ.sub(tikz, text)
+    prev = None
+    while prev != text:
+        prev, text = text, _FAB_TIKZ.sub(tikz, text)
+    # A `\begin{tikzpicture}` with no closer survives the paired pattern above and then
+    # fails the build with "Environment tikzpicture undefined". Measured on Naive Math p1.
+    if _FAB_TIKZ_OPEN.search(text):
+        rules.append("R9 unterminated tikzpicture -> fabrication marker")
+        text = _FAB_TIKZ_OPEN.sub(
+            "[[FABRICATED: unterminated tikz from the recognizer; redraw or crop]]", text)
     return _FAB_GRAPHIC.sub(graphic, text)
 
 
