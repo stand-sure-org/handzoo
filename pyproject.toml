@@ -5,6 +5,10 @@ description = "Handwritten math notes to compilable LaTeX, gated so broken outpu
 requires-python = ">=3.11"
 dependencies = ["pylatexenc>=2.10"]
 
+[dependency-groups]
+# merge-checks runs `uv sync --group dev` for pip-audit, outdated and license scans.
+dev = ["pytest>=8", "ruff>=0.6"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

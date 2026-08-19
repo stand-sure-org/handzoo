@@ -9,3 +9,6 @@ __pycache__/
 .venv/
 .venv/
 *.pdf
+
+# extracted to docs/handoff.md and assets/ at merge time
+.handoff.zip
