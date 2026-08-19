@@ -1,0 +1,103 @@
+"""`handzoo convert` — the CLI adapter. All logic lives in `handzoo.core`.
+
+The output contract here is deliberate: **never print an unqualified PASS.** A tool whose
+promise is "refuses to hand you broken LaTeX" trains its reader to relax exactly where it is
+weakest, and this one is weakest at semantics — output that is well-formed and false. Every
+verdict therefore names what was *not* checked.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+from ..core import pipeline
+from ..core.pipeline import PageOutcome
+from ..core.recognize.ollama_vlm import DEFAULT_MODEL, OllamaRecognizer, swap_pressure
+
+SWAP_WARNING = 0.85
+
+
+def _preflight(stream) -> None:
+    """Report host conditions that have previously produced nondeterminism.
+
+    A host deep in swap does not fail loudly; it produces blank pages and stalls that look
+    like hard content. Saying so up front is cheaper than diagnosing it later.
+    """
+    swap = swap_pressure()
+    if swap is not None and swap >= SWAP_WARNING:
+        print(f"warning: swap at {swap:.0%}. Recognition on a swapping host has produced "
+              "blank pages and multi-minute stalls that look like page problems.",
+              file=stream)
+
+
+def _format(outcome: PageOutcome) -> str:
+    if not outcome.done:
+        return f"page {outcome.page:>4}  ERROR  {outcome.error}"
+    marks = "  ".join(f"{name}={state}" for name, state in outcome.gates.items())
+    label = {"pass": "ok  ", "unverified": "?   ", "fail": "FAIL"}[outcome.verdict]
+    return f"page {outcome.page:>4}  {label}  {marks}"
+
+
+def main(argv: list[str] | None = None, *, stream=None) -> int:
+    stream = stream or sys.stdout
+    parser = argparse.ArgumentParser(
+        prog="handzoo convert",
+        description="Convert handwritten pages to LaTeX, refusing output that does not build.")
+    parser.add_argument("pdf", type=Path)
+    parser.add_argument("-o", "--out", type=Path, default=Path("out"))
+    parser.add_argument("--pages", help="page range, e.g. 3-9 or 4")
+    parser.add_argument("--standalone", action="store_const", const="standalone",
+                        dest="mode", default="fragment",
+                        help="emit a complete document; the default is a fragment for "
+                             "assembly with \\input")
+    parser.add_argument("--resume", action="store_true",
+                        help="skip pages already recorded in the manifest")
+    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--dpi", type=int, default=150)
+    args = parser.parse_args(argv)
+
+    first, last = _parse_range(args.pages)
+    _preflight(stream)
+
+    try:
+        recognizer = OllamaRecognizer(model=args.model)
+    except ValueError as exc:
+        print(f"error: {exc}", file=stream)
+        return 2
+
+    failed = unverified = errored = 0
+    for outcome in pipeline.convert(args.pdf, args.out, recognizer, first=first, last=last,
+                                    mode=args.mode, resume=args.resume, dpi=args.dpi):
+        print(_format(outcome), file=stream, flush=True)
+        errored += not outcome.done
+        if outcome.done:
+            failed += outcome.verdict == "fail"
+            unverified += outcome.verdict == "unverified"
+
+    print("\nGates prove these documents build. They do not prove the transcription is "
+          "correct:\nsilent substitution — a mark replaced rather than dropped — is not "
+          "checked by anything here.", file=stream)
+    if unverified:
+        print(f"{unverified} page(s) unverified: a gate could not run, which is neither a "
+              "pass nor a failure. Fragments cannot be compiled in isolation — use "
+              "--standalone to check one.", file=stream)
+    if failed or errored:
+        print(f"{failed} page(s) failed a gate, {errored} could not be recognized. "
+              "Failing pages are written as .fail.tex so a build cannot consume them.",
+              file=stream)
+    return 1 if (failed or errored) else 0
+
+
+def _parse_range(spec: str | None) -> tuple[int, int | None]:
+    if not spec:
+        return 1, None
+    if "-" in spec:
+        lo, _, hi = spec.partition("-")
+        return int(lo), int(hi)
+    return int(spec), int(spec)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
