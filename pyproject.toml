@@ -17,6 +17,9 @@ dev = [
     "pip-audit>=2.7",   # merge-checks runs `uv run pip-audit`
 ]
 
+[project.scripts]
+handzoo = "handzoo.adapters.cli_convert:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
