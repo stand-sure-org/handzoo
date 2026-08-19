@@ -176,3 +176,42 @@ def test_frozen_page_one_passes_every_gate_and_is_still_false() -> None:
     assert delimiter_gate.check(latex).passed
     if compile_gate.engine_available():
         assert compile_gate.check(latex).passed
+
+
+# --------------------------------------------------------------- normalizer regressions
+
+
+def test_a_comment_never_precedes_the_structure_it_describes() -> None:
+    r"""R7 injected `% TODO` immediately before the `\end{tabular}` it was preserving.
+
+    `%` comments to end of line, so the closer vanished: the parser treated the environment
+    as open, swallowed the following prose into the table, and a synthesised closer landed
+    after it. **Both the delimiter and compile gates passed on the result** — content was not
+    dropped, it was silently relocated, which is worse.
+    """
+    from handzoo.core.normalize import normalize
+
+    markup = ("\\begin{tabular}{l}\\begin{itemize}\\item a\\item b\\end{itemize}"
+              "\\end{tabular}\n\nThis sentence must survive after the table.\n")
+    body = normalize(markup).text.split("\\begin{document}", 1)[1]
+
+    assert body.count("\\end{tabular}") == 1, "a commented-out closer gets duplicated"
+    table = body[body.index("\\begin{tabular}"):body.index("\\end{tabular}")]
+    assert "must survive" not in table, "prose after the table was swallowed into it"
+
+
+def test_normalization_converges() -> None:
+    """`handzoo review` will re-normalize corrected pages.
+
+    Unstripped, R4 re-wrapped an already-standalone document and added two newlines *per
+    pass*, without bound — a document that grows every time it is touched is exactly wrong
+    for a correction loop.
+    """
+    from handzoo.core.normalize import normalize
+
+    text = "\\section*{x}\nbody\n"
+    sizes = []
+    for _ in range(4):
+        text = normalize(text).text
+        sizes.append(len(text))
+    assert len(set(sizes[1:])) == 1, f"normalization does not converge: {sizes}"

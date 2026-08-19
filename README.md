@@ -35,7 +35,7 @@ The pipeline runs end to end. It is not yet a tool you should rely on.
 `handzoo convert` runs:
 
 ```
-$ handzoo convert notes.pdf --pages 1-3
+$ handzoo notes.pdf --pages 1-3
 page    1  FAIL  ascii=pass  delimiters=pass  compile=skipped  coverage=fail
 page    2  ok    ascii=pass  delimiters=pass  compile=pass     coverage=pass
 page    3  ?     ascii=pass  delimiters=pass  compile=skipped  coverage=pass

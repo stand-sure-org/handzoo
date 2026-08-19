@@ -43,7 +43,7 @@ def _format(outcome: PageOutcome) -> str:
 def main(argv: list[str] | None = None, *, stream=None) -> int:
     stream = stream or sys.stdout
     parser = argparse.ArgumentParser(
-        prog="handzoo convert",
+        prog="handzoo",
         description="Convert handwritten pages to LaTeX, refusing output that does not build.")
     parser.add_argument("pdf", type=Path)
     parser.add_argument("-o", "--out", type=Path, default=Path("out"))

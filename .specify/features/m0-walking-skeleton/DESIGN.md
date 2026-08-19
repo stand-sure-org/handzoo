@@ -433,9 +433,16 @@ Because the inventory call is not conditioned on the transcription call's choice
 The gate is therefore built on presence and position only:
 
 1. Transcription pass → `markup`. Inventory pass → `inventory`.
-2. Every inline `Mark` in the inventory must have a corresponding marker in the emitted output, matched by position.
+2. Every inline `Mark` in the inventory must be accounted for by a marker in the emitted
+   output. **As implemented this is a count comparison, not positional matching** — any *n*
+   markers discharge any *n* marks. Position is used only to tell the human where a missing
+   mark probably belonged, never to decide the verdict. Positional matching remains open work;
+   the count check already catches the measured failure (7 seen, 1 emitted).
 3. A mark in the inventory with no marker in the output is a **hard fail**.
-4. **Raster ink-density cross-check** — the only signal not sourced from a VLM at all — catches an inventory pass that under-reports itself. Structural's recommendation.
+4. **Ink cross-check** — the only signal not sourced from a VLM at all. **As implemented it
+   fires only when the inventory is empty**, distinguishing a genuinely blank page from a
+   failed inventory pass. It does *not* yet catch a non-empty inventory that under-reports,
+   which was Structural's original recommendation and is still open.
 
 Nothing is built on the descriptions.
 

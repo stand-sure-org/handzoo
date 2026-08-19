@@ -169,7 +169,11 @@ def _unwrap_lists_in_tabular(text: str, rules: list[str]) -> str:
         rules.append("R7 list unwrapped inside tabular")
         items = re.findall(r"\\item\s+(.*?)(?=\\item|\\end\{)", m.group(2), re.DOTALL)
         flat = "; ".join(" ".join(i.split()) for i in items)
-        return f"{m.group(1)}{flat}% TODO: was a nested list{m.group(4)}"
+        # The comment goes AFTER the closer, terminated by a newline. Placed before it,
+        # `%` comments out the very \end{tabular} being preserved: the parser then treats
+        # the environment as open, swallows following prose into the table, and a
+        # synthesised closer lands after it. Both gates pass on the result.
+        return f"{m.group(1)}{flat}{m.group(4)}% TODO: was a nested list\n"
     prev = None
     while prev != text:
         prev, text = text, _LIST_IN_TABULAR.sub(repl, text)
@@ -213,7 +217,11 @@ def normalize(markup: str, standalone: bool = True) -> Result:
         else:
             body = text
             rules.append("R4 fragment -> standalone")
-        body = body.split("\\end{document}")[0]
+        # Stripped so repeated normalisation converges. Unstripped, each pass added
+        # two newlines without bound -- and `handzoo review` will re-normalise
+        # corrected pages, so a document that grows every time it is touched is
+        # exactly wrong for a correction loop.
+        body = body.split("\\end{document}")[0].strip()
         residual = non_ascii_chars(body)
         undefined = find_undefined(body)
         decls = declarations_for(undefined, residual, source=body)
