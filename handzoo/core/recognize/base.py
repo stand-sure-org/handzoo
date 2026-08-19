@@ -130,4 +130,19 @@ class Recognizer(Protocol):
     response arrived with `done_reason: "stop"` and looked exactly like a clean one.
     """
 
-    def recognize(self, page: Path) -> Recognition: ...
+    def recognize(self, page: Path) -> Recognition:
+        """Transcribe one rasterised page.
+
+        Args:
+            page: Path to a page image. Rasterisation is the caller's job — the recognizer
+                never reads a PDF, so the choice of DPI stays with the pipeline.
+
+        Returns:
+            A `Recognition` whose `markup` is non-empty.
+
+        Raises:
+            Exception: implementation-defined, on any outcome that is not usable output.
+                Returning an empty `Recognition` instead of raising is the one thing an
+                implementation must never do — a blank that looks like success is how a
+                page silently goes missing from a run.
+        """
