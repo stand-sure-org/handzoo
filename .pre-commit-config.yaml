@@ -1,0 +1,86 @@
+# Managed by the pre-commit-setup skill.
+# Regenerate with that skill rather than hand-editing, so fixes reach every repo.
+#
+# Install with ALL THREE hook types — `pre-commit install` alone installs only
+# pre-commit, and the ledger's post-commit/post-rewrite hooks silently never run:
+#
+#   pre-commit install --hook-type pre-commit --hook-type post-commit --hook-type post-rewrite
+
+repos:
+  # Upstream defines three interchangeable ids. Pick by what the machine has:
+  #   gitleaks         language: golang       self-contained, pre-commit builds it   <- default
+  #   gitleaks-system  language: system       uses a gitleaks already on PATH
+  #   gitleaks-docker  language: docker_image requires a running Docker daemon
+  #
+  # `gitleaks` is the default here because it is the only one with no external
+  # prerequisite — correct for a repo with outside contributors.
+  #
+  # NEVER override `entry` on these hooks. Overriding is legal config, which is
+  # what makes it dangerous: upstream's entry is
+  #     gitleaks git --pre-commit --redact --staged --verbose
+  # and the common override `gitleaks protect` silently drops --redact, so found
+  # secrets get printed into terminal output and CI logs. It also drops --staged,
+  # and `protect` is delisted from `gitleaks --help` as of 8.30.1 (use `git`).
+  # Change the hook `id` to switch runtimes; leave `entry` alone.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+        name: Detect hardcoded secrets
+
+  - repo: local
+    hooks:
+      # Branch guard — inline, no script file, so there is nothing to drift.
+      # Allows the bootstrap commit (no commits yet) and repos with no remote,
+      # both of which the older standalone script blocked outright.
+      - id: prevent-commits-to-default-branch
+        name: Prevent commits to default branch
+        language: system
+        pass_filenames: false
+        always_run: true
+        entry: >-
+          bash -c '
+          git rev-parse --verify HEAD >/dev/null 2>&1 || exit 0;
+          default=$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null | sed "s@^refs/remotes/origin/@@");
+          if [ -z "$default" ]; then
+            default=$(git config --get init.defaultBranch || true);
+          fi;
+          if [ -z "$default" ]; then
+            for c in main master trunk; do
+              git show-ref --verify --quiet "refs/heads/$c" && { default="$c"; break; };
+            done;
+          fi;
+          [ -z "$default" ] && exit 0;
+          current=$(git rev-parse --abbrev-ref HEAD);
+          if [ "$current" = "$default" ]; then
+            echo "Refusing to commit directly to default branch: $default" >&2;
+            echo "Create a branch first:  git switch -c <branch>" >&2;
+            exit 1;
+          fi;
+          exit 0'
+
+      # Agent commit ledger. Each is a no-op when ~/.claude/scripts/claude-ledger
+      # is absent, so these are safe on machines without the ledger CLI.
+      - id: ledger-add
+        name: Ledger add
+        entry: .githooks/ledger-add.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      - id: ledger-finalize
+        name: Ledger finalize
+        entry: .githooks/ledger-finalize.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [post-commit]
+
+      - id: ledger-rewrite
+        name: Ledger rewrite (rebase/amend SHA fixup)
+        entry: .githooks/ledger-rewrite.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [post-rewrite]
