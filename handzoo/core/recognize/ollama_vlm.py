@@ -52,10 +52,13 @@ INVENTORY_PROMPT = (
     "Inventory every hand-drawn PICTURE on this page: stick figures, animals, houses, "
     "hands, faces, sketches, tally strokes, and annotation marks that point at or comment on "
     "other content.\n"
-    "EXCLUDE anything that is ordinary mathematical or textual notation, even though it was "
-    "written by hand. If it can be written as a LaTeX command, it is NOT a picture: arrows "
-    "inside an expression (0 -> 1 -> 2), set and logic symbols, Greek letters, operators, "
-    "braces, equals and inequality signs, and underlines are all notation, not pictures.\n"
+    "The test is LAYOUT, not symbol. A mark is a PICTURE when it occupies two dimensions on "
+    "its own: a diagram whose labelled parts sit in space, curved or looping arrows between "
+    "them, a sketch, a drawing. A mark is NOTATION when it sits in the flow of a line of "
+    "text or an expression.\n"
+    "So: a commutative diagram with arrows between labelled objects IS a picture. The arrows "
+    "in `0 -> 1 -> 2 -> 3` written along one line are NOT. Greek letters, set and logic "
+    "symbols, operators, braces, equals and inequality signs are never pictures.\n"
     "Do NOT transcribe the words. "
     'Return STRICT JSON only:\n{"marks":[{"description":"...","context":"...",'
     '"inline_or_block":"inline|block","count":N}]}\n'

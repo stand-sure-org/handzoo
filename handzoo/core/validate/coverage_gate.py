@@ -41,8 +41,21 @@ MAX_LOCATED = 10
 _MARKER = re.compile(r"\[\[DIAGRAM:.*?\]\]|\[TODO diagram:.*?\]", re.DOTALL)
 
 
+_FABRICATED = re.compile(r"\[TODO fabricated:\s*(.*?)\]", re.DOTALL)
+
+
 def count_markers(latex: str) -> int:
     return len(_MARKER.findall(latex))
+
+
+def fabrications(latex: str) -> list[str]:
+    """Places the recognizer invented a drawing and R9 refused to let it compile.
+
+    Each one is outstanding work for a human — usually a thirty-second crop of the region,
+    which is why they must be surfaced rather than left as text nobody is routed to. "Never
+    fabricate" is a hard constraint; an unresolved fabrication means the page is not done.
+    """
+    return [m.group(1).strip() for m in _FABRICATED.finditer(latex)]
 
 
 def check(latex: str, inventory: tuple[Mark, ...], *,
@@ -57,7 +70,9 @@ def check(latex: str, inventory: tuple[Mark, ...], *,
             a block diagram may legitimately be emitted as a cropped figure reference
             instead of a marker, whereas an inline mark has nowhere else to go.
     """
-    if not inventory:
+    fabricated = fabrications(latex)
+
+    if not inventory and not fabricated:
         # Two different things produce an empty inventory, and only one of them is evidence.
         #
         # The pass FAILED to be read — we do not know what is on the page. Not a pass.
@@ -72,15 +87,21 @@ def check(latex: str, inventory: tuple[Mark, ...], *,
         # either, since on a symbolic page all the ink is legitimately notation.
         return GateResult(GATE)
 
+    fab_failures = [
+        Failure(detail=f"recognizer fabricated a drawing here — crop the region instead: {d}",
+                line=_line_of(latex, d))
+        for d in fabricated
+    ]
+
     expected = [m for m in inventory
                 if m.placement == "inline" or (require_block_marks and m.placement == "block")]
     if not expected:
-        return GateResult(GATE)
+        return GateResult(GATE, tuple(fab_failures))
 
     wanted = sum(m.count for m in expected)
     found = count_markers(latex)
     if found >= wanted:
-        return GateResult(GATE)
+        return GateResult(GATE, tuple(fab_failures))
 
     failures = [Failure(
         detail=f"{wanted} mark(s) seen on the page, {found} accounted for in the output "
@@ -98,7 +119,14 @@ def check(latex: str, inventory: tuple[Mark, ...], *,
             detail=f"...and {len(expected) - MAX_LOCATED} more not listed. A page reporting "
                    f"{len(expected)} separate marks usually means the inventory counted "
                    "strokes rather than marks; treat the count as an upper bound."))
-    return GateResult(GATE, tuple(failures))
+    return GateResult(GATE, tuple(fab_failures + failures))
+
+
+def _line_of(latex: str, needle: str) -> int | None:
+    for i, line in enumerate(latex.splitlines(), start=1):
+        if needle[:30] and needle[:30] in line:
+            return i
+    return None
 
 
 def _locate(latex: str, mark: Mark) -> Failure:
