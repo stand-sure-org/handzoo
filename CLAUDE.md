@@ -42,8 +42,9 @@ Environment, verified on this machine:
 |---|---|---|
 | `pdftoppm` | rasterize PDF → page PNGs (`-png -r 150`) | present |
 | `pdflatex` (MacTeX) | compile gate — **hardcoded for M0** | present |
-| `ollama` | recognizer host | present, `qwen3-vl:8b` + `:4b` pulled |
-| `uv`, `ruff`, `pytest` | toolchain | `uv` present |
+| `ollama` | recognizer host | present; **use `qwen3-vl:8b-instruct`** |
+| `uv`, `pylatexenc` | toolchain + Normalizer basis | `.venv` present |
+| `lean`, `agda` | deferred formal checking (§5.5.3) | installed, not wired in |
 | `tectonic` | CI-reproducibility swap, later | not installed, not blocking |
 
 ## Hard constraints
@@ -55,19 +56,52 @@ Environment, verified on this machine:
 5. **Never silently drop, reword, or renotate a mark.** This is the same principle as (4), applied where the baseline proved it was missing.
 6. **Local-first.** `fixtures/` is gitignored — the manuscript is unpublished IP and this repo is intended for public release.
 
+## What is built, and what is not
+
+| | State |
+|---|---|
+| `handzoo/core/normalize.py` | **Working.** Ten rules (R1–R10), each traced to a measured gate failure. Built on `pylatexenc`, not regex. |
+| `handzoo/core/declarations.py` | **Working.** Generates `\ifdefined`-guarded declarations for macros the recognizer invents. |
+| Rasterizer, recognizer, gates, emitter, pipeline, CLI | **Not built.** No entry point exists yet — `pyproject.toml` declares no `[project.scripts]`. |
+| Tests | **None.** The fixture corpus is acting as a regression suite, run by hand. |
+
+Measured state of the Normalizer, on identical raw recognizer output (Naive Math, the hardest
+document): 16/22 → **22/22**. Older Thinking-checkpoint corpora hold at 30/34 as a fixed
+regression set.
+
+**The unsolved problem is substitution, not syntax.** "Over-correction" — the model silently
+improving what is on the page — persists on Instruct and is measured across 15 VLMs at 42–66%.
+No checkpoint swap and no prompt fixes it. See DESIGN §5.5.
+
 ### The ASCII gate is a trap in the brief
 
 Use `iconv -f ASCII -t ASCII out.tex` (or `s.encode("ascii")`). The brief's `! grep -P '[^\x00-\x7F]' out.tex` is **broken**: `-P` is a GNU/ugrep extension, stock macOS `/usr/bin/grep` errors on it, and the leading `!` inverts that error into a pass. The gate reports clean without ever looking.
 
 ## Recognizer — measured constraints, not guesses
 
-`qwen3-vl:8b` via Ollama (supersedes the brief's Qwen2.5-VL). Working reference implementation: `baseline/recognize.py`.
+### Use `qwen3-vl:8b-instruct`. Never the bare `qwen3-vl:8b`.
 
-- Reasoning goes to `message.thinking` and **counts against `num_predict`** → always `num_predict: -1`. A 1400-token cap returned empty; 3000 returned empty on one run and valid on another.
-- **`think: false` is not honored** on ollama 0.30.7 for this model. Documented, not a bug to fix — do not spend time on it.
-- Empty `content` with `done_reason: "stop"` is **normal**. Retry, bounded.
-- Use `/api/chat`, not `/api/generate`.
+**`qwen3-vl:8b` is an alias for the *Thinking* checkpoint** — a reasoning model, which this
+task does not want. Measured on the full ch16 corpus, changing only the checkpoint:
+
+| | `qwen3-vl:8b` (Thinking) | `qwen3-vl:8b-instruct` |
+|---|---|---|
+| Blank responses | 2/26 | **0/26** |
+| Gate pass | 81% | **96%** |
+| Median latency | 92s | **4s** |
+
+An entire day went into diagnosing "blanks" that were reasoning loops in a model that should
+never have been reasoning. Do not repeat it.
+
+**Required options:** `num_ctx: 8192` and `num_predict: -1`, via `/api/chat` (not
+`/api/generate`). `num_ctx` is **correctness, not tuning** — Ollama's 262,144 default
+allocates ~42 GB for a 6 GB model and swamps the host into swap.
+
+> `baseline/recognize.py` is **historical**, kept as the artifact that produced the original
+> baseline. It uses the Thinking checkpoint and caps nothing. Do not copy it.
+
 - **Two passes per page:** transcription, then an independent inventory pass. The inventory is trustworthy about *where* marks are and **untrustworthy about what they are** — build the coverage gate on presence and position only.
+- Empty `content` with `done_reason: "stop"` still needs a bounded retry, and a **per-attempt timeout** — but is no longer the dominant failure on Instruct.
 
 `qwen2-math` is **text-only**. It cannot recognize. It is a candidate *semantic checker* for M1+ — the only identified mechanism against semantic substitution.
 
