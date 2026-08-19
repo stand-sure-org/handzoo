@@ -3,11 +3,19 @@ name = "handzoo"
 version = "0.1.0"
 description = "Handwritten math notes to compilable LaTeX, gated so broken output is refused."
 requires-python = ">=3.11"
+# Declared so the licence scan can classify us; without it pip-licenses reports
+# handzoo itself as UNKNOWN and merge-checks fails on its own package.
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 dependencies = ["pylatexenc>=2.10"]
 
 [dependency-groups]
 # merge-checks runs `uv sync --group dev` for pip-audit, outdated and license scans.
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "pip-audit>=2.7",   # merge-checks runs `uv run pip-audit`
+]
 
 [build-system]
 requires = ["hatchling"]
