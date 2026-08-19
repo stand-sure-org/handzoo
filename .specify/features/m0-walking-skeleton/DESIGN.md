@@ -614,57 +614,44 @@ prevented from filling it.
 **Not uniform.** On p5 and p14 masking changed nothing measurable — no fabrication either way.
 So the grille addresses pages that provoke fabrication, which is a subset.
 
-#### Extended to n=9 (2026-08-19). 63% fewer fabricated constructs.
+#### Extended to the full document (2026-08-19). 65% fewer fabricated constructs.
 
-All 19 pages of `Cheng pp161-179`; nine had a drawing detected. Fabrication is proxied by
+All 19 pages of `Cheng pp161-179`; **16 had a drawing detected.** Fabrication is proxied by
 LaTeX constructs that render 2-D structure (`array`, `tikzpicture`, `xrightarrow`, `\downarrow`
 and kin) — a page transcribed honestly should not need them, a page where the model invented a
 diagram will. Prose retention is the fraction of unmasked content words still present after
 masking, and it doubles as a mask-quality check.
 
+Of the 13 runs where the mask left the page readable (retention ≥ 0.5):
+**8 reduced, 4 unchanged, 1 worse — 49 fabricated constructs became 17, a 65% reduction.**
+
+The interesting rows:
+
 | page | boxes | fabrication | prose kept | |
 |---|---|---|---|---|
+| 4 | 3 | 10 → 0 | 0.86 | the best case |
+| 9 | 1 | 8 → 0 | 0.93 | clean elimination |
+| 2 | 6 | 6 → 0 | 0.78 | |
+| 16 | 3 | 4 → 0 | 0.74 | |
 | 1 | 3 | 6 → **9** | 0.57 | worse |
-| 2 | 6 | 6 → 0 | 0.78 | reduced |
-| 4 | 3 | 10 → 0 | 0.86 | reduced |
-| 5 | 30 | 2 → 0 | 0.71 | reduced |
-| 6 | 14 | 2 → 0 | 0.87 | reduced |
-| 7 | 1 | 4 → 2 | 0.93 | reduced |
-| 8 | 1 | 5 → 5 | 1.00 | no change |
-| 9 | 1 | 8 → 0 | 0.93 | reduced |
-| 10 | 1 | 4 → 0 | **0.00** | void — the mask destroyed the text |
+| 13 | 3 | 3 → **20** | 0.48 | void, and dramatic |
+| 10 | 1 | 4 → 0 | 0.00 | void — a blank, not a clean page |
 
-Across the eight runs where the mask left the page readable: **six reduced, one unchanged, one
-worse. 43 fabricated constructs became 16, a 63% reduction.**
+**The failures are the useful part, and page 13 states the mechanism outright.** Masking
+destroyed half its text, and the model responded by inventing **twenty** structural constructs
+where there had been three. Page 10's mask blanked nearly everything, so its "4 → 0" is a blank
+transcription rather than a clean one. Page 1, the only usable run that got worse, had the
+lowest retention of any usable run.
 
-**The two failures are the useful part.** Page 10's mask blanked essentially the whole page, so
-its "4 → 0" is a blank transcription rather than a clean one. Page 1 — the only usable run that
-got *worse* — also had the lowest prose retention of any usable run, at 0.57.
+So: **a mask that eats text forces the model to reconstruct, and reconstruction is what invites
+fabrication.** Masking too much is not a milder version of masking correctly; it is the original
+failure with a larger hole to fill.
 
-That is a mechanism, not a coincidence: **a mask that eats text forces the model to reconstruct,
-and reconstruction is what invites fabrication.** Masking too much is not a milder version of
-masking correctly; it is the original failure with a larger hole to fill.
-
-**So prose retention is the guard.** It is computable without ground truth — compare content
-words before and after — and a masked transcription that loses too much of the surrounding prose
-should be discarded in favour of the unmasked one. A threshold around 0.7 separates every
-success here from both failures, on n=9, which is enough to implement and not enough to tune.
-
-#### The finding that matters more than the grille
-
-**The model almost never emits the `[[DIAGRAM: …]]` marker we ask for.** Across eight recent
-transcriptions: zero. Faced with a drawing it either fabricates `tikz`/`array` or omits the
-region silently. It does not mark.
-
-This undercuts the coverage gate's mechanism (§5.4), which counts markers as evidence that a
-mark was preserved. If markers are essentially never produced, then a coverage failure reads
-"N marks seen, 0 accounted for" almost by construction, and the gate is measuring *what the
-inventory found* rather than *what the transcription preserved*. The gate still catches real
-loss — that is why page 1 fails correctly — but its precision is much lower than the design
-assumed, and the block-mark limitation above is a symptom of the same thing.
-
-**The grille is the more promising route precisely because it does not depend on the model
-choosing to mark anything.** The marker is inserted by us, at coordinates we measured.
+**Prose retention is therefore the guard**, and it needs no ground truth — compare content words
+before and after. On the full set it is *conservative rather than perfect*: three of the four
+runs below 0.7 failed to help, and the fourth (page 19) gave a mild 2 → 1 win the guard would
+discard. Trading one mild win to prevent one 3 → 20 is the right side of that bargain, but the
+threshold is a safety rail on n=16, not a tuned parameter.
 
 #### Prior art, researched 2026-08-19
 
