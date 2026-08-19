@@ -132,3 +132,25 @@ def test_the_gate_cannot_see_substitution() -> None:
     # Two markers present, so coverage is satisfied — and the statement is still false.
     latex = substituted + " [[DIAGRAM: a]] [[DIAGRAM: b]]"
     assert coverage_gate.check(latex, inventory).passed
+
+
+def test_a_flood_of_marks_is_capped_and_says_so() -> None:
+    """Measured: a page of tally marks inventoried 285 separate marks.
+
+    A reviewer facing 285 findings reviews none of them carefully — inspectors miss 20-30%
+    of defects under repetitive load. The cap is announced, because a truncated list that
+    reads as complete is the same lie as a skipped check that reads as a pass.
+    """
+    result = coverage_gate.check("no markers", tuple(_mark() for _ in range(60)))
+
+    assert not result.passed
+    assert len(result.failures) <= coverage_gate.MAX_LOCATED + 2
+    assert any("more not listed" in f.detail for f in result.failures)
+    assert any("upper bound" in f.detail for f in result.failures)
+
+
+def test_an_unreadable_inventory_is_not_a_blank_page() -> None:
+    """Both give an empty inventory. Only one of them is evidence about the page."""
+    blank = InkProfile(points=3, bands=(0.0,) * 10)
+    assert coverage_gate.check("x", (), ink=blank).passed
+    assert not coverage_gate.check("x", (), ink=blank, inventory_failed=True).checked

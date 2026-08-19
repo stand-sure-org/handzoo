@@ -108,6 +108,10 @@ class Recognition:
 
     markup: str
     inventory: tuple[Mark, ...] = ()
+    inventory_failed: bool = False
+    """True when the inventory pass ran and could not be read, as distinct from running and
+    finding nothing. An empty inventory means "we do not know"; this says which kind of not
+    knowing it was, so a caller is never left inferring absence from silence (DESIGN 5.7)."""
     provider: str = ""
     model: str = ""
     inlines: tuple[Inline, ...] = field(default_factory=tuple)

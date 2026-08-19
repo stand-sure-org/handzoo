@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import subprocess
 import urllib.error
 import urllib.request
@@ -50,10 +51,17 @@ TRANSCRIBE_PROMPT = (
 INVENTORY_PROMPT = (
     "Inventory every distinct hand-drawn NON-TEXT mark on this page (stick figures, animals, "
     "houses, hand drawings, tally strokes, arrows, checkmarks). Do NOT transcribe the words. "
-    'Return STRICT JSON only:\n{"marks":[{"description":"...","context":"the surrounding '
-    'words it sits between or inside","inline_or_block":"inline|block","count":N}]}\n'
-    "A mark is 'inline' if it sits INSIDE a sentence or table cell as if it were a word."
+    'Return STRICT JSON only:\n{"marks":[{"description":"...","context":"...",'
+    '"inline_or_block":"inline|block","count":N}]}\n'
+    "A mark is 'inline' if it sits INSIDE a sentence or table cell as if it were a word.\n"
+    "Keep every string under 8 words. Terse. No prose, no explanation, JSON only."
 )
+"""Brevity is a correctness requirement here, not a style preference.
+
+Measured: an unconstrained inventory ran to 24,611 characters of florid description and was
+truncated mid-JSON, so the whole response failed to parse and the page reported zero marks —
+which silently disabled the coverage gate for that page. We do not trust the descriptions
+anyway (see `Mark.description`), so asking for less costs nothing and buys the gate back."""
 
 THINKING_ALIASES = frozenset({"qwen3-vl", "qwen3-vl:2b", "qwen3-vl:4b", "qwen3-vl:8b",
                               "qwen3-vl:30b", "qwen3-vl:32b", "qwen3-vl:235b"})
@@ -128,20 +136,29 @@ class OllamaRecognizer:
     def recognize(self, page: Path) -> Recognition:
         """Transcribe a page, then inventory its marks in a second, independent pass."""
         markup = self._ask(page, TRANSCRIBE_PROMPT)
-        inventory = self.inventory(page)
-        return Recognition(markup=markup, inventory=inventory,
+        inventory, failed = self._inventory(page)
+        return Recognition(markup=markup, inventory=inventory, inventory_failed=failed,
                            provider="ollama", model=self.model)
 
     def transcribe(self, page: Path) -> str:
         return self._ask(page, TRANSCRIBE_PROMPT)
 
     def inventory(self, page: Path) -> tuple[Mark, ...]:
-        """The independent second pass. A parse failure yields no marks, never a raise —
-        a page whose inventory is unreadable still has usable markup."""
+        """The independent second pass.
+
+        Returns no marks when the response cannot be read at all. That is indistinguishable
+        from a genuinely blank page *here*, which is why the coverage gate treats an empty
+        inventory as `checked=False` rather than as a pass, and why `inventory_failed` exists
+        for a caller that needs to tell the two apart.
+        """
+        return self._inventory(page)[0]
+
+    def _inventory(self, page: Path) -> tuple[tuple[Mark, ...], bool]:
+        """Marks, and whether the pass failed to be read at all."""
         try:
-            return _parse_inventory(self._ask(page, INVENTORY_PROMPT))
+            return _parse_inventory(self._ask(page, INVENTORY_PROMPT)), False
         except (RecognitionError, json.JSONDecodeError):
-            return ()
+            return (), True
 
     # -- internals --------------------------------------------------------------
 
@@ -181,6 +198,22 @@ def _strip_fence(text: str) -> str:
     return text.removesuffix("```").strip()
 
 
+_OBJECT = re.compile(r"\{[^{}]*\}")
+
+
+def _salvage(raw: str) -> list[dict]:
+    """Every complete `{...}` object in a truncated response, in order."""
+    out = []
+    for m in _OBJECT.finditer(raw):
+        try:
+            obj = json.loads(m.group(0))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and "inline_or_block" in obj:
+            out.append(obj)
+    return out
+
+
 def _parse_inventory(raw: str) -> tuple[Mark, ...]:
     """Read the inventory JSON, keeping only what was measured to be reliable.
 
@@ -190,9 +223,17 @@ def _parse_inventory(raw: str) -> tuple[Mark, ...]:
     start, end = raw.find("{"), raw.rfind("}")
     if start < 0 or end <= start:
         return ()
-    data = json.loads(raw[start:end + 1])
+    try:
+        entries = json.loads(raw[start:end + 1]).get("marks", [])
+    except json.JSONDecodeError:
+        # A response cut off mid-object still describes the marks it managed to emit.
+        # Recovering eight of ten marks is a usable coverage check; discarding all ten
+        # silently turns the gate off, which is the failure this project refuses.
+        entries = _salvage(raw)
+        if not entries:
+            raise
     marks: list[Mark] = []
-    for entry in data.get("marks", []):
+    for entry in entries:
         placement = "inline" if str(entry.get("inline_or_block", "")).startswith("inline") \
             else "block"
         try:

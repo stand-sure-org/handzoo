@@ -33,6 +33,9 @@ from .base import Failure, GateResult
 
 GATE = "coverage"
 
+MAX_LOCATED = 10
+"""How many individual marks to locate before summarising. See the note where it is used."""
+
 # Markers, in both the shapes they legitimately take: raw from the recognizer, and after the
 # Normalizer has made them safe to typeset.
 _MARKER = re.compile(r"\[\[DIAGRAM:.*?\]\]|\[TODO diagram:.*?\]", re.DOTALL)
@@ -43,7 +46,8 @@ def count_markers(latex: str) -> int:
 
 
 def check(latex: str, inventory: tuple[Mark, ...], *,
-          require_block_marks: bool = False, ink: InkProfile | None = None) -> GateResult:
+          require_block_marks: bool = False, ink: InkProfile | None = None,
+          inventory_failed: bool = False) -> GateResult:
     """Fail when the inventory saw marks the output does not account for.
 
     Args:
@@ -60,7 +64,7 @@ def check(latex: str, inventory: tuple[Mark, ...], *,
         #
         # Ink is the one signal here no vision model produced, so it can distinguish
         # "genuinely blank page" from "the inventory pass under-reported".
-        if ink is not None and ink.is_blank:
+        if ink is not None and ink.is_blank and not inventory_failed:
             return GateResult(GATE)
         return GateResult(GATE, checked=False)
 
@@ -78,7 +82,18 @@ def check(latex: str, inventory: tuple[Mark, ...], *,
         detail=f"{wanted} mark(s) seen on the page, {found} accounted for in the output "
                f"— {wanted - found} dropped silently",
     )]
-    failures.extend(_locate(latex, m) for m in expected)
+    # Cap the located failures. Measured: a page of tally marks produced 285 of them, and a
+    # reviewer facing 285 items reviews none of them carefully — inspectors miss 20-30% of
+    # defects under repetitive load. The cap is announced rather than silent, because a
+    # bounded list that reads as complete is the same lie as a skipped check that reads as
+    # a pass (DESIGN 5.7).
+    shown = expected[:MAX_LOCATED]
+    failures.extend(_locate(latex, m) for m in shown)
+    if len(expected) > MAX_LOCATED:
+        failures.append(Failure(
+            detail=f"...and {len(expected) - MAX_LOCATED} more not listed. A page reporting "
+                   f"{len(expected)} separate marks usually means the inventory counted "
+                   "strokes rather than marks; treat the count as an upper bound."))
     return GateResult(GATE, tuple(failures))
 
 

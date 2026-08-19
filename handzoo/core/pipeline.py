@@ -39,6 +39,10 @@ class PageOutcome:
     gates: dict[str, str]
     error: str | None = None
     rules: int = 0
+    findings: list[dict] = field(default_factory=list)
+    """Gate findings, persisted so `handzoo review` can route a human to specific lines.
+    Re-deriving them would mean re-running the recognizer, since the coverage gate needs an
+    inventory that exists only during the run."""
 
     @property
     def done(self) -> bool:
@@ -120,6 +124,10 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
             gates={g.gate: ("pass" if g.passed else "skipped" if not g.checked else "fail")
                    for g in emission.gates},
             rules=len(emission.rules),
+            findings=[
+                {"gate": g.gate, "detail": f.detail, "line": f.line, "excerpt": f.excerpt}
+                for g in emission.gates for f in g.failures
+            ],
         )
         run.record(outcome)
         if on_page:
@@ -137,7 +145,8 @@ def _validate(recognition: Recognition, pdf: Path, page: int, *, mode: str) -> E
         ascii_gate.check(draft.text),
         delimiter_gate.check(draft.text),
         compile_gate.check(draft.text) if mode == "standalone" else _skip_compile(),
-        coverage_gate.check(draft.text, recognition.inventory, ink=ink),
+        coverage_gate.check(draft.text, recognition.inventory, ink=ink,
+                            inventory_failed=recognition.inventory_failed),
     )
     # Reuse the draft rather than normalising a second time. Deterministic today, but
     # nothing enforced that the two runs agreed, and a divergence would have meant the

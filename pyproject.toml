@@ -19,6 +19,7 @@ dev = [
 
 [project.scripts]
 handzoo = "handzoo.adapters.cli_convert:main"
+handzoo-review = "handzoo.adapters.cli_review:main"
 
 [build-system]
 requires = ["hatchling"]
