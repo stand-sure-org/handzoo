@@ -1,0 +1,25 @@
+name: merge-checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  # Reusable workflow lives in our own fork of Oui-DELIVER (Apache-2.0), not in
+  # innago-property-management, so updates are ours to make. Pinned to @main
+  # deliberately: we control that branch.
+  merge-checks:
+    uses: stand-sure-org/Oui-DELIVER/.github/workflows/merge-checks-python-uv.yml@main
+    permissions:
+      contents: read
+      security-events: write
+    with:
+      python_version: "3.12"
+      allowed_licenses: "MIT|Apache|BSD|ISC|PSF|Python|Unlicense|CC0|0BSD|WTFPL|MPL"
+    secrets:
+      githubToken: ${{ secrets.GITHUB_TOKEN }}
