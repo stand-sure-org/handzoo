@@ -14,6 +14,7 @@ recognition raster.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -101,3 +102,51 @@ def crop_vector(pdf: Path, page: int, out: Path, *, x: int, y: int, width: int,
         raise RasterizeError(
             f"{VECTOR_TOOL} produced no crop for page {page}: {proc.stderr.strip()[:200]}")
     return out
+
+
+@dataclass(frozen=True, slots=True)
+class InkProfile:
+    """Where the ink is on a page, measured from the vector source.
+
+    This is the only signal in the pipeline that no vision model produced. Everything else —
+    the transcription, the inventory, any confidence a model reports — comes from the same
+    family of system and can be wrong in correlated ways. Ink cannot.
+    """
+
+    points: int
+    """Total path coordinates. A proxy for "how much is on this page"."""
+    bands: tuple[float, ...]
+    """Fraction of ink in each equal vertical band, top to bottom."""
+
+    @property
+    def is_blank(self) -> bool:
+        return self.points < 20
+
+    def occupied_bands(self, threshold: float = 0.01) -> tuple[int, ...]:
+        return tuple(i for i, f in enumerate(self.bands) if f >= threshold)
+
+
+_SVG_POINT = re.compile(r"[ML]\s*[-\d.]+\s+([-\d.]+)")
+
+
+def ink_profile(pdf: Path, page: int, *, bands: int = 10) -> InkProfile:
+    """Measure ink distribution down a page, without rendering or reading a model.
+
+    reMarkable exports carry no embedded rasters and no fonts, so every path coordinate in the
+    SVG is ink the author made.
+    """
+    _require(VECTOR_TOOL)
+    proc = subprocess.run(
+        [VECTOR_TOOL, "-svg", "-f", str(page), "-l", str(page), str(pdf), "/dev/stdout"],
+        capture_output=True, text=True, check=False)
+    ys = [float(m) for m in _SVG_POINT.findall(proc.stdout)]
+    if not ys:
+        return InkProfile(points=0, bands=tuple([0.0] * bands))
+
+    lo, hi = min(ys), max(ys)
+    span = (hi - lo) or 1.0
+    counts = [0] * bands
+    for y in ys:
+        counts[min(bands - 1, int((y - lo) / span * bands))] += 1
+    total = len(ys)
+    return InkProfile(points=total, bands=tuple(c / total for c in counts))
