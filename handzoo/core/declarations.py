@@ -49,6 +49,7 @@ KNOWN = frozenset(
     textbackslash textasciitilde not top bot colon hrule vrule because therefore models vdash
     dashv lneq gneq ll gg prec succ preceq succeq asymp doteq triangleq binom choose over atop
     overset underset stackrel substack mathop mathbin mathrel mathpunct mathopen mathclose
+    includegraphics graphicspath resizebox scalebox includepdf
     limits nolimits displaystyle textstyle scriptstyle scriptscriptstyle smallskip medskip
     bigskip par relax empty null
     """.split()  # noqa: SIM905 - 294 words read better wrapped than as a literal

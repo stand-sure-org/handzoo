@@ -18,6 +18,7 @@ the transform is idempotent and safe to apply without tracking mode perfectly.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from dataclasses import dataclass, field
 
 from pylatexenc import latexwalker
@@ -41,6 +42,11 @@ PREAMBLE = (
     "\\usepackage{amsthm}\n"
     "\\usepackage[T1]{fontenc}\n"
     "\\usepackage[margin=1in]{geometry}\n"
+    # graphicx is loaded unconditionally because R9 now lets a resolving
+    # \\includegraphics through (the crop verdict, DESIGN 7.2). Without it R8 stubs
+    # \\includegraphics as an unknown macro and the optional [width=...] fails with
+    # "Missing number, treated as zero". Unlike hyperref it redefines nothing.
+    "\\usepackage{graphicx}\n"
     + "".join(f"\\newtheorem{{{e}}}{{{e.capitalize()}}}\n" for e in THEOREM_ENVS)
 )
 
@@ -194,13 +200,47 @@ def _unwrap_lists_in_tabular(text: str, rules: list[str]) -> str:
     return text
 
 
-def _strip_fabricated_graphics(text: str, rules: list[str]) -> str:
+def _resolves(name: str, base_dir: Path | None) -> bool:
+    """Does this graphics reference point at a file that is actually there?
+
+    Without a `base_dir` the question cannot be asked, so the answer is no. That is the safe
+    direction: treating an unresolvable reference as real would let any invented filename
+    through unexamined, which is the failure R9 exists to catch (DESIGN 5.7 -- decide what a
+    check returns when it cannot run).
+
+    Resolution is confined to the output directory. `../../etc/passwd` exists; that is not
+    evidence the recognizer meant it.
+
+    Caveat, noted and not solved: LaTeX resolves a relative graphics path in a *fragment*
+    against the master document's directory, not the fragment's. So "exists under the output
+    directory" is exact for standalone output and a heuristic for fragments.
+    """
+    if base_dir is None:
+        return False
+    root = base_dir.resolve()
+    for candidate in (name, f"{name}.png", f"{name}.pdf", f"{name}.jpg"):
+        try:
+            target = (root / candidate).resolve()
+        except (OSError, ValueError):
+            continue
+        if target.is_file() and target.is_relative_to(root):
+            return True
+    return False
+
+
+def _strip_fabricated_graphics(text: str, rules: list[str],
+                               base_dir: Path | None = None) -> str:
     """R9 — a fabricated diagram environment or \\includegraphics becomes a marker."""
     def tikz(m):
         rules.append(f"R9 fabricated {m.group(1)} -> fabrication marker")
         return "[[FABRICATED: recognizer emitted a diagram environment despite instruction; redraw or crop]]"
 
     def graphic(m):
+        if _resolves(m.group(1), base_dir):
+            # A reference that resolves is not a fabrication. This is what the crop verdict
+            # (DESIGN 7.2) emits, and rewriting it would discard the human's work *and*
+            # attribute it to the recognizer.
+            return m.group(0)
         rules.append("R9 invented \\includegraphics -> fabrication marker")
         return f"[[FABRICATED: recognizer referenced a nonexistent file {m.group(1)}]]"
 
@@ -221,9 +261,10 @@ def _strip_fabricated_graphics(text: str, rules: list[str]) -> str:
     return _FAB_GRAPHIC.sub(graphic, text)
 
 
-def normalize(markup: str, standalone: bool = True) -> Result:
+def normalize(markup: str, standalone: bool = True,
+              base_dir: Path | None = None) -> Result:
     rules: list[str] = []
-    text = _strip_fabricated_graphics(markup, rules)
+    text = _strip_fabricated_graphics(markup, rules, base_dir)
     text = _mask_diagrams(text, rules)
     text = _unwrap_lists_in_tabular(text, rules)
     text = _fix_vertical_mode_breaks(text, rules)

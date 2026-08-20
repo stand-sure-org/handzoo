@@ -14,6 +14,8 @@ less six months from now, when the model has moved and the output has not.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from dataclasses import dataclass
 from typing import Literal
 
@@ -80,12 +82,20 @@ def provenance(recognition: Recognition, *, page: int | None = None) -> str:
 
 def emit(recognition: Recognition, gates: tuple[GateResult, ...] = (), *,
          target: Target = "latex", mode: Mode = "fragment",
-         page: int | None = None, with_provenance: bool = True) -> Emission:
-    """Normalize the recognized markup and render it for the chosen target and mode."""
+         page: int | None = None, with_provenance: bool = True,
+         base_dir: Path | None = None) -> Emission:
+    """Normalize the recognized markup and render it for the chosen target and mode.
+
+    `base_dir` is the run's output directory. R9 needs it to tell an invented
+    `\\includegraphics` from one that points at a file actually on disk -- the crop
+    verdict (DESIGN 7.2) emits the latter. Without it every reference is treated as
+    fabricated, which is the safe default and not the useful one.
+    """
     if target != "latex":
         raise ValueError(f"target {target!r} is not implemented in M0; only 'latex' is")
 
-    result = normalize(recognition.markup, standalone=(mode == "standalone"))
+    result = normalize(recognition.markup, standalone=(mode == "standalone"),
+                       base_dir=base_dir)
     text = result.text
     if with_provenance:
         text = provenance(recognition, page=page) + text

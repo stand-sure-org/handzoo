@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -30,12 +31,22 @@ def engine_available() -> bool:
     return shutil.which(ENGINE) is not None
 
 
-def check(latex: str, *, timeout: int = TIMEOUT_SECONDS) -> GateResult:
+def check(latex: str, *, timeout: int = TIMEOUT_SECONDS,
+          base_dir: Path | None = None) -> GateResult:
     """Compile in a scratch directory and report every TeX error.
 
     A missing engine returns `checked=False` — **not** a pass. A gate that quietly skips is
     how a suite goes green while verifying nothing, which is the exact failure mode this
     project exists to refuse.
+
+    `base_dir` is the run's output directory, put on `TEXINPUTS` so the engine can find assets
+    that sit beside the document — a cropped figure, above all. Compiling in a scratch
+    directory otherwise makes every relative `\\includegraphics` unresolvable, which would have
+    the gate reject the crop verdict's own correct output (DESIGN §7.2).
+
+    It is added to the search path, not the working directory: the scratch directory still
+    receives every intermediate file, so a run never writes `.aux` and `.log` litter into the
+    author's output.
     """
     if not engine_available():
         return GateResult(GATE, checked=False)
@@ -43,11 +54,17 @@ def check(latex: str, *, timeout: int = TIMEOUT_SECONDS) -> GateResult:
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / "document.tex"
         src.write_text(latex, encoding="utf-8")
+        env = None
+        if base_dir is not None:
+            # Trailing "" preserves the engine's default search path; without it TEXINPUTS
+            # replaces the distribution's own directories and nothing compiles at all.
+            env = {**os.environ,
+                   "TEXINPUTS": f"{Path(base_dir).resolve()}{os.pathsep}{os.environ.get('TEXINPUTS', '')}"}
         try:
             proc = subprocess.run(
                 [ENGINE, "-interaction=nonstopmode", "-halt-on-error", "-no-shell-escape",
                  src.name],
-                cwd=tmp, capture_output=True, text=True, timeout=timeout, check=False,
+                cwd=tmp, capture_output=True, text=True, timeout=timeout, check=False, env=env,
             )
         except subprocess.TimeoutExpired:
             return GateResult(GATE, (Failure(detail=f"{ENGINE} timed out after {timeout}s"),))

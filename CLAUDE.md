@@ -78,7 +78,7 @@ Environment, verified on this machine:
 | `handzoo/core/declarations.py` | **Working.** Generates `\ifdefined`-guarded declarations for macros the recognizer invents. |
 | Rasterizer, recognizer, gates, emitter, pipeline, CLI | **Working.** The command is `handzoo <pdf>` — see Commands above; there is no `convert` subcommand. |
 | `handzoo-review` — the correction loop | **Built** (PLAN Wave 5). Walks gate findings and records a verdict per page. The M0 exit criterion still needs author-timed runs through it. |
-| Tests | **129**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
+| Tests | **141**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
 
 Measured state of the Normalizer, on identical raw recognizer output (Naive Math, the hardest
 document): 16/22 → **22/22**. Older Thinking-checkpoint corpora hold at 30/34 as a fixed
