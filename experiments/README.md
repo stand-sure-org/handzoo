@@ -25,3 +25,16 @@ Answer on Cheng ch18 (n=14, 3 failures): **no.** Ratio spans 4.74-6.74; pass mea
 mean 5.79. More usefully, all three failures have identified causes unrelated to glyph size --
 one fabricated `\includegraphics`, two fabricated `tikzcd` environments. Ruled out by cause,
 not by coefficient; three failures cannot resolve a correlation statistically.
+
+## `_ink.py` — shared ink extraction
+
+Ruled guide lines are separated from ink **by geometry, not colour**. The original rule was
+"grey and uniform", which held on the pages it was written against and fails on Cheng 217-220
+p3, where 17 paths of deliberate grey ink would have been discarded as furniture. Chapter 18 is
+unaffected: both filters keep an identical 576/304/431/291 paths and the same 1.903 median.
+
+## `ink_colour.py` — what colours are actually on a page
+
+Measured on Cheng 217-220 p3: violet writing, grey base-diagram arrows, green cone legs, where
+green against grey *is* the lesson. Twelve recognizer runs over those four pages emitted no
+colour at all and the gates passed. See DESIGN §6.
