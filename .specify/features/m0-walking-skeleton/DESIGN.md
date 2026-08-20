@@ -1001,6 +1001,115 @@ COVERAGE GATE FAILED — 4 marks seen, 0 markers emitted
   -> run: handzoo review page-01
 ```
 
+## 8.1 Provenance — deferred, and what it has to carry
+
+**Status: designed, not built (2026-08-20).** Recorded now because the R9 fix proved the
+cost of not having it, and because the scan-to-paper experiment will arrive before this does.
+
+### Why it is not optional
+
+`PageOutcome` records page, output, verdict, gates, error, rules and findings. It records
+nothing about *what produced them* — no model, no code version, no source identity.
+
+That collides directly with §9's testing policy: recognizer accuracy is "nondeterministic and
+model-versioned: measure and record it, never assert it." A corpus that cannot say which model
+and which normalizer produced it has recorded a measurement with the units left off.
+
+This is not hypothetical. Widening R9 (§5.7.1) changed emitted output on pages already
+transcribed, and re-ruling the inventory prompt on layout changed it again. Rows produced
+before and after those changes are not comparable, and nothing in the manifest distinguishes
+them.
+
+### The organizing question
+
+*Could this row be reproduced, and if not, exactly what changed?* Every field below earns its
+place by answering that, or by surviving the deletion of something that will not last.
+
+| Field | What it answers |
+|---|---|
+| source `sha256` | identity that outlives the source file itself |
+| source basename, size, mtime | human recognition; mtime approximates scan time |
+| PDF `CreationDate`, `Producer` | **the embedded time claim.** ch18 reports `PDFium`, `2026-08-20 09:09:29`; a scanner writes its own software and scan time here |
+| page count, page size | 514x871 against 514x685 already mattered once (DECISION, zoom) |
+| `vector` or `raster` | which downstream features exist at all — see below |
+| model **digest** (`0533d74300e4`) | a tag can be re-pointed to different weights; a digest cannot |
+| prompt hash | prompts have changed twice and changed output both times |
+| handzoo git commit | the R9 lesson |
+| dpi, `num_ctx`, `num_predict` | the knobs that alter output |
+| attempts, latency | blanks are per-attempt, not per-page (§5.5) |
+| *which* rules fired | only a count is kept today |
+| `standalone` | so `handzoo-review` reads the mode back instead of asking the human |
+
+**Destructible sources sharpen this.** A reMarkable export can be regenerated from the device.
+A scan of paper cannot: the PDF is the only artifact that claims a time, and it is exactly the
+artifact a paper-first author discards. The hash and the embedded `CreationDate` are what
+survive it.
+
+### Vector against raster is a capability split, not a detail
+
+A reMarkable export is vector ink. A scan is raster. `crop_vector()` (§6.0), the stroke-width
+measurement, and the ink-colour work all read path attributes that a scan does not have -- and
+ink colour is *semantic* on the Naive Math fixtures. On a scan that becomes pixel
+classification, which is a different problem.
+
+So the source's nature is recorded, and features that cannot run on it must say so rather than
+return empty. This is §5.7 applied to a capability instead of a check.
+
+### Where it goes
+
+**Manifest first.** It is where the evidence lives, and `handzoo-review` needs `standalone`
+regardless. Note `load_outcomes` does `PageOutcome(**json.loads(line))`, so new fields need
+defaults or existing manifests stop loading.
+
+**A comment block in the `.tex` second.** `provenance()` already exists and is thin. Comments
+are the only channel that works in **fragment** mode, which is the default output.
+
+**PDF-level metadata is optional and standalone-only.** `hypersetup` cannot appear in a
+fragment, hyperref redefines a great deal and conventionally loads last, and this project's
+gate *is* "does it compile" -- a heavyweight package bought for metadata adds failure surface
+unrelated to transcription. pdfTeX's `\pdfinfo{}` primitive does the same job with no package,
+at the cost of being engine-specific if `tectonic` ever swaps in (§10).
+
+### `fancyhdr` is refused, and the need behind it renamed
+
+A fragment is `\input` into the author's document. `\pagestyle{fancy}` inside one mutates the
+**parent** document's page style -- an unrequested side effect on a file that is not ours, the
+same class of failure as R7's comment injection (§5.7). In standalone mode it is cosmetic.
+
+The underlying need is real: reviewing a printed PDF against paper, the page should say which
+source and which page it came from. That is a **review-print** feature, opt-in and
+standalone-only. It is not provenance, and conflating the two is how the side effect gets in.
+
+### Two traps, both verified
+
+**1. Provenance can fail our own ASCII gate.** `emit()` prepends the provenance block before
+the gates run, so a source filename containing non-ASCII fails the page:
+
+```
+% recognizer: ollama/qwen3-vl:8b-instruct - Notes - Ch1.pdf   <- en-dashes, U+2013
+ascii gate: FAIL -- non-ASCII (U+2013, EN DASH)
+```
+
+An en-dash in a filename is ordinary output from scanning software. The failure would read as a
+transcription defect. **Every field carrying external text is sanitized at the boundary**, and
+that is tested directly rather than assumed.
+
+**2. Absolute paths leak unpublished IP.** `fixtures/` is gitignored because the manuscript is
+unpublished and this repo is intended for public release. Embedding a full source path in every
+emitted `.tex` puts the author's directory structure and the manuscript's identity into files
+built for sharing.
+
+**Resolution: the artifact carries the hash; the mapping stays local and purgable.** A sidecar
+file in the output directory maps hash to path for the author's own use. It is local, it is
+never part of the emitted `.tex`, and deleting it costs only the human-readable name -- the hash
+still identifies the source, and still verifies against it if the file is produced again.
+
+### The rule this section inherits
+
+A provenance field that records a **guess** as a fact is worse than an absent field. If the
+model digest cannot be read, it records unknown -- never the tag, which would look verified and
+would be wrong the moment the tag is re-pointed. Same principle as §5.7, applied to metadata.
+
 ## 9. Testing
 
 TDD, consumer-first (ISP): `pipeline.py` is written against the ports before providers exist.
