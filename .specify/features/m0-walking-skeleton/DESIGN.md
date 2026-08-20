@@ -1209,6 +1209,52 @@ classification, which is a different problem.
 So the source's nature is recorded, and features that cannot run on it must say so rather than
 return empty. This is §5.7 applied to a capability instead of a check.
 
+### Measured: a scan destabilizes recognition; vector does not
+
+**2026-08-20.** The first scanned source ran end to end. It works -- ASCII, delimiters and
+compile all pass, coverage fails on fabricated diagrams, exactly as a reMarkable page does. But
+repeated runs on one unchanging page do not agree.
+
+Same page, same model, same options, only the run repeated:
+
+| source | runs | verdicts | findings | char spread |
+|---|---|---|---|---|
+| scan (letter, 300 dpi, JPEG) | 6 | **1 pass / 5 fail** | 0-10 | **44%** |
+| reMarkable p4 (no diagrams) | 3 | 3 pass | 0 every time | 20% |
+| reMarkable p23 (diagram page) | 3 | 3 fail | 2 every time | 8% |
+
+The obvious confound is content: a page that provokes diagram fabrication might simply be
+unstable. **It is ruled out.** The vector *diagram* page is the most stable of the three by
+character spread, and its finding count is identical across all three runs. Diagram-provoking
+content does not destabilize a vector page. The scan flips across the pass/fail boundary; six
+vector runs produced zero verdict flips.
+
+**Consequences.**
+
+- A single run's verdict is trustworthy on vector input and is not on a scan. The ch18 corpus
+  is one sample per page, and that remains a reasonable basis for vector sources.
+- The exit criterion is a timing question asked of a specific emitted document. On a scan, "the
+  document" is not a stable object, so a scanned page must be timed against the output the
+  author actually reviewed, never against a re-run.
+- A scan needs repeated runs before any measurement made from it means anything. Budget for it.
+
+**Not explained.** Candidate causes -- JPEG artefacts on ink edges, paper texture against the
+reMarkable's uniform ground, resampling of already-fixed pixels, variable ink density from a
+physical pen -- are untested. n is one scanned page; this establishes that the difference
+exists and its direction, not its magnitude or its mechanism.
+
+**The pipeline halves a scan by default.** `--dpi 150` rasterizes a 2550x3300 scan to
+1275x1650. For vector ink that is a rendering choice and costs nothing; for a scan it discards
+half of what the scanner recorded. Whether it matters is unresolved -- the run-to-run variance
+above is far larger than any difference 150 against 300 produced, so at three runs per arm the
+question cannot be answered. Recorded as unmeasured.
+
+**Formats are not the variable.** A scanner offering PDF, TIFF and JPEG offers three JPEGs: the
+TIFF measured here is JPEG-compressed internally, and the PDF wraps a JPEG. There is no
+lossless option among them, and the ~2/255 mean pixel difference between containers is far
+below the noise floor established above. Also, `handzoo` reads only PDF -- poppler rejects JPEG
+and TIFF outright -- so for a scan workflow PDF is a requirement, not a preference.
+
 ### Where it goes
 
 **Manifest first.** It is where the evidence lives, and `handzoo-review` needs `standalone`
