@@ -101,7 +101,47 @@ def crop_vector(pdf: Path, page: int, out: Path, *, x: int, y: int, width: int,
     if proc.returncode != 0 or not out.exists():
         raise RasterizeError(
             f"{VECTOR_TOOL} produced no crop for page {page}: {proc.stderr.strip()[:200]}")
+    _tighten(out)
     return out
+
+
+TIGHTEN_TOOL = "pdfcrop"
+TIGHTEN_MARGIN = 4
+"""A little air around the ink. A box drawn exactly on the bounding path clips its own stroke."""
+
+
+def _tighten(pdf: Path) -> None:
+    """Shrink the page box to the ink, in place.
+
+    `pdftocairo -pdf -x -y -W -H` clips the *content* and leaves the page box at full size.
+    Measured: asking for 240x190pt of a 514x685 page produced a 514x685 PDF with the diagram in
+    one corner, so `\\includegraphics` would import a mostly-blank page -- a crop that is
+    technically correct and visually useless.
+
+    Best-effort. `pdfcrop` ships with the same TeX distribution as the hardcoded `pdflatex`, so
+    it is normally there; where it is not, the untightened crop is still a valid PDF and still
+    contains the right ink. Degrading beats failing, but the caller should know the difference,
+    which is why the page size is checkable via `page_size`.
+    """
+    if shutil.which(TIGHTEN_TOOL) is None:
+        return
+    tmp = pdf.with_suffix(".tight.pdf")
+    proc = subprocess.run([TIGHTEN_TOOL, "--margins", str(TIGHTEN_MARGIN), str(pdf), str(tmp)],
+                          capture_output=True, text=True, check=False)
+    if proc.returncode == 0 and tmp.exists():
+        tmp.replace(pdf)
+    elif tmp.exists():
+        tmp.unlink()
+
+
+def page_size(pdf: Path) -> tuple[float, float]:
+    """Page dimensions in points, from the PDF itself."""
+    _require(RASTERIZER)
+    proc = subprocess.run(["pdfinfo", str(pdf)], capture_output=True, text=True, check=False)
+    m = re.search(r"Page size:\s+([0-9.]+) x ([0-9.]+)", proc.stdout)
+    if not m:
+        raise RasterizeError(f"could not read a page size from {pdf}")
+    return float(m.group(1)), float(m.group(2))
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,3 +247,88 @@ def ink_colours(pdf: Path, page: int) -> tuple[tuple[int, int, int], ...] | None
     if not counts:
         return None
     return tuple(sorted(counts, key=lambda k: -counts[k]))
+
+
+@dataclass(frozen=True, slots=True)
+class Block:
+    """A candidate region: ink separated from its neighbours by whitespace.
+
+    Coordinates are in **points, top-left origin** — the same space `crop_vector` takes, so a
+    block can be handed straight to it. Getting that wrong is silent: page 3's blocks landed at
+    y=694..1307 on a 685pt page when only the transform's scale factor was applied instead of
+    the full affine matrix, and every proposal would have cropped the wrong thing.
+    """
+
+    x: float
+    y: float
+    width: float
+    height: float
+    paths: int
+    """How many ink strokes fell in this block. A rough sense of how much is there."""
+
+    @property
+    def region(self) -> dict[str, int]:
+        """Rounded out to whole points, for `crop_vector(**block.region)`."""
+        return {"x": int(self.x), "y": int(self.y),
+                "width": int(self.width + 0.5), "height": int(self.height + 0.5)}
+
+
+BLOCK_GAP = 10.0
+"""Vertical whitespace, in points, that separates one block from the next."""
+
+_SVG_MATRIX = re.compile(r'transform="matrix\(([^)]*)\)"')
+
+
+def page_blocks(pdf: Path, page: int, *, gap: float = BLOCK_GAP) -> tuple[Block, ...]:
+    """Ink grouped into horizontal bands, as candidate crop regions.
+
+    This is an **assist, not evidence**, and the distinction matters. An empty result says "no
+    suggestions" — the human can still type coordinates — where `ink_colours` returning `None`
+    is a claim deliberately withheld from a gate. Nothing downstream may treat an empty block
+    list as a statement about the page.
+
+    Bands rather than boxes because handwriting runs in lines: a diagram sitting between two
+    paragraphs is separated vertically, and column detection would be guessing.
+    """
+    _require(VECTOR_TOOL)
+    proc = subprocess.run(
+        [VECTOR_TOOL, "-svg", "-f", str(page), "-l", str(page), str(pdf), "/dev/stdout"],
+        capture_output=True, text=True, check=False)
+
+    found: list[tuple[float, float, float, float]] = []
+    for attrs in _SVG_PATH_EL.findall(proc.stdout):
+        data = re.search(r'\sd="([^"]*)"', attrs)
+        matrix = _SVG_MATRIX.search(attrs)
+        if not (data and matrix):
+            continue
+        v = [float(n) for n in _SVG_NUM.findall(matrix.group(1))]
+        if len(v) < 6:
+            continue
+        a, b, c, d, e, f = v[:6]
+        co = [float(n) for n in _SVG_NUM.findall(data.group(1))]
+        pts = [(a * x + c * y + e, b * x + d * y + f) for x, y in zip(co[0::2], co[1::2])]
+        if len(pts) < 2:
+            continue
+        x0, x1 = min(p[0] for p in pts), max(p[0] for p in pts)
+        y0, y1 = min(p[1] for p in pts), max(p[1] for p in pts)
+        if x1 - x0 > RULE_MIN_WIDTH and y1 - y0 < RULE_MAX_HEIGHT:
+            continue  # ruled guide line, not ink
+        found.append((x0, y0, x1, y1))
+
+    if not found:
+        return ()
+
+    rows = sorted(found, key=lambda r: r[1])
+    groups: list[list[tuple[float, float, float, float]]] = [[rows[0]]]
+    for r in rows[1:]:
+        if r[1] - max(g[3] for g in groups[-1]) > gap:
+            groups.append([r])
+        else:
+            groups[-1].append(r)
+
+    return tuple(
+        Block(x=min(g[0] for g in grp), y=min(g[1] for g in grp),
+              width=max(g[2] for g in grp) - min(g[0] for g in grp),
+              height=max(g[3] for g in grp) - min(g[1] for g in grp),
+              paths=len(grp))
+        for grp in groups)
