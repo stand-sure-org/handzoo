@@ -62,8 +62,17 @@ _LIST_IN_TABULAR = re.compile(
 # references to files that do not exist (p5, p6: \includegraphics{pie1}). Both are the
 # never-fabricate violation in the emitter rather than the recognizer. Replacing them
 # with a diagram marker keeps the fact that something was there, which deleting would not.
-_FAB_TIKZ = re.compile(r"\\begin\{tikzpicture\}.*?\\end\{tikzpicture\}", re.DOTALL)
-_FAB_TIKZ_OPEN = re.compile(r"\\begin\{tikzpicture\}(?:\[[^\]]*\])?")
+# The family, not the one member already measured. R9 originally matched the literal
+# string `tikzpicture`; Cheng ch18 (category theory) made the recognizer reach for
+# `tikzcd` instead, which sailed through to "Environment tikzcd undefined" on two pages.
+# These are the diagram-markup environments no standard preamble provides, so any of them
+# arriving from the recognizer is fabrication by definition.
+_FAB_ENVS = "tikzpicture|tikzcd|circuitikz|forest|prooftree|CD|xy"
+_FAB_TIKZ = re.compile(r"\\begin\{(" + _FAB_ENVS + r")\}.*?\\end\{\1\}", re.DOTALL)
+# Orphan opener and orphan closer each fail the build on their own, and each slips past
+# the paired pattern above. All three paths have to be closed together.
+_FAB_TIKZ_OPEN = re.compile(r"\\begin\{(?:" + _FAB_ENVS + r")\}(?:\[[^\]]*\])?")
+_FAB_TIKZ_CLOSE = re.compile(r"\\end\{(?:" + _FAB_ENVS + r")\}")
 _FAB_GRAPHIC = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]*)\}")
 
 # Both marker words. FABRICATED means the recognizer invented a drawing;
@@ -186,10 +195,10 @@ def _unwrap_lists_in_tabular(text: str, rules: list[str]) -> str:
 
 
 def _strip_fabricated_graphics(text: str, rules: list[str]) -> str:
-    """R9 — a tikzpicture or an \\includegraphics the recognizer invented becomes a marker."""
-    def tikz(_m):
-        rules.append("R9 fabricated tikzpicture -> fabrication marker")
-        return "[[FABRICATED: recognizer emitted tikz despite instruction; redraw or crop]]"
+    """R9 — a fabricated diagram environment or \\includegraphics becomes a marker."""
+    def tikz(m):
+        rules.append(f"R9 fabricated {m.group(1)} -> fabrication marker")
+        return "[[FABRICATED: recognizer emitted a diagram environment despite instruction; redraw or crop]]"
 
     def graphic(m):
         rules.append("R9 invented \\includegraphics -> fabrication marker")
@@ -198,12 +207,17 @@ def _strip_fabricated_graphics(text: str, rules: list[str]) -> str:
     prev = None
     while prev != text:
         prev, text = text, _FAB_TIKZ.sub(tikz, text)
-    # A `\begin{tikzpicture}` with no closer survives the paired pattern above and then
-    # fails the build with "Environment tikzpicture undefined". Measured on Naive Math p1.
+    # An opener with no closer survives the paired pattern above and then fails the build
+    # with "Environment ... undefined" (Naive Math p1). An orphan closer fails just as
+    # hard with "\\end{...} without \\begin". Neither may reach the document.
     if _FAB_TIKZ_OPEN.search(text):
-        rules.append("R9 unterminated tikzpicture -> fabrication marker")
+        rules.append("R9 unterminated diagram environment -> fabrication marker")
         text = _FAB_TIKZ_OPEN.sub(
-            "[[FABRICATED: unterminated tikz from the recognizer; redraw or crop]]", text)
+            "[[FABRICATED: unterminated diagram markup from the recognizer; redraw or crop]]",
+            text)
+    if _FAB_TIKZ_CLOSE.search(text):
+        rules.append("R9 orphan diagram closer -> removed")
+        text = _FAB_TIKZ_CLOSE.sub("", text)
     return _FAB_GRAPHIC.sub(graphic, text)
 
 

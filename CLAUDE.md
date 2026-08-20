@@ -73,7 +73,7 @@ Environment, verified on this machine:
 | `handzoo/core/declarations.py` | **Working.** Generates `\ifdefined`-guarded declarations for macros the recognizer invents. |
 | Rasterizer, recognizer, gates, emitter, pipeline, CLI | **Working.** `handzoo convert` is a real command. |
 | `handzoo review` — the correction loop | **Not built.** PLAN Wave 5, and the M0 exit criterion depends on it. |
-| Tests | **102**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
+| Tests | **129**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
 
 Measured state of the Normalizer, on identical raw recognizer output (Naive Math, the hardest
 document): 16/22 → **22/22**. Older Thinking-checkpoint corpora hold at 30/34 as a fixed

@@ -14,3 +14,14 @@ fail if it were.
 | `cardan_grille_batch.py` | The same, over a whole document, scoring fabrication and prose retention. Produced `grille-n16-2026-08-19.csv` | DESIGN §5.5.4 |
 
 Each needs a rasterised page and a running Ollama with `qwen3-vl:8b-instruct`.
+
+## `glyph_extent.py` — does writing size move gate pass rate?
+
+The follow-on to `stroke_width.py`. Stroke width is fixed, so the variable zoom actually moves
+is stroke-to-glyph ratio. Measures per-path ink extent from the vector source and reports the
+ratio per page.
+
+Answer on Cheng ch18 (n=14, 3 failures): **no.** Ratio spans 4.74-6.74; pass mean 5.83, fail
+mean 5.79. More usefully, all three failures have identified causes unrelated to glyph size --
+one fabricated `\includegraphics`, two fabricated `tikzcd` environments. Ruled out by cause,
+not by coefficient; three failures cannot resolve a correlation statistically.

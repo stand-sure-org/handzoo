@@ -220,12 +220,33 @@ fixed stroke**, which changes the stroke-to-glyph ratio — thicker-looking stro
 writing, finer on large. The device also bakes the zoom into the export geometry: chapter 18
 exports at **514 × 871 pt** against 514 × 685 for the earlier chapters.
 
-**The second half is unmeasured.** Whether that ratio moves gate pass rate is still open: a run
-over the chapter stalled partway, and five pages (3 pass, 2 fail) is not a correlation. The
-measurement is cheap to repeat and the tooling now exists — `experiments/stroke_width.py`.
+**The second half now has an answer, and it is no — ruled out by cause, not by coefficient.**
 
-If it does correlate, "write at this zoom" remains the cheapest quality lever in the project —
-no model change, no code.
+The full chapter (14/14 pages) ran: 11 pass, 3 fail. Stroke-to-glyph ratio spans 4.74–6.74
+across those pages, and splits as **pass mean 5.83, fail mean 5.79** — point-biserial
+`r = +0.02`. That coefficient proves nothing on its own; three failures cannot resolve an
+effect below roughly |0.5|.
+
+What settles it is that all three failures have **identified causes with nothing to do with
+glyph size**:
+
+| page | ratio | gate | cause |
+|---|---|---|---|
+| 1 | 5.14 | coverage | invented `\includegraphics{diagram181.png}` — gate working as designed |
+| 3 | 5.71 | compile | `\begin{tikzcd}` — fabricated diagram environment, R9 hole |
+| 8 | 6.53 | compile | `\begin{tikzcd}` — same |
+
+Page 8 has the second-highest ratio on the chapter and page 9 the second-lowest, and they fail
+and pass respectively. A mechanistic rule-out is stronger here than the statistic: these pages
+did not fail because of how the author wrote, they failed because of what the recognizer
+invented on content that happened to contain commutative diagrams.
+
+**So zoom is not a quality lever.** The cheapest lever in the project is still unidentified;
+this candidate is closed. The author can write at whatever magnification is comfortable.
+
+*(Correction to the prior entry: that run did not stall. It completed — chapter 18 pages are
+taller and simply slow. The inference drawn from the apparent stall, that the per-attempt
+retry timeout is too generous, was unsupported and is withdrawn.)*
 
 ## Open questions for the design panel
 
