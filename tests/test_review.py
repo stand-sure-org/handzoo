@@ -236,3 +236,60 @@ def test_hidden_findings_are_announced_never_silently_dropped(tmp_path: Path) ->
     cli_review.main([str(out)], stream=second, read_line=_keys("q"))
 
     assert "already decided" in second.getvalue()
+
+
+# --------------------------------------------------------------- repeated findings
+
+
+def test_identical_findings_are_one_decision_not_thirty_three(tmp_path: Path) -> None:
+    """Measured on the author's ch18 page 25: 35 findings, 32 of them byte-identical and all
+    pointing at line 35.
+
+    Rendered one per prompt they produced 32 consecutive frames with the same detail, the same
+    context lines and no repeat of the source filename — which reads as the tool being stuck,
+    and is how this was reported. Worse, mashing `k` through them wrote 32 `keep-reviewed`
+    rows into the gold corpus: 32 assertions about correctness bought with one act of
+    attention. That is the automation bias the module docstring cites, manufactured by our own
+    display.
+
+    They are one defect. They get one decision, and the row says how many it covered.
+    """
+    same = {"gate": "coverage", "detail": "recognizer emitted a diagram environment",
+            "line": 2, "excerpt": ""}
+    other = {"gate": "compile", "detail": "Missing $ inserted.", "line": 1, "excerpt": ""}
+    out = _manifest(tmp_path, _page(tmp_path, 1, findings=[same, same, same, other]))
+
+    s = io.StringIO()
+    cli_review.main([str(out)], stream=s, read_line=_keys("k", "k"))
+
+    rows = CorrectionLog.for_run(out).read()
+    assert len(rows) == 2, f"four findings should collapse to two decisions, got {len(rows)}"
+    grouped = next(r for r in rows if "diagram environment" in r.finding)
+    assert grouped.instances == 3, "the row must say how many findings it covered"
+    assert "x3" in s.getvalue(), "the human has to see the count before deciding"
+
+
+def test_findings_that_differ_are_never_merged(tmp_path: Path) -> None:
+    """Two fabricated files on one line are two artefacts. Merging them would hide one, which
+    is the silent-loss failure (constraint 5) wearing a tidier interface."""
+    a = {"gate": "coverage", "detail": "nonexistent file diagram181.png", "line": 2,
+         "excerpt": ""}
+    b = {"gate": "coverage", "detail": "nonexistent file diagram182.png", "line": 2,
+         "excerpt": ""}
+    out = _manifest(tmp_path, _page(tmp_path, 1, findings=[a, b]))
+
+    cli_review.main([str(out)], stream=io.StringIO(), read_line=_keys("k", "k"))
+    assert len(CorrectionLog.for_run(out).read()) == 2
+
+
+def test_the_summary_counts_findings_not_only_keypresses(tmp_path: Path) -> None:
+    """Grouping must not make the corpus look smaller than it is. Both numbers are true and
+    both are reported: decisions taken, and findings those decisions covered."""
+    same = {"gate": "coverage", "detail": "d", "line": 2, "excerpt": ""}
+    out = _manifest(tmp_path, _page(tmp_path, 1, findings=[same, same, same]))
+
+    s = io.StringIO()
+    cli_review.main([str(out)], stream=s, read_line=_keys("k"))
+
+    assert CorrectionLog.for_run(out).summary()["findings_covered"] == 3
+    assert "3 finding(s)" in s.getvalue()

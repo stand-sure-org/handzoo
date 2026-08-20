@@ -57,6 +57,26 @@ def finding_key(page: int, finding: dict) -> tuple:
     return (page, f"{finding['gate']}: {finding['detail']}", finding.get("line"))
 
 
+def _group(page: int, findings: list[dict]) -> list[list[dict]]:
+    """Findings that are identical in everything the human can act on, presented once.
+
+    A gate may report one defect many times: ch18 page 25 carried 32 byte-identical
+    fabrication findings, all on line 35. One per prompt, they rendered 32 consecutive frames
+    with the same text and no repeat of the source filename -- which reads as a stalled tool.
+    Nothing is discarded; the group keeps its members and the decision records the count.
+    """
+    order: dict[tuple, int] = {}
+    groups: list[list[dict]] = []
+    for finding in findings:
+        key = finding_key(page, finding)
+        if key in order:
+            groups[order[key]].append(finding)
+        else:
+            order[key] = len(groups)
+            groups.append([finding])
+    return groups
+
+
 def _context(text: str, line: int | None, radius: int = 2) -> str:
     """The emitted text around a finding, so the human sees it in place."""
     if not line:
@@ -92,8 +112,11 @@ def review_page(outcome: PageOutcome, out_dir: Path, log: CorrectionLog, *,
     image = page_image(out_dir, outcome.page)
     findings = outcome.findings or []
 
+    groups = _group(outcome.page, findings)
+    decisions = ("" if len(groups) == len(findings)
+                 else f", {len(groups)} to decide")
     print(f"\n=== page {outcome.page} — {outcome.verdict} "
-          f"({len(findings)} finding(s)) ===", file=stream)
+          f"({len(findings)} finding(s){decisions}) ===", file=stream)
     if image:
         print(f"  source: {image}", file=stream)
 
@@ -103,9 +126,11 @@ def review_page(outcome: PageOutcome, out_dir: Path, log: CorrectionLog, *,
         return "next"
 
     text = target.read_text(encoding="utf-8")
-    for finding in findings:
+    for group in groups:
+        finding, repeats = group[0], len(group)
         started = time.monotonic()
-        print(f"\n  [{finding['gate']}] {finding['detail']}", file=stream)
+        count = f" x{repeats}" if repeats > 1 else ""
+        print(f"\n  [{finding['gate']}]{count} {finding['detail']}", file=stream)
         if finding.get("excerpt"):
             print(f"       {finding['excerpt']}", file=stream)
         ctx = _context(text, finding.get("line"))
@@ -141,6 +166,7 @@ def review_page(outcome: PageOutcome, out_dir: Path, log: CorrectionLog, *,
             seconds=round(time.monotonic() - started, 2),
             finding=f"{finding['gate']}: {finding['detail']}",
             line=finding.get("line"),
+            instances=repeats,
         ))
     return "next"
 
@@ -214,8 +240,8 @@ def main(argv: list[str] | None = None, *, stream=None, read_line=None) -> int:
 
 def _print_summary(log: CorrectionLog, stream) -> int:
     s = log.summary()
-    print(f"\n{s['rows']} decision(s) across {s['pages_touched']} page(s), "
-          f"{s['total_seconds']}s", file=stream)
+    print(f"\n{s['rows']} decision(s) covering {s['findings_covered']} finding(s) "
+          f"across {s['pages_touched']} page(s), {s['total_seconds']}s", file=stream)
     for verdict, n in sorted(s["by_verdict"].items()):  # type: ignore[union-attr]
         print(f"  {verdict:<16} {n}", file=stream)
     print(f"\n{s['gold_pairs']} row(s) carry evidence about correctness. "
