@@ -90,3 +90,23 @@ def test_vector_crop_is_vector_not_a_resampled_raster(three_page_pdf: Path,
     assert out.exists()
     assert out.suffix == ".pdf"
     assert b"%PDF" in out.read_bytes()[:8]
+
+
+def test_ink_colours_says_unknown_when_there_are_no_paths(three_page_pdf: Path) -> None:
+    """A text-only PDF has no stroked paths, and neither does a scan.
+
+    `None` means *could not determine*. Returning an empty tuple would read downstream as "no
+    colour to lose", which on a scanned page is the opposite of the truth: a scan is where
+    colour is hardest to recover, not where there is none. Verified against a real raster PDF
+    rebuilt from the author's scanner output — it returns `None` too.
+    """
+    assert rasterize.ink_colours(three_page_pdf, 1) is None
+
+
+def test_ink_colours_separates_ruled_lines_from_ink_by_geometry() -> None:
+    """The rule is geometric, and it has to be: `Cheng 217-220` p3 carries 17 paths of
+    deliberate grey ink that a hue test discards as furniture."""
+    assert rasterize.RULE_MIN_WIDTH > 0 and rasterize.RULE_MAX_HEIGHT > 0
+    # A full-width flat path is a rule; a short path with height is ink, whatever its colour.
+    assert 685.1 > rasterize.RULE_MIN_WIDTH and 0.0 < rasterize.RULE_MAX_HEIGHT
+    assert not (6.5 > rasterize.RULE_MIN_WIDTH and 8.2 < rasterize.RULE_MAX_HEIGHT)
