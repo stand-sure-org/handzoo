@@ -853,7 +853,54 @@ Block marks emit as a referenced cropped PNG plus `% TODO: author diagram`. Inli
 
 **Confidence markers** (binding condition 4): low-confidence spans are wrapped so a reader can distinguish transcription from guess. The inventory pass is already being built for D6, so this is nearly free. An artifact that performs certainty it does not have is the same dishonesty the never-fabricate rule exists to prevent.
 
-**Colour** (binding condition 5): colour-bearing ink is a `ColorSpan`. Silent loss of it is a hard fail under the coverage gate. Faithful reconstruction is deferred; *silent* discard is not permitted. On the fixtures, R/G/B houses written in red/green/blue carry the labelling.
+**Colour** (binding condition 5, **stated but not implemented** — see the measurement below): colour-bearing ink is a `ColorSpan`. Silent loss of it is a hard fail under the coverage gate. Faithful reconstruction is deferred; *silent* discard is not permitted. On the fixtures, R/G/B houses written in red/green/blue carry the labelling.
+
+#### Measured 2026-08-20: colour is silently discarded, and binding condition 5 is unimplemented
+
+`Cheng 217-220` is the first corpus written in more than one ink. Page 3 carries three:
+
+| ink | paths | what it is |
+|---|---|---|
+| `rgb(192,127,210)` violet | 343 | the writing |
+| `rgb(144,144,144)` grey | 17 | the base diagram's own arrows |
+| `rgb(145,218,113)` green | 11 | the cone's legs, from the vertex V |
+
+The green/grey distinction **is the lesson on that page.** A cone is a vertex with morphisms
+into a diagram; the green arrows are the cone, the grey ones are the thing being coned over.
+Rendered in one colour, the picture stops teaching the difference it exists to teach.
+
+Twelve runs over these four pages emitted **no colour information of any kind** -- not a
+`\textcolor`, not a word, not a note in the diagram marker. Page 3's marker reads *"morphisms
+to multiple objects... arrows indicating commutativity"*, which is true of both arrow families
+and distinguishes neither.
+
+**Pages 1 and 3 passed every gate.** So the state of affairs is precisely the one the paragraph
+above forbids: colour-bearing ink was silently discarded and the coverage gate reported clean.
+
+The reason is structural, not a model failure. `ColorSpan` is defined in the port and **nothing
+anywhere constructs one** -- a grep for it outside its own definition returns nothing, as does
+one for `Recognition.inlines`. The inventory pass returns marks with kind, description, context
+and placement, and no colour field, so the coverage gate has nothing to check colour against.
+The condition was written, the type was declared, and no code path was ever wired between them.
+
+This is DESIGN 5.7 again, in its purest form: **a check that does not exist reads exactly like
+a check that passed.** Three prior instances defaulted an unknown into the reassuring answer;
+this one never asked the question at all, and the design document asserts it as settled.
+
+**Not fixed here.** Two directions, and the choice is not obvious. The recognizer could be
+asked for colour spans, which adds a trust question -- colour naming is a *description*, and
+descriptions are the untrustworthy half of the boundary in section 3. Or colour presence could
+be measured from the vector source, which is cheap and reliable (the table above is one
+`pdftocairo` call) and tells the gate *that* colour was there without asking the model to name
+it -- which is exactly the shape of the coverage gate's existing presence-and-position rule.
+
+The second is the better fit and is still unbuilt. Until one of them lands, **the colour
+paragraph above describes an intention, not a mechanism**, and it is marked as such.
+
+**A crop preserves colour by construction.** Where a coloured mark is a block diagram, the crop
+verdict (7.2) resolves this for free -- the crop is the image, so the green and grey survive
+without anyone having to name them. That covers page 3's cone. It does not cover colour used
+inline in prose, which is the Naive Math R/G/B case.
 
 ### 6.0 Diagram disposition — three outcomes, not two
 
