@@ -612,23 +612,80 @@ crop at a location we already know. The model is not asked to be honest about th
 prevented from filling it.
 
 **Not uniform.** On p5 and p14 masking changed nothing measurable — no fabrication either way.
-So the grille addresses pages that provoke fabrication, which is a subset. n=3 is thin.
+So the grille addresses pages that provoke fabrication, which is a subset.
 
-#### The finding that matters more than the grille
+#### Extended to the full document (2026-08-19). 65% fewer fabricated constructs.
 
-**The model almost never emits the `[[DIAGRAM: …]]` marker we ask for.** Across eight recent
-transcriptions: zero. Faced with a drawing it either fabricates `tikz`/`array` or omits the
-region silently. It does not mark.
+All 19 pages of `Cheng pp161-179`; **16 had a drawing detected.** Fabrication is proxied by
+LaTeX constructs that render 2-D structure (`array`, `tikzpicture`, `xrightarrow`, `\downarrow`
+and kin) — a page transcribed honestly should not need them, a page where the model invented a
+diagram will. Prose retention is the fraction of unmasked content words still present after
+masking, and it doubles as a mask-quality check.
 
-This undercuts the coverage gate's mechanism (§5.4), which counts markers as evidence that a
-mark was preserved. If markers are essentially never produced, then a coverage failure reads
-"N marks seen, 0 accounted for" almost by construction, and the gate is measuring *what the
-inventory found* rather than *what the transcription preserved*. The gate still catches real
-loss — that is why page 1 fails correctly — but its precision is much lower than the design
-assumed, and the block-mark limitation above is a symptom of the same thing.
+Of the 13 runs where the mask left the page readable (retention ≥ 0.5):
+**8 reduced, 4 unchanged, 1 worse — 49 fabricated constructs became 17, a 65% reduction.**
 
-**The grille is the more promising route precisely because it does not depend on the model
-choosing to mark anything.** The marker is inserted by us, at coordinates we measured.
+The interesting rows:
+
+| page | boxes | fabrication | prose kept | |
+|---|---|---|---|---|
+| 4 | 3 | 10 → 0 | 0.86 | the best case |
+| 9 | 1 | 8 → 0 | 0.93 | clean elimination |
+| 2 | 6 | 6 → 0 | 0.78 | |
+| 16 | 3 | 4 → 0 | 0.74 | |
+| 1 | 3 | 6 → **9** | 0.57 | worse |
+| 13 | 3 | 3 → **20** | 0.48 | void, and dramatic |
+| 10 | 1 | 4 → 0 | 0.00 | void — a blank, not a clean page |
+
+**The failures are the useful part, and page 13 states the mechanism outright.** Masking
+destroyed half its text, and the model responded by inventing **twenty** structural constructs
+where there had been three. Page 10's mask blanked nearly everything, so its "4 → 0" is a blank
+transcription rather than a clean one. Page 1, the only usable run that got worse, had the
+lowest retention of any usable run.
+
+So: **a mask that eats text forces the model to reconstruct, and reconstruction is what invites
+fabrication.** Masking too much is not a milder version of masking correctly; it is the original
+failure with a larger hole to fill.
+
+**Prose retention is therefore the guard**, and it needs no ground truth — compare content words
+before and after. On the full set it is *conservative rather than perfect*: three of the four
+runs below 0.7 failed to help, and the fourth (page 19) gave a mild 2 → 1 win the guard would
+discard. Trading one mild win to prevent one 3 → 20 is the right side of that bargain, but the
+threshold is a safety rail on n=16, not a tuned parameter.
+
+#### Prior art, researched 2026-08-19
+
+**We are not reinventing a named technique, but the structure is not new.** MinerU
+([arXiv 2409.18839](https://arxiv.org/abs/2409.18839)) masks inline-formula regions using
+detector coordinates, OCRs the masked page, and reinserts the formula — structurally identical
+to this. It is framed as a reading-order convenience and **never evaluated for hallucination
+suppression**, so the measurement above appears to be the new part rather than the pipeline.
+
+**Nothing in the steganography literature crosses over.** The Cardan grille is real (Cardano,
+1550) and has a modern digital form ([arXiv 1803.09219](https://arxiv.org/abs/1803.09219)), but
+entirely for information hiding. The *inversion* — mask the region to be excluded rather than
+revealed — does not appear as a named concept anywhere, and no redaction literature discusses
+whether a reader confabulates over a redacted region.
+
+**Occlusion is established as a diagnostic, not a correction.** "Peek-a-Boo Reasoning"
+([arXiv 2512.08976](https://arxiv.org/abs/2512.08976)) uses region masking to probe reasoning
+faithfulness and finds models "hallucinate when evidence is missing" — which is our premise,
+used to measure rather than to fix. Most inference-time anti-hallucination work (MaskCD, CMVED,
+SPIN) masks *inside* the model — attention heads, value vectors — and still shows it the
+diagram. We never do.
+
+**The nearest theoretical support is from human perception.** Amodal-completion work finds
+people fill in occluded regions but hold *measurably lower confidence* in the filled-in content
+([PMC12786398](https://pmc.ncbi.nlm.nih.gov/articles/PMC12786398/)) — an explicit occluder is
+recognised as an occluder rather than as absence. That is our mechanism, in humans, and nobody
+has drawn the inference across to VLMs.
+
+**The strongest counter-evidence, recorded rather than buried.**
+[arXiv 2502.15389](https://arxiv.org/abs/2502.15389) tested masking-based visual prompting and
+found it **not reliably effective**, with surrounding context mattering more than isolating the
+target. It is the inverse setup — masking everything *except* a target — so not a direct
+contradiction. But it predicts exactly what page 1 did, and it is the paper a reviewer will
+raise.
 
 **Not M0.** Recorded so the design does not preclude it, and because it is the only proposal
 on the table for a problem with no published solution.

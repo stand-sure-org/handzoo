@@ -9,5 +9,6 @@ fail if it were.
 | Script | Measured | Recorded in |
 |---|---|---|
 | `cardan_grille.py` | Masking a diagram out of the raster before transcription, to stop the model fabricating structure it cannot name | DESIGN §5.5.4 |
+| `cardan_grille_batch.py` | The same, over a whole document, scoring fabrication and prose retention. Produced `grille-n16-2026-08-19.csv` | DESIGN §5.5.4 |
 
 Each needs a rasterised page and a running Ollama with `qwen3-vl:8b-instruct`.
