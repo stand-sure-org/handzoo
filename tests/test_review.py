@@ -187,3 +187,52 @@ def test_missing_manifest_explains_what_to_do(tmp_path: Path) -> None:
     s = io.StringIO()
     assert cli_review.main([str(tmp_path)], stream=s) == 2
     assert "run `handzoo`" in s.getvalue()
+
+
+# --------------------------------------------------------------- resuming
+
+
+def test_rerunning_skips_what_was_already_decided(tmp_path: Path) -> None:
+    """Quitting prints "re-run to continue". That has to be true.
+
+    Measured on a real run: it was not. Two findings were decided `keep-reviewed` on page 1,
+    the session quit, and the next run opened on page 1 again with identical text. A reviewer
+    who trusts the message re-reviews everything, and cannot tell a replay from a stall.
+    """
+    out = _manifest(tmp_path,
+                    _page(tmp_path, 1, findings=[FINDING]),
+                    _page(tmp_path, 2, findings=[FINDING]))
+
+    cli_review.main([str(out)], stream=io.StringIO(), read_line=_keys("k", "q"))
+    second = io.StringIO()
+    cli_review.main([str(out)], stream=second, read_line=_keys("q"))
+
+    assert "=== page 2" in second.getvalue()
+    assert "=== page 1" not in second.getvalue(), "page 1 was decided and replayed anyway"
+
+
+def test_a_skip_is_deferral_not_a_decision_and_comes_back(tmp_path: Path) -> None:
+    """`skipped` is the bare-enter default. Treating it as decided would let a reviewer
+    silently retire findings by leaning on the return key — the automation bias this loop
+    exists to resist."""
+    out = _manifest(tmp_path, _page(tmp_path, 1, findings=[FINDING]))
+
+    cli_review.main([str(out)], stream=io.StringIO(), read_line=_keys("s"))
+    second = io.StringIO()
+    cli_review.main([str(out)], stream=second, read_line=_keys("q"))
+
+    assert "=== page 1" in second.getvalue()
+
+
+def test_hidden_findings_are_announced_never_silently_dropped(tmp_path: Path) -> None:
+    """A count that vanishes without a word is indistinguishable from a gate that stopped
+    running (DESIGN 5.7)."""
+    out = _manifest(tmp_path,
+                    _page(tmp_path, 1, findings=[FINDING]),
+                    _page(tmp_path, 2, findings=[FINDING]))
+
+    cli_review.main([str(out)], stream=io.StringIO(), read_line=_keys("k", "q"))
+    second = io.StringIO()
+    cli_review.main([str(out)], stream=second, read_line=_keys("q"))
+
+    assert "already decided" in second.getvalue()

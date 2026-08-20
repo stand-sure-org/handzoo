@@ -65,6 +65,9 @@ class Correction:
     """Time spent on this decision. Feeds the exit criterion, which is a timing question."""
     finding: str = ""
     """The gate finding this decision responds to, if it came from one."""
+    line: int | None = None
+    """Line the finding pointed at. Part of the identity of a decision: two findings can
+    share a gate and a detail and still be different defects on different lines."""
     at: float = field(default_factory=time.time)
 
     @property

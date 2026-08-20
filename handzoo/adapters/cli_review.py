@@ -23,6 +23,7 @@ import os
 import subprocess
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 from ..core.corrections import Correction, CorrectionLog
@@ -45,6 +46,15 @@ def load_outcomes(out_dir: Path) -> list[PageOutcome]:
 def page_image(out_dir: Path, page: int) -> Path | None:
     hits = sorted((out_dir / "pages").glob(f"p-{page:04d}*.png"))
     return hits[0] if hits else None
+
+
+def finding_key(page: int, finding: dict) -> tuple:
+    """Identity of a decision, shared by the writer and the resume reader.
+
+    Line is part of it: the same gate reporting the same detail on two different lines is
+    two defects, and collapsing them would retire one the human never saw.
+    """
+    return (page, f"{finding['gate']}: {finding['detail']}", finding.get("line"))
 
 
 def _context(text: str, line: int | None, radius: int = 2) -> str:
@@ -130,6 +140,7 @@ def review_page(outcome: PageOutcome, out_dir: Path, log: CorrectionLog, *,
             reason=reason,
             seconds=round(time.monotonic() - started, 2),
             finding=f"{finding['gate']}: {finding['detail']}",
+            line=finding.get("line"),
         ))
     return "next"
 
@@ -162,6 +173,28 @@ def main(argv: list[str] | None = None, *, stream=None, read_line=None) -> int:
 
     if args.page:
         outcomes = [o for o in outcomes if o.page == args.page]
+
+    # "re-run to continue" has to be true. A decision already in the log is not shown again
+    # -- but `skipped` is the bare-enter default and means *deferred*, not decided, so it
+    # comes back. Retiring findings by leaning on the return key is precisely the automation
+    # bias this loop exists to resist.
+    decided = {(row.page, row.finding, row.line)
+               for row in log.read() if row.verdict != "skipped"}
+    hidden = 0
+    if decided:
+        pruned = []
+        for outcome in outcomes:
+            keep = [f for f in (outcome.findings or [])
+                    if finding_key(outcome.page, f) not in decided]
+            hidden += len(outcome.findings or []) - len(keep)
+            pruned.append(replace(outcome, findings=keep))
+        outcomes = pruned
+    if hidden:
+        # Announced, never silent: a count that vanishes without a word is indistinguishable
+        # from a gate that stopped running (DESIGN 5.7).
+        print(f"{hidden} finding(s) already decided in the log are hidden. "
+              "Delete the log to review them again.", file=stream)
+
     if not args.all:
         outcomes = [o for o in outcomes if o.findings]
 
