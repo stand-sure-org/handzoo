@@ -976,6 +976,113 @@ for a transcription tool directly. This is precisely §11's open question, and i
 `keep`/`edit`/`flag` timestamps in `corrections.jsonl` are the fastest route to a real answer
 for this corpus — instrument them from the first run.
 
+### 7.2 The crop verdict — designed, not built
+
+**Status: designed, not built (2026-08-20).** Recorded with a measured blocker that has to be
+cleared first.
+
+#### Why a verdict, and not a better viewer
+
+The CLI loop is quick, and inherently limited when the finding is a diagram: a terminal can
+say *this drawing is wrong*, and cannot show it. The available verdicts collapse to keep, flag
+and skip -- `edit` is useless when the correct fix is "draw this."
+
+That would be a minor gap if diagrams were one category among several. They are not. Across the
+author's full 44-page ch18 run:
+
+| finding kind | count |
+|---|---|
+| fabricated diagram | **45** |
+| compile | 4 |
+| missing mark | 0 |
+| non-ASCII | 0 |
+
+**45 of 49 findings, on 8 pages.** Diagrams are not a category of the review burden, they are
+substantially all of it. Any interface investment that is not aimed at them is aimed at 8% of
+the work.
+
+The author's own measurement points the same way: page 4 needed "just a snip of [Image]", and
+"5 seconds for a human with a WYSIWYG UI." The missing capability is not better viewing. It is
+a way to say *here is the picture*, in one keystroke.
+
+#### What the verdict does
+
+`c` -- the marker is replaced by a reference to a real cropped region, and the decision is
+logged as a correction rather than an acceptance.
+
+Two ways to obtain the region, and the difference matters:
+
+1. **The human supplies it.** They snip the region in whatever tool they already use, and the
+   loop wires the file in. No new trust in the model is required. This matches how the author
+   already works and is the version to build first.
+2. **`crop_vector()` extracts it** (§6.0). Already built and measured -- coordinates in points
+   at `-r 72`, a cropped diagram retaining 133 vector paths at 14 KB. What is missing is not
+   the extraction, it is knowing *where* to cut.
+
+**Why the model cannot supply the region today.** `Mark` carries `context` -- the surrounding
+words -- and no coordinates. The trust boundary in §3 says the recognizer is reliable about
+*where* marks are, but that was measured on presence and ordering, not on pixel geometry, and
+no bounding box the model returns has ever been checked against ground truth. Cutting a region
+from an untested coordinate would fabricate a figure: well-formed, compiling, and showing the
+wrong part of the page. That is substitution in image form, and no gate here would catch it.
+
+#### The blocker: R9 destroys a real crop and blames the recognizer
+
+`_FAB_GRAPHIC.sub()` rewrites **every** `\includegraphics` into a fabrication marker. It never
+checks whether the file exists, although its own message says "nonexistent file."
+
+Demonstrated -- file written to disk, referenced, normalized:
+
+```
+input   \includegraphics{/tmp/.../fig-25-1.png}      <- the file exists
+output  \texttt{[TODO fabricated: recognizer referenced a
+        nonexistent file /tmp/.../fig-25-1.png]}
+rules   R9 invented \includegraphics -> fabrication marker
+```
+
+Two failures in one line. The human's work is discarded, which is the silent-loss violation
+(constraint 5). And the record **attributes it to the recognizer** -- a false provenance claim
+about who produced what, in the file that is supposed to be the honest record.
+
+**Direction:** a reference that resolves is not a fabrication. R9 must test existence, relative
+to the output directory. That is a signature change, not a one-liner: `normalize()` takes
+markup and nothing else today, so it has no idea where the run is writing.
+
+**Latent, not active.** `handzoo-review` does not yet re-normalize edited pages. The design
+anticipates that it will -- the idempotence guard in `normalize()` exists for exactly that
+future -- so this becomes live the moment re-normalization lands, or the moment a crop verdict
+writes a reference that anything downstream normalizes. Clear it before building the verdict,
+not after.
+
+#### What the log records
+
+A crop is a **correction**, not an acceptance: the human produced the artefact the tool refused
+to invent. It belongs in `GOLD`.
+
+It should be its own verdict rather than folded into `edited`. Two reasons. The exit criterion
+is a timing question, and if 92% of findings are diagrams then *seconds per crop* is close to
+the whole answer -- it deserves to be countable on its own. And a corpus row that says "the fix
+was a diagram extraction" carries information that "the text changed" does not.
+
+The cropped file path goes in `after`, which already means "what the human made it."
+
+#### What must never happen
+
+- **No auto-crop without the human confirming the region.** See the substitution-in-image-form
+  argument above. A wrong crop compiles.
+- **No marker deleted without a file that resolves.** Removing the marker is the *only*
+  evidence that a diagram was there; deleting it on a broken reference converts a visible gap
+  into a silent one.
+
+#### Open
+
+- **Vector sources only.** `crop_vector()` reads paths. A scanned page has none (§8.1), so the
+  scan workflow needs a raster path or an explicit refusal.
+- **Inline marks cannot be cropped at all.** `Placement.inline` marks are *terms in the
+  sentence* -- a stick figure used as a noun cannot be lifted out without destroying the
+  sentence, which is what killed the brief's crop-and-reference policy as a complete answer.
+  The crop verdict serves `block` marks. Inline ones remain the grille's problem.
+
 ## 8. CLI behaviour
 
 Per binding condition 7 and Operational's top-ranked risk (no checkpointing: a crash on page 40 of 51 loses 39 pages):
