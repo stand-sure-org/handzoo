@@ -139,7 +139,7 @@ def main(argv: list[str] | None = None, *, stream=None, read_line=None) -> int:
     read_line = read_line or (lambda: sys.stdin.readline())
 
     parser = argparse.ArgumentParser(
-        prog="handzoo review",
+        prog="handzoo-review",
         description="Walk gate findings and record what you decided about each.")
     parser.add_argument("out_dir", type=Path, help="the directory `handzoo` wrote to")
     parser.add_argument("--page", type=int, help="review one page")

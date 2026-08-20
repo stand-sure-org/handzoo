@@ -38,7 +38,12 @@ handzoo notes.pdf -o out/ --standalone    # complete documents; compile gate can
 handzoo notes.pdf --pages 1-5 --resume    # triage a range; resume from the manifest
 ```
 
-`handzoo review` does not exist yet — PLAN Wave 5.
+The correction loop is a **separate binary**, `handzoo-review` (not a `handzoo` subcommand):
+
+```
+handzoo-review out/              # walk pages with findings, record a verdict each
+handzoo-review out/ --summary    # what the correction log says so far
+```
 
 Environment, verified on this machine:
 
@@ -71,8 +76,8 @@ Environment, verified on this machine:
 |---|---|
 | `handzoo/core/normalize.py` | **Working.** Ten rules (R1–R10), each traced to a measured gate failure. Built on `pylatexenc`, not regex. |
 | `handzoo/core/declarations.py` | **Working.** Generates `\ifdefined`-guarded declarations for macros the recognizer invents. |
-| Rasterizer, recognizer, gates, emitter, pipeline, CLI | **Working.** `handzoo convert` is a real command. |
-| `handzoo review` — the correction loop | **Not built.** PLAN Wave 5, and the M0 exit criterion depends on it. |
+| Rasterizer, recognizer, gates, emitter, pipeline, CLI | **Working.** The command is `handzoo <pdf>` — see Commands above; there is no `convert` subcommand. |
+| `handzoo-review` — the correction loop | **Built** (PLAN Wave 5). Walks gate findings and records a verdict per page. The M0 exit criterion still needs author-timed runs through it. |
 | Tests | **129**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
 
 Measured state of the Normalizer, on identical raw recognizer output (Naive Math, the hardest
