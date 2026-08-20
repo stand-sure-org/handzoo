@@ -180,6 +180,39 @@ measures output-distribution agreement entropy rather than token match, improvin
 detection F1 by 42% over VLM-as-judge, training-free. `qwen3-vl:8b-instruct` + `olmOCR-2-7B`
 is the natural pairing, and it targets the substitution class nothing else catches.
 
+### Runtime alternatives — BaseRT assessed and declined (2026-08-20)
+
+Real product, not a garbled name: a native-Metal inference runtime for Apple Silicon
+(`github.com/basecompute/baseRT`, arXiv 2607.00501), written straight against Metal with no
+MLX or Core ML dependency.
+
+**Declined, and for the opposite reason to the one that prompted the look.** The xda article
+repeats BaseRT's own M5 Pro figures — up to 6.4× prefill over llama.cpp, 3.9× over MLX — but
+those are vendor-published and unreproduced, and the article's own author notes the
+*generation*-speed gain is barely noticeable in practice. Generation is the half nearer our
+workload; we send one page image per call, not a long agentic context, so the prefill multiple
+is largely irrelevant to us.
+
+The real finding is a risk rather than a win: **the inference engine is closed-source with a
+proprietary quantization format (`.base`), and Qwen3-VL support is unconfirmed.** Moving a
+faithfulness-gated pipeline onto a closed engine with an unverified quantization scheme trades
+the thing we care about for the thing we do not. Latency is already 4–15s per page.
+
+Revisit only if VLM support is confirmed, and then the test is output divergence from the
+current baseline on the fixture corpus — not a benchmark number.
+
+### Capture-side variable, untested (author, 2026-08-20)
+
+The author wrote notes at different zoom levels on the reMarkable and reports "some effect on
+the notes", uncertain whether pen stroke width actually changes. This is the first variable
+identified on the **capture** side rather than the recognition side, and it is one the author
+controls directly.
+
+Testable and unmeasured: rasterise pages written at different magnifications, compare stroke
+width in the vector source (`pdftocairo -svg` exposes path widths), and check whether gate pass
+rate varies with it. If it does, "write at this zoom" is the cheapest quality lever available
+anywhere in this project — no model change, no code.
+
 ## Open questions for the design panel
 
 1. Should the recognizer target an intermediate AST rather than LaTeX text directly? Structural argued LaTeX-as-intermediate forces the Normalizer to do semantic correction and syntax rendering through one string format. The colour and glyph findings sharpen this.

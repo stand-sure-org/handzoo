@@ -690,6 +690,56 @@ raise.
 **Not M0.** Recorded so the design does not preclude it, and because it is the only proposal
 on the table for a problem with no published solution.
 
+### 5.5.5 Post-run self-verification — the first thing that has caught substitution
+
+**Author's idea, 2026-08-20:** after transcribing, show the model the page *and* its own output
+and ask whether they match.
+
+This is distinct from the round-trip render-and-compare rejected in §5.5.2, which compared a
+*rendering* of the output against the source. Here the comparison is against the **original
+ink**, with the transcription supplied as text.
+
+#### Tested for discrimination, not agreement
+
+A checker that answers "matches" to everything is worse than no checker, because it
+manufactures confidence. So the cohort deliberately included a page the author confirmed
+correct, **the same page with an error injected on purpose**, and a page known to drop content.
+
+| case | verdict | what it said |
+|---|---|---|
+| Cheng p3, author-confirmed correct | `matches: true` | nothing flagged |
+| Cheng p3 with `initial` → `terminal` swapped and three lines deleted | `matches: false` | *"The word 'terminal' in the transcription is incorrect; the handwritten n[ote]…"* |
+| Naive p1, known to drop inline glyphs | `matches: false` | missing, invented and changed items all reported |
+
+**Three for three.** It passed the good page, caught a single-word semantic swap it had never
+been told about, and failed the page we already knew was wrong.
+
+That is the first mechanism in this project to detect **substitution** — output that is
+ASCII-clean, delimiter-balanced, compiles, preserves every mark, and is false. Every gate in
+§5 is blind to it by construction.
+
+#### The same trust boundary as everywhere else
+
+The *verdicts* were right three times. The *details* were mixed: one "missing" item was
+incoherent (it quoted the same string as both present and absent), and one "invented" item
+correctly identified text that is not on the page — but it was **our own R9 fabrication
+marker**, an annotation rather than a model error.
+
+This is the third independent measurement of the same boundary. The inventory pass is
+trustworthy about *where* marks are and not *what* they are (§5.4). The self-rating probe names
+real problems but cannot predict failure (§3.3). And now the verifier is trustworthy about
+*whether* output is wrong and much less so about *what* is wrong.
+
+**So build on the verdict, not the explanation.** Route a human to the page; do not print the
+model's account of the defect as though it were a finding.
+
+#### Cost and standing
+
+One extra call per page, comparable to the inventory pass. n=3, and the injected-error case is
+the only true negative control — that wants extending before this becomes a gate. Recorded as
+the strongest available lead on the problem the project has never had an answer for.
+Script: `experiments/self_verification.py`.
+
 ### 5.6 Independent second reader (deferred to M1) — measured, does not work yet
 
 Proposed: run Tesseract per page as a reader with *uncorrelated* failure modes and score
