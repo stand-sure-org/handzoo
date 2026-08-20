@@ -187,3 +187,109 @@ def test_missing_manifest_explains_what_to_do(tmp_path: Path) -> None:
     s = io.StringIO()
     assert cli_review.main([str(tmp_path)], stream=s) == 2
     assert "run `handzoo`" in s.getvalue()
+
+
+# --------------------------------------------------------------- resuming
+
+
+def test_rerunning_skips_what_was_already_decided(tmp_path: Path) -> None:
+    """Quitting prints "re-run to continue". That has to be true.
+
+    Measured on a real run: it was not. Two findings were decided `keep-reviewed` on page 1,
+    the session quit, and the next run opened on page 1 again with identical text. A reviewer
+    who trusts the message re-reviews everything, and cannot tell a replay from a stall.
+    """
+    out = _manifest(tmp_path,
+                    _page(tmp_path, 1, findings=[FINDING]),
+                    _page(tmp_path, 2, findings=[FINDING]))
+
+    cli_review.main([str(out)], stream=io.StringIO(), read_line=_keys("k", "q"))
+    second = io.StringIO()
+    cli_review.main([str(out)], stream=second, read_line=_keys("q"))
+
+    assert "=== page 2" in second.getvalue()
+    assert "=== page 1" not in second.getvalue(), "page 1 was decided and replayed anyway"
+
+
+def test_a_skip_is_deferral_not_a_decision_and_comes_back(tmp_path: Path) -> None:
+    """`skipped` is the bare-enter default. Treating it as decided would let a reviewer
+    silently retire findings by leaning on the return key — the automation bias this loop
+    exists to resist."""
+    out = _manifest(tmp_path, _page(tmp_path, 1, findings=[FINDING]))
+
+    cli_review.main([str(out)], stream=io.StringIO(), read_line=_keys("s"))
+    second = io.StringIO()
+    cli_review.main([str(out)], stream=second, read_line=_keys("q"))
+
+    assert "=== page 1" in second.getvalue()
+
+
+def test_hidden_findings_are_announced_never_silently_dropped(tmp_path: Path) -> None:
+    """A count that vanishes without a word is indistinguishable from a gate that stopped
+    running (DESIGN 5.7)."""
+    out = _manifest(tmp_path,
+                    _page(tmp_path, 1, findings=[FINDING]),
+                    _page(tmp_path, 2, findings=[FINDING]))
+
+    cli_review.main([str(out)], stream=io.StringIO(), read_line=_keys("k", "q"))
+    second = io.StringIO()
+    cli_review.main([str(out)], stream=second, read_line=_keys("q"))
+
+    assert "already decided" in second.getvalue()
+
+
+# --------------------------------------------------------------- repeated findings
+
+
+def test_identical_findings_are_one_decision_not_thirty_three(tmp_path: Path) -> None:
+    """Measured on the author's ch18 page 25: 35 findings, 32 of them byte-identical and all
+    pointing at line 35.
+
+    Rendered one per prompt they produced 32 consecutive frames with the same detail, the same
+    context lines and no repeat of the source filename — which reads as the tool being stuck,
+    and is how this was reported. Worse, mashing `k` through them wrote 32 `keep-reviewed`
+    rows into the gold corpus: 32 assertions about correctness bought with one act of
+    attention. That is the automation bias the module docstring cites, manufactured by our own
+    display.
+
+    They are one defect. They get one decision, and the row says how many it covered.
+    """
+    same = {"gate": "coverage", "detail": "recognizer emitted a diagram environment",
+            "line": 2, "excerpt": ""}
+    other = {"gate": "compile", "detail": "Missing $ inserted.", "line": 1, "excerpt": ""}
+    out = _manifest(tmp_path, _page(tmp_path, 1, findings=[same, same, same, other]))
+
+    s = io.StringIO()
+    cli_review.main([str(out)], stream=s, read_line=_keys("k", "k"))
+
+    rows = CorrectionLog.for_run(out).read()
+    assert len(rows) == 2, f"four findings should collapse to two decisions, got {len(rows)}"
+    grouped = next(r for r in rows if "diagram environment" in r.finding)
+    assert grouped.instances == 3, "the row must say how many findings it covered"
+    assert "x3" in s.getvalue(), "the human has to see the count before deciding"
+
+
+def test_findings_that_differ_are_never_merged(tmp_path: Path) -> None:
+    """Two fabricated files on one line are two artefacts. Merging them would hide one, which
+    is the silent-loss failure (constraint 5) wearing a tidier interface."""
+    a = {"gate": "coverage", "detail": "nonexistent file diagram181.png", "line": 2,
+         "excerpt": ""}
+    b = {"gate": "coverage", "detail": "nonexistent file diagram182.png", "line": 2,
+         "excerpt": ""}
+    out = _manifest(tmp_path, _page(tmp_path, 1, findings=[a, b]))
+
+    cli_review.main([str(out)], stream=io.StringIO(), read_line=_keys("k", "k"))
+    assert len(CorrectionLog.for_run(out).read()) == 2
+
+
+def test_the_summary_counts_findings_not_only_keypresses(tmp_path: Path) -> None:
+    """Grouping must not make the corpus look smaller than it is. Both numbers are true and
+    both are reported: decisions taken, and findings those decisions covered."""
+    same = {"gate": "coverage", "detail": "d", "line": 2, "excerpt": ""}
+    out = _manifest(tmp_path, _page(tmp_path, 1, findings=[same, same, same]))
+
+    s = io.StringIO()
+    cli_review.main([str(out)], stream=s, read_line=_keys("k"))
+
+    assert CorrectionLog.for_run(out).summary()["findings_covered"] == 3
+    assert "3 finding(s)" in s.getvalue()

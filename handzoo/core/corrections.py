@@ -65,6 +65,16 @@ class Correction:
     """Time spent on this decision. Feeds the exit criterion, which is a timing question."""
     finding: str = ""
     """The gate finding this decision responds to, if it came from one."""
+    instances: int = 1
+    """How many identical findings this one decision covered.
+
+    A gate can report the same defect many times -- ch18 page 25 emitted 32 byte-identical
+    fabrication findings on one line. Those are one defect and get one decision, but the
+    corpus must not read as though only one finding existed. Stored, so a grouped row can
+    never be mistaken for a singleton."""
+    line: int | None = None
+    """Line the finding pointed at. Part of the identity of a decision: two findings can
+    share a gate and a detail and still be different defects on different lines."""
     at: float = field(default_factory=time.time)
 
     @property
@@ -115,6 +125,7 @@ class CorrectionLog:
         gold = [r for r in rows if r.is_gold]
         return {
             "rows": len(rows),
+            "findings_covered": sum(r.instances for r in rows),
             "by_verdict": counts,
             "gold_pairs": len(gold),
             "unexamined": counts.get("keep-unreviewed", 0) + counts.get("skipped", 0),
