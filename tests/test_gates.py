@@ -359,3 +359,61 @@ def test_the_compile_gate_can_see_assets_beside_the_document(tmp_path) -> None:
     assert not compile_gate.check(doc).passed, "without the directory it cannot find the file"
     assert compile_gate.check(doc, base_dir=tmp_path).passed, compile_gate.check(
         doc, base_dir=tmp_path).report()
+
+
+# --------------------------------------------------------------- colour
+
+
+def test_colour_gate_cannot_run_on_a_source_with_no_vector_paths() -> None:
+    """The trap in this gate, and the one it would have walked straight into.
+
+    Colour is read from the vector source. A **scan has no vector paths**, so the extractor
+    returns nothing — and "nothing" read as "one colour or fewer" would report clean on exactly
+    the sources where colour is hardest to recover. That is the fourth §5.7 instance, and it
+    would have been introduced in the same change that documents the third.
+
+    `None` means *could not determine*, which is not a pass. A blank vector page returns `None`
+    too, and that is also honest: we cannot tell.
+    """
+    from handzoo.core.validate import colour_gate
+
+    r = colour_gate.check("any text at all", colours=None)
+    assert not r.checked
+    assert not r.passed
+    assert "SKIPPED" in r.report()
+
+
+def test_colour_gate_flags_multiple_inks_that_the_document_does_not_carry() -> None:
+    r"""Measured on `Cheng 217-220` p3: violet writing, grey base-diagram arrows, green cone
+    legs — where green against grey *is* the lesson. Twelve runs emitted no colour and every
+    gate passed."""
+    from handzoo.core.validate import colour_gate
+
+    inks = ((192, 127, 210), (144, 144, 144), (145, 218, 113))
+    r = colour_gate.check("Plain text with no colour commands.", colours=inks)
+    assert r.checked
+    assert not r.passed
+    assert "3" in r.failures[0].detail
+
+
+def test_colour_gate_predicate_is_structural_not_a_word_search() -> None:
+    """Grepping for colour *words* false-positives on prose about the four-colour theorem, and
+    on Naive Math, where "red house" is colour information genuinely carried in words. The
+    honest predicate is whether the document contains a colour *command*."""
+    from handzoo.core.validate import colour_gate
+
+    inks = ((0, 0, 0), (200, 30, 30))
+    prose = "The four colour theorem. The red house is green."
+    assert not colour_gate.check(prose, colours=inks).passed
+
+    carried = r"The \textcolor{red}{red} house."
+    assert colour_gate.check(carried, colours=inks).passed
+
+
+def test_a_single_ink_has_no_distinction_to_lose() -> None:
+    """One colour carries no *contrast*, so nothing semantic can be dropped by rendering it
+    black. The gate fires on ink that distinguishes, not on ink that merely exists."""
+    from handzoo.core.validate import colour_gate
+
+    assert colour_gate.check("Plain text.", colours=((192, 127, 210),)).passed
+    assert colour_gate.check("Plain text.", colours=()).passed

@@ -60,7 +60,7 @@ Environment, verified on this machine:
 
 1. **No per-character recognizer.** Glyph recognition is solved; 2-D structure is the hard part. End-to-end image→markup, never classify-then-assemble.
 2. **No heuristic segmenter** (D4). The VLM recovers reading order for free; a bbox segmenter would have to reconstruct it.
-3. **Four gates, all hard fails:** zero non-ASCII (unless the `--standalone` preamble supports it) · delimiter and environment balance · compiles clean under `pdflatex` · **no silent mark loss**.
+3. **Five gates, all hard fails:** zero non-ASCII (unless the `--standalone` preamble supports it) · delimiter and environment balance · compiles clean under `pdflatex` · **no silent mark loss** · **no silent colour loss** (read from the vector source; a raster source reports *not checked*, never *clean*).
 4. **Never fabricate `tikz`.** Diagrams are cropped, referenced, and flagged `% TODO: author diagram`.
 5. **Never silently drop, reword, or renotate a mark.** This is the same principle as (4), applied where the baseline proved it was missing.
 6. **Absence of evidence is not evidence of absence.** A check that did not run must never
@@ -78,7 +78,7 @@ Environment, verified on this machine:
 | `handzoo/core/declarations.py` | **Working.** Generates `\ifdefined`-guarded declarations for macros the recognizer invents. |
 | Rasterizer, recognizer, gates, emitter, pipeline, CLI | **Working.** The command is `handzoo <pdf>` — see Commands above; there is no `convert` subcommand. |
 | `handzoo-review` — the correction loop | **Built** (PLAN Wave 5). Walks gate findings and records a verdict per page. The M0 exit criterion still needs author-timed runs through it. |
-| Tests | **141**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
+| Tests | **147**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
 
 Measured state of the Normalizer, on identical raw recognizer output (Naive Math, the hardest
 document): 16/22 → **22/22**. Older Thinking-checkpoint corpora hold at 30/34 as a fixed

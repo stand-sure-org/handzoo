@@ -150,3 +150,60 @@ def ink_profile(pdf: Path, page: int, *, bands: int = 10) -> InkProfile:
         counts[min(bands - 1, int((y - lo) / span * bands))] += 1
     total = len(ys)
     return InkProfile(points=total, bands=tuple(c / total for c in counts))
+
+
+_SVG_PATH_EL = re.compile(r"<path\s+([^>]*?)/>", re.S)
+_SVG_NUM = re.compile(r"-?\d+\.?\d*(?:[eE][-+]?\d+)?")
+
+RULE_MIN_WIDTH = 300.0
+RULE_MAX_HEIGHT = 1.0
+"""A ruled guide line runs the width of the page and is flat.
+
+Guides are separated from ink **by geometry, never by hue.** The first version of this test
+keyed off "grey and uniform", which held on the pages it was written against and fails on
+`Cheng 217-220` p3, where 17 paths of deliberate grey ink — the base diagram's own arrows,
+drawn against green for the cone's legs — would have been discarded as furniture. Measured
+there: the rules are 685.1pt wide and 0.0 tall; the grey ink is 6.5 x 8.2.
+"""
+
+
+def ink_colours(pdf: Path, page: int) -> tuple[tuple[int, int, int], ...] | None:
+    """Distinct ink colours on a page, read from the vector source.
+
+    This is *file ground truth*, not a model report — which is what makes it usable as gate
+    evidence without touching the §3 trust boundary. Naming a colour is a description and
+    descriptions are untrustworthy; reading one off a path is not.
+
+    Returns:
+        Distinct RGB triples, most-used first. **`None` when it cannot be determined** — a
+        raster source (a scan) has no vector paths, and neither does a blank page. Returning
+        an empty tuple for those would read as "no colour to lose", which on a scan is exactly
+        the wrong answer: it is where colour is hardest to recover, not where there is none.
+    """
+    _require(VECTOR_TOOL)
+    proc = subprocess.run(
+        [VECTOR_TOOL, "-svg", "-f", str(page), "-l", str(page), str(pdf), "/dev/stdout"],
+        capture_output=True, text=True, check=False)
+
+    counts: dict[tuple[int, int, int], int] = {}
+    for attrs in _SVG_PATH_EL.findall(proc.stdout):
+        colour = re.search(r'stroke="rgb\(([^)]*)\)"', attrs)
+        scale = re.search(r'transform="matrix\(([0-9.eE-]+)', attrs)
+        data = re.search(r'\sd="([^"]*)"', attrs)
+        if not (colour and scale and data):
+            continue
+        coords = [float(x) for x in _SVG_NUM.findall(data.group(1))]
+        xs, ys = coords[0::2], coords[1::2]
+        if len(xs) < 2:
+            continue
+        s = float(scale.group(1))
+        if (max(xs) - min(xs)) * s > RULE_MIN_WIDTH and (max(ys) - min(ys)) * s < RULE_MAX_HEIGHT:
+            continue  # ruled guide line, not ink
+        rgb = tuple(round(float(v.strip().rstrip("%")) * 255 / 100)
+                    for v in colour.group(1).split(","))
+        if len(rgb) == 3:
+            counts[rgb] = counts.get(rgb, 0) + 1
+
+    if not counts:
+        return None
+    return tuple(sorted(counts, key=lambda k: -counts[k]))

@@ -25,7 +25,8 @@ from . import rasterize
 from .emit import Emission, emit
 from .recognize.base import Recognition, Recognizer
 from .recognize.ollama_vlm import RecognitionError
-from .validate import ascii_gate, compile_gate, coverage_gate, delimiter_gate
+from .validate import (ascii_gate, colour_gate, compile_gate, coverage_gate,
+                       delimiter_gate)
 
 MANIFEST = "manifest.jsonl"
 
@@ -143,6 +144,11 @@ def _validate(recognition: Recognition, pdf: Path, page: int, *, mode: str,
         ink = rasterize.ink_profile(pdf, page)
     except rasterize.RasterizeError:
         ink = None
+    try:
+        colours = rasterize.ink_colours(pdf, page)
+    except rasterize.RasterizeError:
+        # Could not ask, so the colour gate must not answer. None is "unknown", not "clean".
+        colours = None
     gates = (
         ascii_gate.check(draft.text),
         delimiter_gate.check(draft.text),
@@ -150,6 +156,7 @@ def _validate(recognition: Recognition, pdf: Path, page: int, *, mode: str,
         else _skip_compile(),
         coverage_gate.check(draft.text, recognition.inventory, ink=ink,
                             inventory_failed=recognition.inventory_failed),
+        colour_gate.check(draft.text, colours=colours),
     )
     # Reuse the draft rather than normalising a second time. Deterministic today, but
     # nothing enforced that the two runs agreed, and a divergence would have meant the

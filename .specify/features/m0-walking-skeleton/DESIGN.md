@@ -853,7 +853,7 @@ Block marks emit as a referenced cropped PNG plus `% TODO: author diagram`. Inli
 
 **Confidence markers** (binding condition 4): low-confidence spans are wrapped so a reader can distinguish transcription from guess. The inventory pass is already being built for D6, so this is nearly free. An artifact that performs certainty it does not have is the same dishonesty the never-fabricate rule exists to prevent.
 
-**Colour** (binding condition 5, **stated but not implemented** — see the measurement below): colour-bearing ink is a `ColorSpan`. Silent loss of it is a hard fail under the coverage gate. Faithful reconstruction is deferred; *silent* discard is not permitted. On the fixtures, R/G/B houses written in red/green/blue carry the labelling.
+**Colour** (binding condition 5): colour-bearing ink is a `ColorSpan`. Silent loss of it is a hard fail — enforced by `colour_gate` since 2026-08-20, and by nothing at all before that. Reconstruction remains deferred; silence does not. Faithful reconstruction is deferred; *silent* discard is not permitted. On the fixtures, R/G/B houses written in red/green/blue carry the labelling.
 
 #### Measured 2026-08-20: colour is silently discarded, and binding condition 5 is unimplemented
 
@@ -887,15 +887,43 @@ This is DESIGN 5.7 again, in its purest form: **a check that does not exist read
 a check that passed.** Three prior instances defaulted an unknown into the reassuring answer;
 this one never asked the question at all, and the design document asserts it as settled.
 
-**Not fixed here.** Two directions, and the choice is not obvious. The recognizer could be
+**Fixed 2026-08-20: `colour_gate`.** Colour is read from the vector source
+(`rasterize.ink_colours`) and compared against what the document carries. The second of the
+two directions below was taken.
+
+- **Evidence is file ground truth, not a model report** — which is why it is a separate gate
+  rather than an extension of `coverage_gate`, whose evidence is the recognizer's inventory.
+  Mixing the two would blur what a coverage failure means.
+- **The predicate is structural**: does the document contain a colour *command*
+  (`\textcolor`, `\color`, `xcolor`...). Searching for colour *words* false-positives on prose
+  about the four-colour theorem, and on Naive Math where "red house" is colour information
+  genuinely carried in words.
+- **Two inks is the threshold.** One ink carries no contrast, so rendering it black drops no
+  distinction. The gate fires on ink that distinguishes, not ink that merely exists.
+- **A raster source returns `None`, not "clean".** A scan has no vector paths to read, and
+  neither does a blank page. Reporting no-colour-to-lose on a scan would be the fourth §5.7
+  instance, introduced in the same change that documents the third — so `None` means *could
+  not determine* and yields `checked=False`. Verified against a raster PDF rebuilt from the
+  author's own scanner output.
+
+**It is precise rather than noisy**, which is what makes hard-failing defensible: chapter 18
+flags **0 of 14** pages, and `Cheng 217-220` flags **2 of 4** — exactly the two carrying
+colour. The concern that a colour gate would paint every page red does not materialise,
+because most pages are written in one ink.
+
+**Still deferred: reconstruction.** The gate says colour was present and is gone. It does not
+carry the colour into the output, and nothing does. Binding condition 5 always separated these
+— "faithful reconstruction is deferred; *silent* discard is not permitted" — and it is the
+silence that has been fixed.
+
+**Superseded reasoning, kept because the choice was real.** Two directions were open: The recognizer could be
 asked for colour spans, which adds a trust question -- colour naming is a *description*, and
 descriptions are the untrustworthy half of the boundary in section 3. Or colour presence could
 be measured from the vector source, which is cheap and reliable (the table above is one
 `pdftocairo` call) and tells the gate *that* colour was there without asking the model to name
 it -- which is exactly the shape of the coverage gate's existing presence-and-position rule.
 
-The second is the better fit and is still unbuilt. Until one of them lands, **the colour
-paragraph above describes an intention, not a mechanism**, and it is marked as such.
+The second was the better fit and is what shipped.
 
 **A crop preserves colour by construction.** Where a coloured mark is a block diagram, the crop
 verdict (7.2) resolves this for free -- the crop is the image, so the green and grey survive
