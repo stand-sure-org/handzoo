@@ -1073,7 +1073,7 @@ no bounding box the model returns has ever been checked against ground truth. Cu
 from an untested coordinate would fabricate a figure: well-formed, compiling, and showing the
 wrong part of the page. That is substitution in image form, and no gate here would catch it.
 
-#### The blocker: R9 destroys a real crop and blames the recognizer
+#### The blocker: R9 destroyed a real crop and blamed the recognizer — **cleared 2026-08-20**
 
 `_FAB_GRAPHIC.sub()` rewrites **every** `\includegraphics` into a fabrication marker. It never
 checks whether the file exists, although its own message says "nonexistent file."
@@ -1095,11 +1095,37 @@ about who produced what, in the file that is supposed to be the honest record.
 to the output directory. That is a signature change, not a one-liner: `normalize()` takes
 markup and nothing else today, so it has no idea where the run is writing.
 
-**Latent, not active.** `handzoo-review` does not yet re-normalize edited pages. The design
-anticipates that it will -- the idempotence guard in `normalize()` exists for exactly that
-future -- so this becomes live the moment re-normalization lands, or the moment a crop verdict
-writes a reference that anything downstream normalizes. Clear it before building the verdict,
-not after.
+**Cleared.** `normalize(..., base_dir=)` resolves a reference against the run's output
+directory, and one that resolves is left alone. `emit()` and the pipeline pass it through, so
+the capability is live rather than declared.
+
+Three things had to move together, and only the first was foreseen:
+
+1. **R9 checks existence.** No `base_dir` means the question cannot be asked, so the answer
+   stays "fabricated" -- the safe direction, since defaulting the other way would let any
+   invented filename through unexamined (DESIGN 5.7). The crop verdict must therefore always
+   pass it. Resolution is confined to the output directory: `../../etc/passwd` exists, and that
+   is not evidence the recognizer meant it.
+2. **The preamble loads `graphicx`.** Letting the reference through is half the job. Nothing
+   declared `\includegraphics`, so R8 stubbed it as an unknown macro and the optional
+   `[width=...]` failed with *"Missing number, treated as zero."* Trading "the crop is
+   destroyed" for "the document does not build" is not a fix. Unlike hyperref (see 8.1)
+   graphicx redefines nothing, so it is loaded unconditionally.
+3. **The compile gate can see assets.** It compiles in a scratch directory, which makes every
+   relative reference unresolvable -- the gate would have rejected the crop verdict's own
+   correct output. `base_dir` now joins `TEXINPUTS`. It is added to the *search path*, not the
+   working directory, so intermediates still land in scratch and no run litters `.aux` and
+   `.log` into the author's output.
+
+Verified end to end on a real vector crop cut from `Cheng 217-220` p3 with `crop_vector` --
+8,009 bytes, survives normalization, and the document compiles with the figure in place, while
+an invented reference is still caught. A live pipeline run over that page produces a body
+byte-identical to the pre-change output; the only difference anywhere is the added `graphicx`
+line.
+
+**Caveat, noted and unsolved:** LaTeX resolves a relative graphics path in a *fragment* against
+the master document's directory, not the fragment's. "Exists under the output directory" is
+exact for standalone output and a heuristic for fragments.
 
 #### What the log records
 

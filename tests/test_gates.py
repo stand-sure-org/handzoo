@@ -259,3 +259,103 @@ def test_no_tikzpicture_survives_normalization() -> None:
         out = normalize(markup).text
         assert "tikzpicture" not in out, out[:200]
         assert "fabricated" in out, "the fabrication must be recorded, not merely deleted"
+
+
+# --------------------------------------------------- R9: a reference that resolves
+
+
+def test_a_graphic_that_exists_is_not_a_fabrication(tmp_path) -> None:
+    r"""R9 rewrote *every* `\includegraphics` into a fabrication marker without ever checking
+    whether the file was there — although its own message said "nonexistent file".
+
+    Measured: a crop written to disk and referenced came back as
+    `\texttt{[TODO fabricated: recognizer referenced a nonexistent file <path>]}`. Two failures
+    in one line — the human's work is discarded (constraint 5), and the record blames the
+    recognizer for it. This blocks the crop verdict (DESIGN §7.2), whose whole output is a
+    reference to a file that does exist.
+    """
+    from handzoo.core.normalize import normalize
+
+    (tmp_path / "fig-25-1.png").write_bytes(b"\x89PNG")
+    out = normalize(r"before \includegraphics{fig-25-1.png} after", base_dir=tmp_path).text
+    assert "includegraphics" in out, "a reference that resolves is not a fabrication"
+    assert "fabricated" not in out.lower()
+
+
+def test_a_graphic_that_does_not_exist_is_still_a_fabrication(tmp_path) -> None:
+    from handzoo.core.normalize import normalize
+
+    out = normalize(r"before \includegraphics{pie1} after", base_dir=tmp_path).text
+    assert "includegraphics" not in out
+    assert "fabricated" in out.lower()
+
+
+def test_without_a_base_dir_existence_cannot_be_checked_so_nothing_is_trusted(tmp_path) -> None:
+    """DESIGN §5.7: decide what a check returns when it cannot run, and test that case.
+
+    With no output directory there is no way to resolve a reference, so the safe answer is the
+    old one — treat it as fabricated. The crop verdict must therefore always pass `base_dir`.
+    Defaulting the other way would let any invented filename through unexamined.
+    """
+    from handzoo.core.normalize import normalize
+
+    (tmp_path / "real.png").write_bytes(b"\x89PNG")
+    out = normalize(r"\includegraphics{real.png}").text
+    assert "includegraphics" not in out
+    assert "fabricated" in out.lower()
+
+
+def test_a_reference_escaping_the_output_directory_is_not_trusted(tmp_path) -> None:
+    """`../../etc/passwd` exists. That is not evidence the recognizer meant it."""
+    from handzoo.core.normalize import normalize
+
+    (tmp_path / "outside.png").write_bytes(b"\x89PNG")
+    inner = tmp_path / "run"
+    inner.mkdir()
+    out = normalize(r"\includegraphics{../outside.png}", base_dir=inner).text
+    assert "includegraphics" not in out, "resolution must stay inside the output directory"
+
+
+@pytest.mark.skipif(not compile_gate.engine_available(), reason="pdflatex not installed")
+def test_a_surviving_graphic_actually_builds(tmp_path) -> None:
+    r"""Letting the reference through is only half the job.
+
+    Nothing in the preamble loaded `graphicx`, and `includegraphics` was not in `KNOWN`, so R8
+    generated a `\providecommand{\includegraphics}[1]{#1}` stub. The optional `[width=...]`
+    then failed with "Missing number, treated as zero." Trading "the crop is destroyed" for
+    "the document does not build" is not a fix.
+    """
+    from handzoo.core.normalize import normalize
+
+    (tmp_path / "fig.pdf").write_bytes(
+        b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+        b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+        b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 72 72]>>endobj\n"
+        b"trailer<</Root 1 0 R>>\n%%EOF\n")
+    out = normalize(r"text \includegraphics[width=0.5\textwidth]{fig.pdf} more",
+                    base_dir=tmp_path).text
+    assert "includegraphics" in out
+    assert "graphicx" in out, "a document using \\includegraphics must load graphicx"
+    assert "providecommand{\\includegraphics}" not in out, "R8 must not stub a real command"
+
+
+@pytest.mark.skipif(not compile_gate.engine_available(), reason="pdflatex not installed")
+def test_the_compile_gate_can_see_assets_beside_the_document(tmp_path) -> None:
+    r"""The gate compiles in an isolated temp directory, so a relative `\includegraphics`
+    resolved against the *output* directory is invisible to it.
+
+    Without this the crop verdict would produce documents the gate refuses — the tool
+    rejecting the human's correct fix, which is worse than the bug it replaced.
+    """
+    fig = tmp_path / "fig.pdf"
+    fig.write_bytes(
+        b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+        b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+        b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 72 72]>>endobj\n"
+        b"trailer<</Root 1 0 R>>\n%%EOF\n")
+    doc = ("\\documentclass{article}\n\\usepackage{graphicx}\n"
+           "\\begin{document}\n\\includegraphics[width=1in]{fig.pdf}\n\\end{document}\n")
+
+    assert not compile_gate.check(doc).passed, "without the directory it cannot find the file"
+    assert compile_gate.check(doc, base_dir=tmp_path).passed, compile_gate.check(
+        doc, base_dir=tmp_path).report()

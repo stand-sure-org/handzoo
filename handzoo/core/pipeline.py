@@ -108,7 +108,8 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
             yield outcome
             continue
 
-        emission = _validate(recognition, pdf, page.number, mode=mode)
+        emission = _validate(recognition, pdf, page.number, mode=mode,
+                             out_dir=out_dir)
         target = out_dir / f"page-{page.number:04d}.tex"
         # A failing page is still written, but under a name a build cannot pick up by
         # accident. Discarding it would throw away the very thing a human needs to correct.
@@ -135,8 +136,9 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
         yield outcome
 
 
-def _validate(recognition: Recognition, pdf: Path, page: int, *, mode: str) -> Emission:
-    draft = emit(recognition, mode=mode, page=page)
+def _validate(recognition: Recognition, pdf: Path, page: int, *, mode: str,
+              out_dir: Path | None = None) -> Emission:
+    draft = emit(recognition, mode=mode, page=page, base_dir=out_dir)
     try:
         ink = rasterize.ink_profile(pdf, page)
     except rasterize.RasterizeError:
@@ -144,7 +146,8 @@ def _validate(recognition: Recognition, pdf: Path, page: int, *, mode: str) -> E
     gates = (
         ascii_gate.check(draft.text),
         delimiter_gate.check(draft.text),
-        compile_gate.check(draft.text) if mode == "standalone" else _skip_compile(),
+        compile_gate.check(draft.text, base_dir=out_dir) if mode == "standalone"
+        else _skip_compile(),
         coverage_gate.check(draft.text, recognition.inventory, ink=ink,
                             inventory_failed=recognition.inventory_failed),
     )
