@@ -208,10 +208,24 @@ the notes", uncertain whether pen stroke width actually changes. This is the fir
 identified on the **capture** side rather than the recognition side, and it is one the author
 controls directly.
 
-Testable and unmeasured: rasterise pages written at different magnifications, compare stroke
-width in the vector source (`pdftocairo -svg` exposes path widths), and check whether gate pass
-rate varies with it. If it does, "write at this zoom" is the cheapest quality lever available
-anywhere in this project — no model change, no code.
+**Measured 2026-08-20, and the first half is settled: the pen does not change.**
+
+Effective ink stroke width — `stroke-width` multiplied by each path's own transform scale,
+since the raw attribute is meaningless without it — is **constant at 1.903 across every page**
+of `Cheng chapter 18`, a document the author wrote at deliberately varied magnification. Guide
+lines are excluded from the statistic; they are grey and uniform, ink is coloured.
+
+So zoom does not alter the pen. What it alters is **how large the writing is relative to a
+fixed stroke**, which changes the stroke-to-glyph ratio — thicker-looking strokes on small
+writing, finer on large. The device also bakes the zoom into the export geometry: chapter 18
+exports at **514 × 871 pt** against 514 × 685 for the earlier chapters.
+
+**The second half is unmeasured.** Whether that ratio moves gate pass rate is still open: a run
+over the chapter stalled partway, and five pages (3 pass, 2 fail) is not a correlation. The
+measurement is cheap to repeat and the tooling now exists — `experiments/stroke_width.py`.
+
+If it does correlate, "write at this zoom" remains the cheapest quality lever in the project —
+no model change, no code.
 
 ## Open questions for the design panel
 
