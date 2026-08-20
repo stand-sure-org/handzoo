@@ -217,6 +217,34 @@ def test_normalization_converges() -> None:
     assert len(set(sizes[1:])) == 1, f"normalization does not converge: {sizes}"
 
 
+@pytest.mark.parametrize("env", ["tikzpicture", "tikzcd", "CD", "xy", "forest", "prooftree"])
+def test_no_fabricated_diagram_environment_survives(env: str) -> None:
+    r"""R9 was written against the one environment that had been measured.
+
+    Cheng ch18 is category theory, so the recognizer reached for `tikzcd` instead of
+    `tikzpicture` — and R9, matching that literal string, passed it straight through to a
+    "Environment tikzcd undefined" build failure on two pages. The rule is *never fabricate
+    a diagram*, so it has to match the family, not the one member already seen.
+
+    Loading `tikz-cd` would make these compile. That is the wrong fix and is forbidden by
+    hard constraint #4: it converts a caught fabrication into a plausible, compiling,
+    invented commutative diagram — the silent corruption the project exists to refuse.
+
+    Bodies are synthetic. The measured pages are third-party published text and stay out
+    of the repo.
+    """
+    from handzoo.core.normalize import normalize
+
+    for markup in (
+        f"before \\begin{{{env}}}A \\arrow[r] & B\\end{{{env}}} after",
+        f"before \\begin{{{env}}}[scale=0.5]A \\to B no closer at all",
+        f"before A \\to B \\end{{{env}}} orphan closer",
+    ):
+        out = normalize(markup).text
+        assert env not in out, f"{env} reached the document: {out[:200]}"
+        assert "before" in out, "surrounding prose must survive"
+
+
 def test_no_tikzpicture_survives_normalization() -> None:
     r"""An unterminated `\begin{tikzpicture}` slipped past the paired pattern and failed the
     build with "Environment tikzpicture undefined" (Naive Math p1). The recognizer is told

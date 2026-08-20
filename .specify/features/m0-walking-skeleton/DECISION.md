@@ -208,10 +208,45 @@ the notes", uncertain whether pen stroke width actually changes. This is the fir
 identified on the **capture** side rather than the recognition side, and it is one the author
 controls directly.
 
-Testable and unmeasured: rasterise pages written at different magnifications, compare stroke
-width in the vector source (`pdftocairo -svg` exposes path widths), and check whether gate pass
-rate varies with it. If it does, "write at this zoom" is the cheapest quality lever available
-anywhere in this project — no model change, no code.
+**Measured 2026-08-20, and the first half is settled: the pen does not change.**
+
+Effective ink stroke width — `stroke-width` multiplied by each path's own transform scale,
+since the raw attribute is meaningless without it — is **constant at 1.903 across every page**
+of `Cheng chapter 18`, a document the author wrote at deliberately varied magnification. Guide
+lines are excluded from the statistic; they are grey and uniform, ink is coloured.
+
+So zoom does not alter the pen. What it alters is **how large the writing is relative to a
+fixed stroke**, which changes the stroke-to-glyph ratio — thicker-looking strokes on small
+writing, finer on large. The device also bakes the zoom into the export geometry: chapter 18
+exports at **514 × 871 pt** against 514 × 685 for the earlier chapters.
+
+**The second half now has an answer, and it is no — ruled out by cause, not by coefficient.**
+
+The full chapter (14/14 pages) ran: 11 pass, 3 fail. Stroke-to-glyph ratio spans 4.74–6.74
+across those pages, and splits as **pass mean 5.83, fail mean 5.79** — point-biserial
+`r = +0.02`. That coefficient proves nothing on its own; three failures cannot resolve an
+effect below roughly |0.5|.
+
+What settles it is that all three failures have **identified causes with nothing to do with
+glyph size**:
+
+| page | ratio | gate | cause |
+|---|---|---|---|
+| 1 | 5.14 | coverage | invented `\includegraphics{diagram181.png}` — gate working as designed |
+| 3 | 5.71 | compile | `\begin{tikzcd}` — fabricated diagram environment, R9 hole |
+| 8 | 6.53 | compile | `\begin{tikzcd}` — same |
+
+Page 8 has the second-highest ratio on the chapter and page 9 the second-lowest, and they fail
+and pass respectively. A mechanistic rule-out is stronger here than the statistic: these pages
+did not fail because of how the author wrote, they failed because of what the recognizer
+invented on content that happened to contain commutative diagrams.
+
+**So zoom is not a quality lever.** The cheapest lever in the project is still unidentified;
+this candidate is closed. The author can write at whatever magnification is comfortable.
+
+*(Correction to the prior entry: that run did not stall. It completed — chapter 18 pages are
+taller and simply slow. The inference drawn from the apparent stall, that the per-attempt
+retry timeout is too generous, was unsupported and is withdrawn.)*
 
 ## Open questions for the design panel
 

@@ -796,6 +796,36 @@ there are three verdicts.
 specifically — not merely that failures fail. A suite that only checks pass and fail cannot
 tell the difference between "verified good" and "never looked", which is the whole point.
 
+### 5.7.1 The sibling failure: a rule written against the instance, not the class
+
+Related but distinct, and worth naming because it produces the same outward symptom — a
+defence that looks present and is not.
+
+R9 strips fabricated diagram markup. It was written when the recognizer emitted
+`\begin{tikzpicture}` (Naive Math p21), and it matched **that literal string**. Cheng ch18 is
+category theory, so on commutative diagrams the recognizer reached for `\begin{tikzcd}`
+instead — and R9, asked whether this was fabricated tikz, said no. Two pages failed the build
+with *"Environment tikzcd undefined"*. The rule was real, tested, and blind.
+
+**The fix is the family, not the name.** R9 now matches `tikzpicture|tikzcd|circuitikz|forest|
+prooftree|CD|xy` — diagram-markup environments no standard preamble provides, so any of them
+arriving from the recognizer is fabrication by definition. All three paths close together:
+paired, orphan opener, orphan closer. Each fails the build on its own.
+
+**Loading `tikz-cd` is the wrong fix**, and it will be proposed. It makes those pages compile
+by rendering an invented commutative diagram — converting a caught fabrication into
+well-typeset, ASCII-clean, compiling, *false* output. That is precisely the silent corruption
+in the positioning statement, and hard constraint #4 forbids it. A fabricated diagram must stay
+visible as a marker.
+
+**Still open, and a §5.7 instance in its own right:** there is no general undefined-*environment*
+detection anywhere. `find_undefined()` scans `\\([a-zA-Z]+)`, and an environment name only ever
+appears as `{tikzcd}` — so the check that would have caught this structurally has never run, and
+nothing in the output says so. The general fix is not a mirror of the macro path: stubbing an
+unknown environment would silently swallow its body, violating constraint #5 worse than a
+compile failure does. The marker treatment is only correct for R9 because tikz bodies *are*
+fabricated markup. Prose is not. That decision is unmade.
+
 **When adding a gate**, answer this before writing it: *what does this return when it cannot
 run?* If the answer is "it always can", say why in a comment — that assumption is the one that
 breaks first on someone else's machine.
