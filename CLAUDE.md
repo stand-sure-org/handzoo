@@ -33,7 +33,7 @@ Python end-to-end with `uv` (D3). The PDF is the first positional argument — t
 never existed in the code.
 
 ```
-handzoo notes.pdf -o out/                 # fragments, for assembly with \input
+handzoo notes.pdf -o out/                 # fragments + chapter.tex, ready to open
 handzoo notes.pdf -o out/ --standalone    # complete documents; compile gate can run
 handzoo notes.pdf --pages 1-5 --resume    # triage a range; resume from the manifest
 ```
@@ -83,8 +83,9 @@ Environment, verified on this machine:
 | `handzoo/core/normalize.py` | **Working.** Ten rules (R1–R10), each traced to a measured gate failure. Built on `pylatexenc`, not regex. |
 | `handzoo/core/declarations.py` | **Working.** Generates `\ifdefined`-guarded declarations for macros the recognizer invents. |
 | Rasterizer, recognizer, gates, emitter, pipeline, CLI | **Working.** The command is `handzoo <pdf>` — see Commands above; there is no `convert` subcommand. |
+| `handzoo/core/assemble.py` | **Working.** Writes `chapter.tex` after a run — pages `\input` in order, failures as visible placeholders. A `--standalone` page cannot be assembled and says so. |
 | `handzoo-review` — the correction loop | **Built** (PLAN Wave 5). Walks gate findings, records a verdict per page, and can **crop** a diagram from the source as vector (`c`) — the fix for 45 of 49 findings on a real run. The M0 exit criterion still needs author-timed runs through it. |
-| Tests | **164**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
+| Tests | **169**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
 
 Measured state of the Normalizer, on identical raw recognizer output (Naive Math, the hardest
 document): 16/22 → **22/22**. Older Thinking-checkpoint corpora hold at 30/34 as a fixed

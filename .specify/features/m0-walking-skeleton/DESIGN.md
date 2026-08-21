@@ -1618,6 +1618,67 @@ a marker is the same rule.
 **Not scoped, and out of M0.** It is an application, and M0 is a walking skeleton. Recorded so
 that the `--fix` timings tell it something: each mode measured now is a pane priced in advance.
 
+### 11.3 Polish, not fix — and what that implies about what this is
+
+**Two framings, and they must not be confused.** The author's intent for the seeded editor was
+*"help me polish this"*, not *"fix what is broken"*. `--fix` names a defect; polish names a
+finish. The difference is not cosmetic — the emitted page is usually mostly right, and calling
+the interaction a repair mis-describes the work and primes the reviewer to hunt for errors
+rather than read for sense.
+
+**The measurement must stay narrow anyway.** `--fix`'s prompt says *"fix it until it says what
+the page says"*, deliberately. Polishing includes authorial improvement — better phrasing, a
+clearer break — which would happen in any world and is not caused by the tool. If that leaks
+into a timed run the number stops measuring the tool and starts measuring the author's taste.
+So: the **product** is polish, the **measurement** is correction to what the page says, and the
+prompt keeps them apart.
+
+### 11.4 Converter or workspace — the question this raises (author, 2026-08-21)
+
+The author's framing: if the flow is *tablet → handzoo → some LaTeX application*, HandZoo is
+useful. If there is **no need to open the LaTeX application until the galley stage**, HandZoo
+replaces most of the use case rather than feeding it.
+
+That is a positioning question, and the positioning statement is load-bearing rather than
+marketing, so it is recorded here and **not decided**.
+
+**What it would cost.** "The tool that refuses to hand you broken LaTeX" is a narrow, defensible
+claim against a field of one — nobody else is gating handwritten conversion on buildability. An
+editor competes with Overleaf, TeXShop, VS Code and a dozen others, and the differentiator
+dilutes to nothing if the claim becomes "it also edits".
+
+**What would make it defensible anyway.** None of those have the ink, and none of them know
+which parts of the text are unverified. The claim is not *it is an editor*; it is **the only
+place where the source page and the record of doubt stay attached to the text**. That is a
+different product from a LaTeX editor with a PDF preview, and the gates are what make it one.
+
+**Which reframes the gates.** As a converter's exit criteria they are gatekeepers: pass or
+refuse. In a workspace they are **marginalia** — *this diagram is fabricated, this colour is
+gone, this page is unverified* — attached to a location, and worked off over time. Same
+findings, different job.
+
+The author's own evidence supports the reframing. Their from-blank transcripts contain
+`% insert snip` at every diagram: a note to self about unfinished business, attached to a
+place. **That is the same species as a gate finding.** In a converter a finding is an error; in
+a workspace it is a task list the author was already keeping by hand.
+
+**What was actually blocking it, now built.** A run produced loose fragments and no document,
+so the author had to open a LaTeX application simply to *see* the chapter — the pipeline
+position was enforced by the absence of `chapter.tex`, not chosen. `assemble()` writes the
+master (§6.1's model, finally implemented): pages `\input` in order, failures as **visible
+placeholders** rather than silent omissions, and the master owning the preamble. Verified on a
+real four-page fragment run: the assembled chapter compiles.
+
+**The tension it exposes, unresolved.** `--standalone` exists so the compile gate can run on a
+page; fragments exist so a chapter can be assembled. They pull against each other, and the
+author's ch19 run used `--standalone`, so its pages cannot be `\input` at all — surfaced as a
+placeholder rather than a broken build.
+
+The resolution is probably that **the chapter is the better unit to compile-check**: it catches
+what per-page checking cannot (a macro defined on page 3 and used on page 7), it lets fragments
+be the default, and it removes the flag that forces the author to choose. That is a change to
+the gate model and is not made here.
+
 ### 11.2 Recorded, unmeasured: fidelity against the incumbents
 
 The author reports text fidelity "definitely better than tesseract and mathpix". Consistent
