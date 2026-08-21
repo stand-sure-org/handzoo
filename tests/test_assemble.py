@@ -82,3 +82,44 @@ def test_a_standalone_page_cannot_be_input_and_says_so(tmp_path: Path) -> None:
     assert "\\input{page-0001}" not in text
     assert "standalone" in text.lower()
     assert "--standalone" in text
+
+
+def test_the_master_declares_characters_no_fragment_could(tmp_path: Path) -> None:
+    r"""Found by the 126-page Number theory run: 9 pages failed the ASCII gate on characters
+    `pylatexenc` has no mapping for — checkmarks, ballot crosses, circled digits.
+
+    They are not exotic. A checkmark asserting an axiom holds is a *term in the sentence*
+    (`Placement.inline`), and Topology is in the corpus specifically to stress "checkmarks as
+    inline annotations".
+
+    The mechanism for an unmappable character is `\DeclareUnicodeCharacter`, which only a
+    preamble can carry — so a **fragment has no remedy at all**, and fragments became the
+    default when assembly landed. The master owns the preamble, so the master owns this.
+    """
+    page = tmp_path / "page-0001.tex"
+    page.write_text("Axiom holds ✓ and fails ✗, case ①.\n", encoding="utf-8")
+    master = assemble(tmp_path, [PageOutcome(page=1, output=str(page), verdict="pass",
+                                             gates={}, findings=[])])
+    text = master.read_text(encoding="utf-8")
+    for codepoint in ("2713", "2717", "2460"):
+        assert f"DeclareUnicodeCharacter{{{codepoint}}}" in text, f"U+{codepoint} undeclared"
+
+
+def test_only_characters_actually_present_are_declared(tmp_path: Path) -> None:
+    """A preamble that declares everything imaginable is noise, and hides the TODOs that
+    matter — every generated declaration is a decision the author still owes."""
+    page = tmp_path / "page-0001.tex"
+    page.write_text("Plain ASCII only.\n", encoding="utf-8")
+    master = assemble(tmp_path, [PageOutcome(page=1, output=str(page), verdict="pass",
+                                             gates={}, findings=[])])
+    assert "DeclareUnicodeCharacter" not in master.read_text(encoding="utf-8")
+
+
+def test_a_failed_page_contributes_no_declarations(tmp_path: Path) -> None:
+    """Its content is not in the document, so declaring for it would describe a page the
+    reader cannot see."""
+    page = tmp_path / "page-0001.fail.tex"
+    page.write_text("Held back ✓\n", encoding="utf-8")
+    master = assemble(tmp_path, [PageOutcome(page=1, output=str(page), verdict="fail",
+                                             gates={"coverage": "fail"}, findings=[])])
+    assert "DeclareUnicodeCharacter" not in master.read_text(encoding="utf-8")

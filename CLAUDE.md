@@ -81,7 +81,11 @@ Environment, verified on this machine:
    `GateResult.checked`, `coverage_gate` on an empty inventory, and `Emission.verdict` — each
    time by defaulting an unknown into the reassuring answer. **When adding a gate, decide what
    it returns when it cannot run, and test that case directly.** See DESIGN §5.7.
-7. **Local-first.** `fixtures/` is gitignored — the manuscript is unpublished IP and this repo is intended for public release.
+7. **Local-first.** `fixtures/` is gitignored — the manuscript is unpublished IP and this repo
+   is intended for public release. `--provider gemini` exists and **sends page images to
+   Google**; it is opt-in, never the default, announces itself on every run, and reads its
+   key only from `$GEMINI_API_KEY`. A test asserts no key can live in the tree. What is
+   absolute is that no page content reaches the repository.
 
 ## What is built, and what is not
 
@@ -89,10 +93,11 @@ Environment, verified on this machine:
 |---|---|
 | `handzoo/core/normalize.py` | **Working.** Ten rules (R1–R10), each traced to a measured gate failure. Built on `pylatexenc`, not regex. |
 | `handzoo/core/declarations.py` | **Working.** Generates `\ifdefined`-guarded declarations for macros the recognizer invents. |
+| `handzoo/core/recognize/gemini_vlm.py` | **Working**, opt-in. Same port, same prompts, over the wire. Two providers disagreeing is the project's only self-audit-free substitution detector — DESIGN §5.5.6. |
 | Rasterizer, recognizer, gates, emitter, pipeline, CLI | **Working.** The command is `handzoo <pdf>` — see Commands above; there is no `convert` subcommand. |
 | `handzoo/core/assemble.py` | **Working.** Writes `chapter.tex` after a run — pages `\input` in order, failures as visible placeholders. A `--standalone` page cannot be assembled and says so. |
 | `handzoo-review` — the correction loop | **Built** (PLAN Wave 5). Walks gate findings, records a verdict per page, and can **crop** a diagram from the source as vector (`c`) — the fix for 45 of 49 findings on a real run. The M0 exit criterion still needs author-timed runs through it. |
-| Tests | **179**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
+| Tests | **213**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
 
 Measured state of the Normalizer, on identical raw recognizer output (Naive Math, the hardest
 document): 16/22 → **22/22**. Older Thinking-checkpoint corpora hold at 30/34 as a fixed

@@ -50,17 +50,38 @@ def non_ascii_chars(text: str) -> list[str]:
     return sorted({c for c in text if ord(c) > 127})
 
 
-def check(latex: str, *, allow_declared: bool = True) -> GateResult:
+def check(latex: str, *, allow_declared: bool = True,
+          fragment: bool = False) -> GateResult:
     """Fail on any non-ASCII byte the document has not accounted for.
 
     Args:
         latex: The emitted document.
         allow_declared: When True, a preamble that supports Unicode exempts the document.
-            Set False to demand pure ASCII regardless — useful for `--fragment` output, which
-            carries no preamble and will be pasted somewhere whose preamble we cannot see.
+            Set False to demand pure ASCII regardless.
+        fragment: The text carries no preamble, so it **cannot answer this question** and the
+            result is `unverified` rather than a failure.
+
+            Measured on the 126-page Number theory run, where nine pages failed on characters
+            `pylatexenc` has no mapping for -- checkmarks, ballot crosses, circled digits. The
+            remedy for an unmappable character is `\\DeclareUnicodeCharacter`, which only a
+            preamble can carry. So the fragment failed, was held back from the assembled
+            document, and the master declares only for pages it includes: the page could never
+            pass and the declaration could never fire.
+
+            A *mappable* character never reaches here -- R1 converts it. Arriving here at all
+            means a declaration is needed, which means a preamble is needed, which a fragment
+            does not have. Whether the character renders is the master's business.
+
+            This is the conclusion 11.4 reached for the compile gate, arrived at independently
+            by a different gate: **the chapter is the unit that can answer.**
     """
     if allow_declared and preamble_supports_unicode(latex):
         return GateResult(GATE)
+
+    if fragment and non_ascii_chars(latex):
+        return GateResult(GATE, checked=False, note=(
+            "a fragment has no preamble, so it cannot declare a character it cannot map. "
+            "The assembled document decides this."))
 
     failures: list[Failure] = []
     for lineno, line in enumerate(latex.splitlines(), start=1):

@@ -159,7 +159,7 @@ def _validate(recognition: Recognition, pdf: Path, page: int, *, mode: str,
         # Could not ask, so the colour gate must not answer. None is "unknown", not "clean".
         colours = None
     gates = (
-        ascii_gate.check(draft.text),
+        ascii_gate.check(draft.text, fragment=(mode != "standalone")),
         delimiter_gate.check(draft.text),
         compile_gate.check(draft.text, base_dir=out_dir) if mode == "standalone"
         else _skip_compile(),

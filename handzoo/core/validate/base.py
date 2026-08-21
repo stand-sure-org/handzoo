@@ -41,6 +41,10 @@ class GateResult:
     A gate that did not run is **not** a gate that passed, and the distinction has to survive
     into the report. Silent skips are how a suite goes green while checking nothing.
     """
+    note: str = ""
+    """Why it could not run. "SKIPPED" tells a reader that nothing was checked; it does not
+    tell them whether that is expected, fixable, or a broken installation — and those call for
+    different actions. A skip without a reason is only half the honesty."""
 
     @property
     def passed(self) -> bool:
@@ -51,7 +55,8 @@ class GateResult:
 
     def report(self) -> str:
         if not self.checked:
-            return f"{self.gate}: SKIPPED (could not run) — not a pass"
+            why = f" — {self.note}" if self.note else ""
+            return f"{self.gate}: SKIPPED (could not run) — not a pass{why}"
         if not self.failures:
             return f"{self.gate}: PASS"
         lines = [f"{self.gate}: FAIL ({len(self.failures)})"]
