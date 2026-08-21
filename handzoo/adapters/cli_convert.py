@@ -55,8 +55,10 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
                              "assembly with \\input")
     parser.add_argument("--resume", action="store_true",
                         help="skip pages already recorded in the manifest")
-    parser.add_argument("--provider", choices=("ollama", "gemini"), default="ollama",
-                        help="ollama runs locally; gemini SENDS PAGE IMAGES TO GOOGLE. "
+    parser.add_argument("--provider", choices=("ollama", "gemini", "anthropic"),
+                        default="ollama",
+                        help="ollama runs locally; gemini and anthropic SEND PAGE IMAGES "
+                             "OFF THIS MACHINE. "
                              "Local is the default because the manuscripts are unpublished "
                              "(constraint 7); the cloud provider is opt-in and says so.")
     parser.add_argument("--model", default=None,
@@ -74,6 +76,13 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
             recognizer = GeminiRecognizer(model=args.model or GEMINI_DEFAULT)
             print(f"provider: gemini/{recognizer.model} — page images are being sent to "
                   "Google.\n           Local-first is the default for a reason; this run is "
+                  "not local.", file=stream)
+        elif args.provider == "anthropic":
+            from ..core.recognize.anthropic_vlm import DEFAULT_MODEL as CLAUDE_DEFAULT
+            from ..core.recognize.anthropic_vlm import AnthropicRecognizer
+            recognizer = AnthropicRecognizer(model=args.model or CLAUDE_DEFAULT)
+            print(f"provider: anthropic/{recognizer.model} — page images are being sent to "
+                  "Anthropic.\n           Local-first is the default for a reason; this run is "
                   "not local.", file=stream)
         else:
             recognizer = OllamaRecognizer(model=args.model or DEFAULT_MODEL)

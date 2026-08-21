@@ -740,6 +740,83 @@ the only true negative control — that wants extending before this becomes a ga
 the strongest available lead on the problem the project has never had an answer for.
 Script: `experiments/self_verification.py`.
 
+### 5.5.8 Tier sweep: the defects are model-family, not model-size — measured 2026-08-21
+
+The author's instinct was that a larger Google model would do better, and that Google's
+efficiency lets one reach for it cheaply. The first half is not what the measurement shows, and
+the second half turns out not to matter.
+
+Page 1 of ch17 — the only page with established ground truth — through five Gemini tiers,
+scored on both known local defects:
+
+| model | invents `3, 10` | keeps `17` | words |
+|---|---|---|---|
+| gemini-3-flash-preview | no | yes | 141 |
+| gemini-3.7-flash | no | yes | 146 |
+| gemini-3.5-flash | no | yes | 141 |
+| gemini-3.1-pro-preview | no | yes | 154 |
+| gemini-2.5-pro | no | yes | 177 |
+
+**Every tier gets both right, including the oldest and smallest.** So does claude-sonnet-5. Only
+qwen3-vl:8b-instruct gets both wrong.
+
+That is a stronger result than "bigger is better", and a different one: **the two defects are
+not a capability threshold.** Nothing here needed a pro tier — a flash model from a prior
+generation cleared both. What separates the outputs is the model *family*, not its size, which
+means the local model's fabrication is a property of that model rather than of the page being
+hard.
+
+**Consequences.**
+
+- For the disagreement detector (§5.5.6), a cheap tier is a perfectly good second opinion. The
+  detector needs independence, not capability, and paying for pro buys neither.
+- The word counts drift upward with tier (141 → 177), which is *not* obviously good. More words
+  on a fixed page means more description, and description is the untrustworthy half of the §3
+  boundary. `gemini-2.5-pro` produced 25% more text than `3.5-flash` for the same ink; whether
+  that is more fidelity or more elaboration is unmeasured, and elaboration is what over-correction
+  looks like before it becomes an error.
+- **I picked badly and should say so.** The first cloud run used `gemini-3-flash-preview` —
+  a preview of an older generation — chosen from memory rather than from the model list this
+  project had already fetched. It happened not to matter. That it happened not to matter is
+  luck, not method.
+
+### 5.5.7 One call for both passes would break D6 — noted 2026-08-21
+
+I suggested combining transcription and inventory into a single request to halve the round
+trips against a cloud provider. **That was careless, and the author's question is why.**
+
+Asked whether context flushes between the two calls, the answer is **yes, structurally, on all
+three providers.** Each `_ask` builds a fresh single-turn body — one user message, no history,
+no session — so the inventory pass has never seen the transcription and cannot be influenced by
+it.
+
+That is not an implementation detail. It is D6, and it was adjudicated empirically: *"a
+self-report from the pass being audited has already decided to drop the glyph."* The independent
+pass surfaced exactly what transcription discarded, which is the entire basis of the coverage
+gate. Producing both in one call would give the inventory the transcription's decisions as
+context — and an auditor that has read the thing it is auditing is not an auditor.
+
+**So the saving is not free. It costs the only mechanism that catches dropped marks.**
+
+**What can safely combine, and what cannot.** The test is whether one output is a *check* on the
+other:
+
+| combination | safe? | why |
+|---|---|---|
+| transcription + inventory | **no** | the inventory audits the transcription |
+| transcription + boxes | **no** | boxes would inherit whatever the transcription decided was a mark |
+| inventory + boxes | **yes** | both describe marks, neither checks the other — a box is a refinement of "where", which the inventory already reports |
+
+So the efficiency available is one call fewer *if boxes are ever added*, not one call fewer now.
+Transcription stays alone, and stays first.
+
+**A separate question the same instinct raises**, and this one is open: the two-pass separation
+was established by measuring qwen3-vl. Whether a cloud model needs it is untested — it may be
+that a stronger model's single-call inventory stays honest, or it may be that a stronger model
+is *better* at rationalising what it already wrote. The measurement is cheap (run both ways on a
+page with a known dropped mark) and has not been done. Until it is, D6 holds for every provider,
+because it was derived from a failure that has never been shown to be model-specific.
+
 ### 5.5.6 Two providers disagreeing is a detector — measured 2026-08-21
 
 The author's proposal was **selective escalation**: send parts of a document to a frontier

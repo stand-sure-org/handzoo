@@ -66,6 +66,25 @@ def _http_transport(url: str, body: dict[str, Any], timeout: int) -> dict[str, A
         return json.loads(response.read().decode())
 
 
+def _why(exc) -> str:
+    """What the server actually said. A status without a reason is not a diagnosis.
+
+    Measured: a 400 reported as "Bad Request" while the body read *"`temperature` is deprecated
+    for this model"* — the whole answer, discarded one line from where it was needed.
+    """
+    try:
+        detail = json.loads(exc.read().decode())
+    except Exception:  # noqa: BLE001 - a body we cannot parse is still better named than hidden
+        return str(getattr(exc, "reason", "")) or "no detail"
+    if isinstance(detail, dict):
+        err = detail.get("error")
+        if isinstance(err, dict) and err.get("message"):
+            return str(err["message"])
+        if isinstance(err, str):
+            return err
+    return str(detail)[:200]
+
+
 @dataclass
 class GeminiRecognizer:
     """Port implementation. Same two passes, same refusals, different wire."""
@@ -122,7 +141,7 @@ class GeminiRecognizer:
                         f"asked, so this is not a recognition failure. If you are using a "
                         f"short-lived or federated token it has probably expired; mint or "
                         f"refresh it and re-run with --resume.") from exc
-                last = f"HTTP {exc.code}: {exc.reason}"
+                last = f"HTTP {exc.code}: {_why(exc)}"
                 continue
             except (urllib.error.URLError, TimeoutError, OSError) as exc:
                 last = f"{type(exc).__name__}: {exc}"
