@@ -1568,6 +1568,56 @@ lets the human cut the region later is not an imposed workflow; it is the one al
 the mode has to be recorded alongside the number, or the measurement means less than it looks.
 It is currently not recorded at all.
 
+### 11.1.1 `--fix`: the arms now share one protocol (2026-08-21)
+
+The author's suggestion — *give me the tex we generated instead of a blank file* — corrected a
+flaw in the measurement, not just its convenience.
+
+The two arms were being compared through **different interactions**. `--transcribe` opened an
+editor and timed it; correction was a walk through findings, one keypress at a time. That
+measured the interaction as much as the content, and the finding-walk is not how anyone
+actually corrects a page. `--fix PAGE` runs the identical protocol, differing only in what the
+file starts with — which is the difference the criterion is about.
+
+**It also exposed the symmetric contamination.** `--transcribe` refuses a page already
+reviewed. `--fix` must refuse a page already *transcribed*: having typed a page out, the author
+knows it by heart, and correcting it then measures memory rather than tooling — in the
+direction that flatters the tool. So the two arms run on **different pages**. That costs the
+pairing, which is a real loss since page difficulty varies, and is the honest trade. Several
+pages per arm, not one.
+
+**An unchanged fix is asked about, never assumed.** `--transcribe` spots an abandoned attempt
+by its empty file; `--fix` cannot. A document that came back unchanged means either that the
+output was already correct — the most valuable datum this project can collect — or that the
+editor was opened and closed. Those are opposites. It asks, and records `keep-reviewed` for the
+first and nothing at all for the second.
+
+### 11.1.2 The four-pane sketch — recorded, not scoped
+
+The author's sketch (2026-08-21, explicitly "not prescriptive"): **image** and **typeset**
+above, **tex** and **intelligence** below. Click the image to clip or zoom; click the typeset or
+the tex to edit; click intelligence to *delegate* the edit.
+
+Worth recording because the panes are not arbitrary — they are the four artefacts that already
+exist in a run, and clicking each one names a mode from §11.1 that was previously abstract.
+
+**One thing makes this more buildable than it looks.** Clicking the typeset output and landing
+on the right source line is the pane that sounds hardest, and it is solved: `pdflatex
+-synctex=1` emits a `.synctex.gz`, and `synctex edit -o "page:x:y:file.pdf"` returns the input
+file and line. Verified locally. The compile gate already runs `pdflatex`, so the link costs a
+flag.
+
+**One thing is more dangerous than it looks.** "Delegate edit" is a new substitution surface,
+and a worse one than the recognizer's. An agent rewriting the `.tex` can silently improve what
+is on the page — the failure this project exists to refuse — and the human *asked for the
+change*, so it arrives with borrowed authority and gets less scrutiny than the original
+transcription did. If that pane is built, delegated edits must be attributable and diffable
+before they land, not applied and reported. The rule that a fabricated diagram stays visible as
+a marker is the same rule.
+
+**Not scoped, and out of M0.** It is an application, and M0 is a walking skeleton. Recorded so
+that the `--fix` timings tell it something: each mode measured now is a pane priced in advance.
+
 ### 11.2 Recorded, unmeasured: fidelity against the incumbents
 
 The author reports text fidelity "definitely better than tesseract and mathpix". Consistent

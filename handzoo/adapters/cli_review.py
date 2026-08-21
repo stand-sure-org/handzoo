@@ -253,6 +253,78 @@ def transcribe(outcome: PageOutcome, out_dir: Path, log: CorrectionLog, *,
     return 0
 
 
+def fix(outcome: PageOutcome, out_dir: Path, log: CorrectionLog, *,
+        stream, read_line, open_file, mode: str = "") -> int:
+    """Time the author correcting the emitted document — the same protocol as `--transcribe`,
+    seeded with our output instead of a blank file.
+
+    Why identical protocol matters: the arms were previously measured through *different
+    interactions*. Transcription opened an editor; correction was a walk through findings, one
+    keypress at a time. That compared the interaction as much as the content, and the
+    finding-walk is not how anyone actually corrects a page. Here the only difference is what
+    the file starts with, which is the difference the criterion is about.
+    """
+    prior = [r for r in log.read() if r.page == outcome.page and r.verdict in BASELINE]
+    if prior:
+        clean = sorted({o.page for o in load_outcomes(out_dir)}
+                       - {r.page for r in log.read()})
+        print(f"page {outcome.page} was transcribed from blank already.\n"
+              "Having typed it out you know it by heart, so correcting it now measures memory\n"
+              "rather than tooling — and in the direction that flatters the tool. The two arms\n"
+              "have to run on different pages.\n"
+              + (f"Untouched pages: {', '.join(f'page {p}' for p in clean[:8])}"
+                 if clean else "No untouched pages remain in this run."),
+              file=stream)
+        return 2
+
+    if not outcome.output or not Path(outcome.output).exists():
+        print(f"page {outcome.page} has no output on disk to correct.", file=stream)
+        return 2
+
+    target = Path(outcome.output)
+    before = target.read_text(encoding="utf-8")
+    image = page_image(out_dir, outcome.page)
+
+    print(f"\n=== correct page {outcome.page} against the ink ===", file=stream)
+    if image:
+        print(f"  source: {image}", file=stream)
+        open_file(image)
+    print(f"  {target.name} opens next, with what the tool produced. Fix it until it says what\n"
+          "  the page says, then save and quit. Timing starts when the editor opens.\n"
+          "  press enter when ready > ", end="", file=stream, flush=True)
+    read_line()
+
+    started = time.monotonic()
+    after = _edit(target, None)
+    seconds = round(time.monotonic() - started, 2)
+
+    verdict = "edited"
+    if after == before:
+        # `--transcribe` can spot an abandoned attempt by its empty file. This cannot: an
+        # unchanged document means either that the output was already correct -- the most
+        # valuable datum this project can collect -- or that the editor was opened and closed.
+        # They are opposites, and guessing either way corrupts the arm.
+        print(f"\n  {seconds:.1f}s and nothing changed.\n"
+              "  Was the output already correct, or did you abandon the attempt?\n"
+              "  [y]es it was correct   [a]bandoned > ", end="", file=stream, flush=True)
+        answer = (read_line() or "a").strip().lower()[:1] or "a"
+        if answer != "y":
+            print("  nothing recorded. An abandoned attempt is not a measurement.", file=stream)
+            return 1
+        verdict = "keep-reviewed"
+
+    log.append(Correction(
+        page=outcome.page, verdict=verdict,
+        source_image=str(image) if image else "",
+        before=before, after=after, seconds=seconds, mode=mode,
+        finding="exit criterion: correction of emitted output",
+    ))
+    changed = ("correct as emitted" if after == before
+               else f"{abs(len(after) - len(before))} chars different")
+    print(f"\n  {seconds:.1f}s, {changed}", file=stream)
+    return 0
+
+
 def review_page(outcome: PageOutcome, out_dir: Path, log: CorrectionLog, *,
                 stream, read_line, open_file) -> str:
     """Walk one page's findings. Returns "quit" if the human stopped."""
@@ -347,6 +419,10 @@ def main(argv: list[str] | None = None, *, stream=None, read_line=None,
     parser.add_argument("--transcribe", type=int, metavar="PAGE",
                         help="time yourself typing this page from blank — the exit "
                              "criterion's other arm. Refuses a page you have already reviewed.")
+    parser.add_argument("--fix", type=int, metavar="PAGE",
+                        help="time yourself correcting this page's emitted .tex against the "
+                             "ink — the exit criterion's other arm, measured through the same "
+                             "interaction as --transcribe. Refuses a page you transcribed.")
     parser.add_argument("--mode", default="",
                         help="what you are working against — e.g. tex, pdf, markdown, agent. "
                              "Recorded with the timing, because correction cost is one number "
@@ -373,6 +449,14 @@ def main(argv: list[str] | None = None, *, stream=None, read_line=None,
             return 2
         return transcribe(match[0], args.out_dir, log, stream=stream, read_line=read_line,
                           open_file=open_file, mode=args.mode)
+
+    if args.fix:
+        match = [o for o in outcomes if o.page == args.fix]
+        if not match:
+            print(f"page {args.fix} is not in the manifest.", file=stream)
+            return 2
+        return fix(match[0], args.out_dir, log, stream=stream, read_line=read_line,
+                   open_file=open_file, mode=args.mode)
 
     if args.page:
         outcomes = [o for o in outcomes if o.page == args.page]

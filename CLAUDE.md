@@ -43,6 +43,7 @@ The correction loop is a **separate binary**, `handzoo-review` (not a `handzoo` 
 ```
 handzoo-review out/                 # walk pages with findings, record a verdict each
 handzoo-review out/ --transcribe 4  # time yourself typing page 4 from blank (exit criterion)
+handzoo-review out/ --fix 5         # time yourself correcting page 5 — the other arm
 handzoo-review out/ --summary       # the log, and both exit-criterion arms
 ```
 
@@ -83,7 +84,7 @@ Environment, verified on this machine:
 | `handzoo/core/declarations.py` | **Working.** Generates `\ifdefined`-guarded declarations for macros the recognizer invents. |
 | Rasterizer, recognizer, gates, emitter, pipeline, CLI | **Working.** The command is `handzoo <pdf>` — see Commands above; there is no `convert` subcommand. |
 | `handzoo-review` — the correction loop | **Built** (PLAN Wave 5). Walks gate findings, records a verdict per page, and can **crop** a diagram from the source as vector (`c`) — the fix for 45 of 49 findings on a real run. The M0 exit criterion still needs author-timed runs through it. |
-| Tests | **157**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
+| Tests | **164**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
 
 Measured state of the Normalizer, on identical raw recognizer output (Naive Math, the hardest
 document): 16/22 → **22/22**. Older Thinking-checkpoint corpora hold at 30/34 as a fixed
@@ -150,8 +151,9 @@ Not a code artifact, and no amount of green gates substitutes for it:
 
 Both arms are now measured by the tool — `handzoo-review out/ --transcribe N` for the control
 arm, `--summary` for the comparison. It still requires the author; only the stopwatch is
-automated. Transcribe pages you have **not** reviewed: the tool refuses reviewed ones, because
-knowing what is on the page is exactly what the measurement cannot survive.
+automated. The two arms run on **different pages** and the tool enforces it both ways — `--transcribe`
+refuses a reviewed page, `--fix` refuses a transcribed one. Having typed a page out you
+know it by heart, and correcting it then measures memory rather than tooling.
 
 ## Branding
 
