@@ -1195,13 +1195,62 @@ was a diagram extraction" carries information that "the text changed" does not.
 
 The cropped file path goes in `after`, which already means "what the human made it."
 
-#### What must never happen
+#### Measured 2026-08-21: the model does return boxes, and they are confidently wrong
 
-- **No auto-crop without the human confirming the region.** See the substitution-in-image-form
-  argument above. A wrong crop compiles.
+`experiments/diagram_boxes.py`. Asked for diagram bounding boxes on a 0-1000 grid, three runs
+over `Cheng 217-220` p3:
+
+| | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| cone | x71 y82 w195 h137 | x71 y75 w200 h143 | x71 y75 w195 h143 |
+| pullback | x190 y595 w77 h41 | x190 y582 w66 h47 | x205 y595 w77 h47 |
+
+**Remarkably stable — and stability is not accuracy.** Cutting the boxes and looking at them:
+
+- The **pullback box is wrong.** It contains the word *"shape"* from the line above and an edge
+  of the box beneath. Three runs agreed on it. Auto-cropping would have shipped a figure of a
+  word, captioned as a pullback diagram, and nothing downstream could tell.
+- The **cone box clips its own caption**, cutting *"More complicated one"* in half.
+
+Three identical answers read as a confident one. That is the same shape as §5.5's substitution:
+the failure is not noise, it is consistent, and consistency is what makes it convincing.
+
+**Geometry and the model each know half.** The ink bands (`page_blocks`) got the cone's extent
+right — a clean crop, verified by eye — and could not separate the pullback square from the
+prose paragraph it sits under. The model found *both* diagrams and knew the pullback was one,
+which geometry cannot, and placed neither accurately. Snapping a model box to the nearest ink
+extent is the obvious synthesis and is **untested**.
+
+This is also the answer to D4 for this feature: the geometric route needs a prose-vs-diagram
+classifier, which is the heuristic segmenter D4 refuses; the model route is D4-compatible and
+is not yet good enough alone. Neither is a reason to ship an unreviewed crop.
+
+#### What must never happen — and why refusal is the wrong guard
+
+The earlier form of this rule was *"no auto-crop without the human confirming the region"*,
+argued from correctness. **The author's framing is better**, and it comes from using the
+alternative: repairing a bad crop in a competitor's output means opening the ink PDF, finding
+the page, cropping by hand, deciding where to save it for import, working out which
+`\includegraphics` it belongs to, replacing it, and recompiling to check.
+
+So the guard is not refusal. **It is cheap reversibility.** A wrong crop is tolerable when
+re-cutting is one keystroke with the image already on screen; it is intolerable when fixing it
+costs seven steps across three applications. That reframing points at auto-crop as the
+destination rather than the hazard — proposed automatically, marked unreviewed, confirmed or
+re-cut in the loop that already exists (`c` in §7).
+
+It also fits machinery already built: an unconfirmed auto-crop is a `crop-unreviewed`, exactly
+the distinction `keep-reviewed` against `keep-unreviewed` already draws. The document carries
+it, it compiles, and the log says plainly that nobody looked.
+
+Two rules survive unchanged:
+
 - **No marker deleted without a file that resolves.** Removing the marker is the *only*
   evidence that a diagram was there; deleting it on a broken reference converts a visible gap
   into a silent one.
+- **No crop presented as reviewed that was not.** The measurement above is why: the boxes are
+  wrong often enough, and confidently enough, that "the tool cropped it" must never read as
+  "someone checked it".
 
 #### Open
 
@@ -1568,11 +1617,211 @@ lets the human cut the region later is not an imposed workflow; it is the one al
 the mode has to be recorded alongside the number, or the measurement means less than it looks.
 It is currently not recorded at all.
 
-### 11.2 Recorded, unmeasured: fidelity against the incumbents
+### 11.1.1 `--fix`: the arms now share one protocol (2026-08-21)
 
-The author reports text fidelity "definitely better than tesseract and mathpix". Consistent
-with the three ground-truth pages above, and **unmeasured** — no comparison against either tool
-has been run here, and one page beating a rushed human transcript is not a benchmark.
+The author's suggestion — *give me the tex we generated instead of a blank file* — corrected a
+flaw in the measurement, not just its convenience.
+
+The two arms were being compared through **different interactions**. `--transcribe` opened an
+editor and timed it; correction was a walk through findings, one keypress at a time. That
+measured the interaction as much as the content, and the finding-walk is not how anyone
+actually corrects a page. `--fix PAGE` runs the identical protocol, differing only in what the
+file starts with — which is the difference the criterion is about.
+
+**It also exposed the symmetric contamination.** `--transcribe` refuses a page already
+reviewed. `--fix` must refuse a page already *transcribed*: having typed a page out, the author
+knows it by heart, and correcting it then measures memory rather than tooling — in the
+direction that flatters the tool. So the two arms run on **different pages**. That costs the
+pairing, which is a real loss since page difficulty varies, and is the honest trade. Several
+pages per arm, not one.
+
+**An unchanged fix is asked about, never assumed.** `--transcribe` spots an abandoned attempt
+by its empty file; `--fix` cannot. A document that came back unchanged means either that the
+output was already correct — the most valuable datum this project can collect — or that the
+editor was opened and closed. Those are opposites. It asks, and records `keep-reviewed` for the
+first and nothing at all for the second.
+
+### 11.1.2 The four-pane sketch — recorded, not scoped
+
+The author's sketch (2026-08-21, explicitly "not prescriptive"): **image** and **typeset**
+above, **tex** and **intelligence** below. Click the image to clip or zoom; click the typeset or
+the tex to edit; click intelligence to *delegate* the edit.
+
+Worth recording because the panes are not arbitrary — they are the four artefacts that already
+exist in a run, and clicking each one names a mode from §11.1 that was previously abstract.
+
+**One thing makes this more buildable than it looks.** Clicking the typeset output and landing
+on the right source line is the pane that sounds hardest, and it is solved: `pdflatex
+-synctex=1` emits a `.synctex.gz`, and `synctex edit -o "page:x:y:file.pdf"` returns the input
+file and line. Verified locally. The compile gate already runs `pdflatex`, so the link costs a
+flag.
+
+**One thing is more dangerous than it looks.** "Delegate edit" is a new substitution surface,
+and a worse one than the recognizer's. An agent rewriting the `.tex` can silently improve what
+is on the page — the failure this project exists to refuse — and the human *asked for the
+change*, so it arrives with borrowed authority and gets less scrutiny than the original
+transcription did. If that pane is built, delegated edits must be attributable and diffable
+before they land, not applied and reported. The rule that a fabricated diagram stays visible as
+a marker is the same rule.
+
+**Not scoped, and out of M0.** It is an application, and M0 is a walking skeleton. Recorded so
+that the `--fix` timings tell it something: each mode measured now is a pane priced in advance.
+
+### 11.3 Polish, not fix — and what that implies about what this is
+
+**Two framings, and they must not be confused.** The author's intent for the seeded editor was
+*"help me polish this"*, not *"fix what is broken"*. `--fix` names a defect; polish names a
+finish. The difference is not cosmetic — the emitted page is usually mostly right, and calling
+the interaction a repair mis-describes the work and primes the reviewer to hunt for errors
+rather than read for sense.
+
+**The measurement must stay narrow anyway.** `--fix`'s prompt says *"fix it until it says what
+the page says"*, deliberately. Polishing includes authorial improvement — better phrasing, a
+clearer break — which would happen in any world and is not caused by the tool. If that leaks
+into a timed run the number stops measuring the tool and starts measuring the author's taste.
+So: the **product** is polish, the **measurement** is correction to what the page says, and the
+prompt keeps them apart.
+
+### 11.4 Converter or workspace — the question this raises (author, 2026-08-21)
+
+The author's framing: if the flow is *tablet → handzoo → some LaTeX application*, HandZoo is
+useful. If there is **no need to open the LaTeX application until the galley stage**, HandZoo
+replaces most of the use case rather than feeding it.
+
+That is a positioning question, and the positioning statement is load-bearing rather than
+marketing, so it is recorded here and **not decided**.
+
+**What it would cost.** "The tool that refuses to hand you broken LaTeX" is a narrow, defensible
+claim against a field of one — nobody else is gating handwritten conversion on buildability. An
+editor competes with Overleaf, TeXShop, VS Code and a dozen others, and the differentiator
+dilutes to nothing if the claim becomes "it also edits".
+
+**What would make it defensible anyway.** None of those have the ink, and none of them know
+which parts of the text are unverified. The claim is not *it is an editor*; it is **the only
+place where the source page and the record of doubt stay attached to the text**. That is a
+different product from a LaTeX editor with a PDF preview, and the gates are what make it one.
+
+**Which reframes the gates.** As a converter's exit criteria they are gatekeepers: pass or
+refuse. In a workspace they are **marginalia** — *this diagram is fabricated, this colour is
+gone, this page is unverified* — attached to a location, and worked off over time. Same
+findings, different job.
+
+The author's own evidence supports the reframing. Their from-blank transcripts contain
+`% insert snip` at every diagram: a note to self about unfinished business, attached to a
+place. **That is the same species as a gate finding.** In a converter a finding is an error; in
+a workspace it is a task list the author was already keeping by hand.
+
+**What was actually blocking it, now built.** A run produced loose fragments and no document,
+so the author had to open a LaTeX application simply to *see* the chapter — the pipeline
+position was enforced by the absence of `chapter.tex`, not chosen. `assemble()` writes the
+master (§6.1's model, finally implemented): pages `\input` in order, failures as **visible
+placeholders** rather than silent omissions, and the master owning the preamble. Verified on a
+real four-page fragment run: the assembled chapter compiles.
+
+**The tension it exposes, unresolved.** `--standalone` exists so the compile gate can run on a
+page; fragments exist so a chapter can be assembled. They pull against each other, and the
+author's ch19 run used `--standalone`, so its pages cannot be `\input` at all — surfaced as a
+placeholder rather than a broken build.
+
+The resolution is probably that **the chapter is the better unit to compile-check**: it catches
+what per-page checking cannot (a macro defined on page 3 and used on page 7), it lets fragments
+be the default, and it removes the flag that forces the author to choose. That is a change to
+the gate model and is not made here.
+
+**Measured on the first full-chapter run (ch17, 13 pages, 2026-08-21).** In fragment mode the
+compile gate cannot run, so **8 of 13 pages came back `unverified`** — neither pass nor fail.
+The assembled `chapter.tex` then **compiled**. One compile verified what eight per-page checks
+could not run at all, which is the argument stated as a measurement rather than a preference.
+
+**The same run found a normalizer gap that thirteen pages exposed and one page could not.**
+`\section{§17.2 Dual Category}` reached the ASCII gate with its section sign intact. R1
+rebuilt macro nodes with `latex_verbatim()`, which carries the macro *and its arguments*
+through untouched, so text inside any `{}` was never converted — while bare text always was,
+which is exactly why it went unnoticed. The rule was right and its **reach** was not. Fixed:
+the walker descends into braced arguments, except for macros whose braces hold an identifier or
+a path (`\label`, `\ref`, `\includegraphics`), where rewriting a character silently breaks a
+reference instead of a word.
+
+### 11.2 Measured against Mathpix (ch17, 13 pages, 2026-08-21)
+
+The author ran the same chapter through Mathpix. Both directions of the result matter, and the
+one that matters most is against us.
+
+#### We committed the substitution this project exists to refuse
+
+Page 1 lists divisor pairs of 30. The source, read at 200 dpi, carries **three** pairs and an
+ellipsis:
+
+```
+1, 30      2, 15      5, 6      . . .
+```
+
+HandZoo emitted **four**:
+
+```
+1, 30      2, 15      3, 10      5, 6      \dots
+```
+
+`3, 10` is a real divisor pair of 30. It is mathematically correct, it is what a helpful
+assistant would add, and **it is not on the page.** The model completed the author's list.
+
+Every gate passed. ASCII, delimiters, coverage, colour — all clean, and the page was
+`unverified` only because the compile gate cannot run on a fragment. This is §5.5's
+over-correction, caught in our own output, on a page that the whole apparatus reported as fine.
+
+**It is the better regression fixture than baseline page 1**, because the failure is smaller.
+Page 1 of the baseline dropped four glyphs and produced a contradiction a reader would notice.
+This adds one line that no reader would question, in a document about category theory, where a
+list of divisors is scenery rather than argument.
+
+Mathpix, on the same list, misread the `6` as a `4` and dropped the ellipsis. **It did not
+invent anything.** That is the sharper distinction than accuracy: a misreading is wrong and
+looks wrong; an invention is wrong and looks right.
+
+#### On text and symbol fidelity, we lead substantially
+
+The chapter's central object is a script `C` — the category. Counted across both outputs:
+
+| rendering of the category object | Mathpix | HandZoo |
+|---|---|---|
+| `\mathcal{C}` (correct) | — | **40** |
+| bare `e` | 17 | 0 |
+| `\tau` | 4 | 0 |
+| `\mathscr{C}` | 1 | 0 |
+| `C` | 7 | 0 |
+
+Mathpix read one glyph four different ways, and `e^{op}` for `\mathcal{C}^{op}` makes the
+mathematics meaningless while typesetting perfectly. Alongside it: *eategory*, *co-Cuthor*,
+*mathametician*, *womorphism*, *monie*, *eoprojections*, and `\$17.3` where the section sign
+became a dollar. HandZoo's rendering of the same content is consistent and, on the passages
+compared, correct.
+
+**So the author's impression is confirmed on this document** — and one document by one author
+in one hand is not a benchmark. What it does establish is that the claim in §11.2's earlier
+form ("recorded, unmeasured") can no longer be waved at.
+
+#### Where Mathpix is plainly better, and what it costs
+
+It **crops diagrams automatically.** Thirteen regions extracted with bounding boxes, embedded
+with `\includegraphics` and captions, in colour, without being asked. The divisibility lattice
+on page 1 came out clean. HandZoo emits `[TODO diagram: ...]` and waits for a human (§7.2).
+
+That is the capability gap, and it is real. But it is also §7.2's argument made concrete from
+the other side: Mathpix's crops arrive **unflagged**. Nothing distinguishes a well-placed box
+from a badly-placed one, and a wrong crop is a plausible figure of the wrong region. The design
+decision to require human confirmation is a cost paid deliberately; this comparison is the
+first evidence of what is bought and what is spent.
+
+#### What the comparison actually says about positioning
+
+Mathpix produced a complete, compiling, well-typeset document with images, for all thirteen
+pages, and it is **wrong in ways nothing in the artefact discloses**. HandZoo produced nine
+pages, held four back with visible placeholders, marked every diagram it would not draw — and
+still slipped an invented line past every gate.
+
+Neither of those is "better OCR". The difference is the disclosure, and our own page 1 is proof
+that disclosure is not yet good enough: the gates say nothing about substitution, and this is
+what that silence costs.
 
 It matters because the positioning depends on it being *false enough*: HandZoo is deliberately
 not "OCR for math", on the grounds that Mathpix owns that and is mature. If HandZoo's text

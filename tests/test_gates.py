@@ -417,3 +417,47 @@ def test_a_single_ink_has_no_distinction_to_lose() -> None:
 
     assert colour_gate.check("Plain text.", colours=((192, 127, 210),)).passed
     assert colour_gate.check("Plain text.", colours=()).passed
+
+
+# ------------------------------------------------- R1 inside macro arguments
+
+
+@pytest.mark.parametrize("src,gone", [
+    (r"\section{§17.2 Dual Category}", "§"),
+    (r"\textbf{§ marker}", "§"),
+    (r"\section{Σ and things}", "Σ"),
+    (r"\subsection{a — b}", "—"),
+])
+def test_unicode_inside_a_macro_argument_is_converted(src: str, gone: str) -> None:
+    r"""Found by the first full-chapter run: `\section{§17.2 Dual Category}` reached the ASCII
+    gate with its section sign intact and failed the page.
+
+    R1 rebuilt macro nodes with `latex_verbatim()`, which emits the macro *and its arguments*
+    untouched, so text inside any `{}` was never converted. Bare `§` had always worked, which
+    is why it survived — the rule was right and its reach was not. One page in thirteen failed
+    for it.
+    """
+    from handzoo.core.normalize import normalize
+
+    out = normalize(src, standalone=False).text
+    assert gone not in out, out
+    assert "section" in out or "textbf" in out, "the macro itself must survive"
+
+
+def test_an_identifier_argument_is_left_exactly_alone() -> None:
+    r"""A filename or a label is not prose. Rewriting `é` inside `\includegraphics{}` would
+    produce a reference that resolves to nothing — silently, since the file simply is not
+    found under the new name."""
+    from handzoo.core.normalize import normalize
+
+    for src in (r"\label{sec:café}", r"\ref{sec:café}"):
+        out = normalize(src, standalone=False).text
+        assert "café" in out, f"identifier mangled: {out}"
+
+
+def test_macro_arguments_survive_when_there_is_nothing_to_fix() -> None:
+    """The rebuild must be byte-faithful, or every document changes for no reason."""
+    from handzoo.core.normalize import normalize
+
+    src = r"\section{Plain Heading} and \textbf{bold} text"
+    assert normalize(src, standalone=False).text.strip() == src

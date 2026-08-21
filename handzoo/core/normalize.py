@@ -146,6 +146,48 @@ def _fix_text_span(chunk: str, rules: list[str]) -> str:
     return chunk
 
 
+IDENTIFIER_ARGS = frozenset(
+    """label ref eqref cite includegraphics input include url href bibliography usepackage
+    documentclass DeclareUnicodeCharacter newcommand renewcommand providecommand
+    DeclareMathOperator""".split()
+)
+r"""Macros whose braces hold an identifier or a path, not prose.
+
+Rewriting an accented character inside `\includegraphics{}` produces a reference that resolves
+to nothing -- silently, because the file simply is not found under the new name. A label
+rewritten on one side of a `\ref` and not the other breaks the cross-reference the same way.
+"""
+
+
+def _walkable_args(node) -> bool:
+    """Does this macro have braced arguments worth descending into?"""
+    if node.macroname in IDENTIFIER_ARGS or node.macroname in MATH_ONLY:
+        return False
+    argd = getattr(node, "nodeargd", None)
+    return bool(argd and argd.argnlist and any(a is not None for a in argd.argnlist))
+
+
+def _walk_macro(node, rules: list[str]) -> str:
+    r"""Rebuild a macro, converting text inside its arguments.
+
+    R1 previously emitted every non-math macro with `latex_verbatim()`, which carries the macro
+    *and its arguments* through untouched -- so a section sign inside `\section{}` reached the
+    ASCII gate intact and failed the page. Bare text had always converted, which is exactly why
+    it went unnoticed: the rule was right and its reach was not. Found by the first
+    full-chapter run (ch17 p2), one page in thirteen.
+    """
+    parts = ["\\" + node.macroname]
+    for arg in node.nodeargd.argnlist:
+        if arg is None:
+            continue
+        if "Group" in type(arg).__name__:
+            lo, hi = getattr(arg, "delimiters", None) or ("{", "}")
+            parts.append(lo + _walk(arg.nodelist, rules) + hi)
+        else:
+            parts.append(arg.latex_verbatim())
+    return "".join(parts)
+
+
 def _walk(nodes, rules: list[str]) -> str:
     """Rebuild LaTeX, fixing only what sits outside math mode (R2)."""
     out: list[str] = []
@@ -169,7 +211,10 @@ def _walk(nodes, rules: list[str]) -> str:
                 args = "".join(a.latex_verbatim() for a in node.nodeargd.argnlist if a)
             out.append(f"\\begin{{{name}}}{args}{body}\\end{{{name}}}")
         elif "Group" in cls:
-            out.append("{" + _walk(node.nodelist, rules) + "}")
+            lo, hi = getattr(node, "delimiters", None) or ("{", "}")
+            out.append(lo + _walk(node.nodelist, rules) + hi)
+        elif "Macro" in cls and _walkable_args(node):
+            out.append(_walk_macro(node, rules))
         else:
             out.append(node.latex_verbatim())
     return "".join(out)

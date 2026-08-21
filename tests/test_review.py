@@ -524,3 +524,88 @@ def test_the_summary_says_when_it_is_pooling_modes(tmp_path: Path) -> None:
     s = io.StringIO()
     cli_review.main([str(tmp_path), "--summary"], stream=s)
     assert "mode" in s.getvalue().lower()
+
+
+# --------------------------------------------------- the correcting arm, measured the same way
+
+
+def test_fix_times_the_same_interaction_seeded_with_our_output(tmp_path: Path,
+                                                               monkeypatch) -> None:
+    """The two arms were being measured through *different interactions*, not different
+    starting points.
+
+    `--transcribe` opened an editor and timed it. The correcting arm was a walk through
+    findings, one keypress at a time. Comparing them measured the interaction as much as the
+    content — and the finding-walk is not how anyone actually corrects a page. `--fix` runs the
+    identical protocol as `--transcribe`, differing only in what the file starts with.
+    """
+    src = tmp_path / "src.pdf"
+    src.write_bytes(b"%PDF-1.4\n")
+    out = _manifest(tmp_path, _page(tmp_path, 1, findings=[FINDING],
+                                    body="what the tool emitted\n"))
+
+    seen = {}
+
+    def fake_edit(path, line):
+        seen["seeded"] = path.read_text()
+        path.write_text("what the author fixed\n")
+        return "what the author fixed\n"
+
+    monkeypatch.setattr(cli_review, "_edit", fake_edit)
+    assert cli_review.main([str(out), "--fix", "1", "--mode", "tex"], stream=io.StringIO(),
+                           read_line=_keys(""), open_file=lambda p: None) == 0
+
+    assert seen["seeded"] == "what the tool emitted\n", "the fix arm starts from our output"
+    (row,) = CorrectionLog.for_run(out).read()
+    assert row.verdict == "edited" and row.is_gold
+    assert row.mode == "tex" and row.seconds >= 0
+    assert row.before == "what the tool emitted\n"
+
+
+def test_fixing_a_page_you_transcribed_is_refused(tmp_path: Path, monkeypatch) -> None:
+    """The symmetric contamination, and the one that would have quietly favoured the tool.
+
+    Having typed a page from blank, the author knows it by heart; correcting the same page is
+    then far faster than correcting it cold, and the saving is memory rather than tooling. The
+    arms have to run on **different pages**, which costs the pairing and is the honest trade —
+    page difficulty varies, so several pages are needed either way.
+    """
+    src = tmp_path / "src.pdf"
+    src.write_bytes(b"%PDF-1.4\n")
+    out = _manifest(tmp_path,
+                    _page(tmp_path, 1, findings=[FINDING]),
+                    _page(tmp_path, 2, findings=[FINDING]))
+    monkeypatch.setattr(cli_review, "_edit", lambda path, line: "typed it\n")
+    cli_review.main([str(out), "--transcribe", "1"], stream=io.StringIO(),
+                    read_line=_keys(""), open_file=lambda p: None)
+
+    s = io.StringIO()
+    assert cli_review.main([str(out), "--fix", "1"], stream=s, read_line=_keys(""),
+                           open_file=lambda p: None) == 2
+    assert "transcribed" in s.getvalue()
+    assert "page 2" in s.getvalue(), "it should say which pages are still clean"
+
+
+def test_an_unchanged_fix_is_asked_about_rather_than_assumed(tmp_path: Path,
+                                                             monkeypatch) -> None:
+    """`--transcribe` can tell an abandoned attempt by its empty file. `--fix` cannot.
+
+    A fix that changed nothing has two meanings, and they are opposites: the output was already
+    correct — the most valuable datum this project can collect — or the editor was opened and
+    closed. Guessing either way corrupts the arm, so it asks.
+    """
+    src = tmp_path / "src.pdf"
+    src.write_bytes(b"%PDF-1.4\n")
+    out = _manifest(tmp_path, _page(tmp_path, 1, findings=[FINDING], body="already right\n"))
+    monkeypatch.setattr(cli_review, "_edit", lambda path, line: "already right\n")
+
+    # abandoned -> nothing recorded
+    cli_review.main([str(out), "--fix", "1"], stream=io.StringIO(),
+                    read_line=_keys("", "a"), open_file=lambda p: None)
+    assert CorrectionLog.for_run(out).read() == []
+
+    # already correct -> recorded, and it is gold
+    cli_review.main([str(out), "--fix", "1"], stream=io.StringIO(),
+                    read_line=_keys("", "y"), open_file=lambda p: None)
+    (row,) = CorrectionLog.for_run(out).read()
+    assert row.verdict == "keep-reviewed" and row.is_gold

@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from ..core import pipeline
+from ..core.assemble import assemble
 from ..core.pipeline import PageOutcome
 from ..core.recognize.ollama_vlm import DEFAULT_MODEL, OllamaRecognizer, swap_pressure
 
@@ -68,13 +69,20 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
         return 2
 
     failed = unverified = errored = 0
+    done: list[pipeline.PageOutcome] = []
     for outcome in pipeline.convert(args.pdf, args.out, recognizer, first=first, last=last,
                                     mode=args.mode, resume=args.resume, dpi=args.dpi):
         print(_format(outcome), file=stream, flush=True)
+        done.append(outcome)
         errored += not outcome.done
         if outcome.done:
             failed += outcome.verdict == "fail"
             unverified += outcome.verdict == "unverified"
+
+    if done:
+        master = assemble(args.out, done)
+        print(f"\nassembled -> {master.name}  (pages that failed appear as placeholders, "
+              "never silently omitted)", file=stream)
 
     print("\nGates prove these documents build. They do not prove the transcription is "
           "correct:\nsilent substitution — a mark replaced rather than dropped — is not "
