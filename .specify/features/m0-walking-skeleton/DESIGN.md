@@ -1679,6 +1679,20 @@ what per-page checking cannot (a macro defined on page 3 and used on page 7), it
 be the default, and it removes the flag that forces the author to choose. That is a change to
 the gate model and is not made here.
 
+**Measured on the first full-chapter run (ch17, 13 pages, 2026-08-21).** In fragment mode the
+compile gate cannot run, so **8 of 13 pages came back `unverified`** — neither pass nor fail.
+The assembled `chapter.tex` then **compiled**. One compile verified what eight per-page checks
+could not run at all, which is the argument stated as a measurement rather than a preference.
+
+**The same run found a normalizer gap that thirteen pages exposed and one page could not.**
+`\section{§17.2 Dual Category}` reached the ASCII gate with its section sign intact. R1
+rebuilt macro nodes with `latex_verbatim()`, which carries the macro *and its arguments*
+through untouched, so text inside any `{}` was never converted — while bare text always was,
+which is exactly why it went unnoticed. The rule was right and its **reach** was not. Fixed:
+the walker descends into braced arguments, except for macros whose braces hold an identifier or
+a path (`\label`, `\ref`, `\includegraphics`), where rewriting a character silently breaks a
+reference instead of a word.
+
 ### 11.2 Recorded, unmeasured: fidelity against the incumbents
 
 The author reports text fidelity "definitely better than tesseract and mathpix". Consistent
