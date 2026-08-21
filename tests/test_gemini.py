@@ -94,3 +94,48 @@ def test_the_key_never_appears_in_the_repository() -> None:
     assert gemini_vlm.KEY_ENV == "GEMINI_API_KEY"
     source = Path(gemini_vlm.__file__).read_text(encoding="utf-8")
     assert "AIza" not in source
+
+
+def test_a_dead_credential_is_not_reported_as_a_model_failure(tmp_path: Path) -> None:
+    """The misattribution class this project keeps rediscovering, in a new place.
+
+    A 401 was caught alongside network errors, retried three times, and finally raised as
+    "the model produced nothing after 3 attempts" — a recognition failure. It is not: the
+    model was never asked. On a long run with a short-lived credential the whole tail of the
+    document would be recorded as pages the recognizer could not read.
+
+    Retrying is also pointless: a credential that is refused will be refused again.
+    """
+    import io
+    import urllib.error
+
+    from handzoo.core.recognize.gemini_vlm import AuthError
+
+    calls = {"n": 0}
+
+    def unauthorized(url, body, timeout):
+        calls["n"] += 1
+        raise urllib.error.HTTPError(url, 401, "Unauthorized", {}, io.BytesIO(b"{}"))
+
+    with pytest.raises(AuthError, match="credential"):
+        GeminiRecognizer(api_key="dead", attempts=3,
+                         transport=unauthorized).recognize(_page(tmp_path))
+    assert calls["n"] == 1, "a refused credential must not be retried"
+
+
+def test_a_rate_limit_is_still_retried(tmp_path: Path) -> None:
+    """429 is transient and retrying is correct — the distinction is refused against
+    overloaded, and collapsing them would either hammer a dead key or give up on a live one."""
+    import io
+    import urllib.error
+
+    calls = {"n": 0}
+
+    def limited(url, body, timeout):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise urllib.error.HTTPError(url, 429, "Too Many Requests", {}, io.BytesIO(b"{}"))
+        return _reply("markup")
+
+    r = GeminiRecognizer(api_key="x", attempts=4, transport=limited).recognize(_page(tmp_path))
+    assert r.markup == "markup" and calls["n"] >= 3

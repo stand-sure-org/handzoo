@@ -42,6 +42,23 @@ KEY_ENV = "GEMINI_API_KEY"
 """Read from the environment, never from a file in this repository."""
 
 
+class AuthError(RuntimeError):
+    """The credential was refused. Distinct from a recognition failure, and not retried.
+
+    A 401 was previously caught alongside network errors, retried, and raised as "the model
+    produced nothing" — but the model was never asked. On a long run with a short-lived
+    credential that would record the whole tail of the document as pages the recognizer could
+    not read, which is a misdiagnosis of exactly the kind this project keeps rediscovering.
+
+    It matters most for federated auth, where the token is short-lived by design: an expiry
+    mid-run must be obvious and immediate, not a slowly spreading stain of recognition errors.
+    """
+
+
+AUTH_STATUS = frozenset({401, 403})
+"""Refused. Retrying a refused credential refuses again."""
+
+
 def _http_transport(url: str, body: dict[str, Any], timeout: int) -> dict[str, Any]:
     request = urllib.request.Request(
         url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
@@ -98,6 +115,15 @@ class GeminiRecognizer:
         for _ in range(self.attempts):
             try:
                 payload = self.transport(url, body, self.timeout)
+            except urllib.error.HTTPError as exc:
+                if exc.code in AUTH_STATUS:
+                    raise AuthError(
+                        f"the credential was refused (HTTP {exc.code}). The model was not "
+                        f"asked, so this is not a recognition failure. If you are using a "
+                        f"short-lived or federated token it has probably expired; mint or "
+                        f"refresh it and re-run with --resume.") from exc
+                last = f"HTTP {exc.code}: {exc.reason}"
+                continue
             except (urllib.error.URLError, TimeoutError, OSError) as exc:
                 last = f"{type(exc).__name__}: {exc}"
                 continue
