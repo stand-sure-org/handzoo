@@ -55,7 +55,12 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
                              "assembly with \\input")
     parser.add_argument("--resume", action="store_true",
                         help="skip pages already recorded in the manifest")
-    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--provider", choices=("ollama", "gemini"), default="ollama",
+                        help="ollama runs locally; gemini SENDS PAGE IMAGES TO GOOGLE. "
+                             "Local is the default because the manuscripts are unpublished "
+                             "(constraint 7); the cloud provider is opt-in and says so.")
+    parser.add_argument("--model", default=None,
+                        help="defaults to the provider's own default")
     parser.add_argument("--dpi", type=int, default=150)
     args = parser.parse_args(argv)
 
@@ -63,7 +68,15 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
     _preflight(stream)
 
     try:
-        recognizer = OllamaRecognizer(model=args.model)
+        if args.provider == "gemini":
+            from ..core.recognize.gemini_vlm import DEFAULT_MODEL as GEMINI_DEFAULT
+            from ..core.recognize.gemini_vlm import GeminiRecognizer
+            recognizer = GeminiRecognizer(model=args.model or GEMINI_DEFAULT)
+            print(f"provider: gemini/{recognizer.model} — page images are being sent to "
+                  "Google.\n           Local-first is the default for a reason; this run is "
+                  "not local.", file=stream)
+        else:
+            recognizer = OllamaRecognizer(model=args.model or DEFAULT_MODEL)
     except ValueError as exc:
         print(f"error: {exc}", file=stream)
         return 2

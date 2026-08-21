@@ -740,6 +740,48 @@ the only true negative control — that wants extending before this becomes a ga
 the strongest available lead on the problem the project has never had an answer for.
 Script: `experiments/self_verification.py`.
 
+### 5.5.6 Two providers disagreeing is a detector — measured 2026-08-21
+
+The author's proposal was **selective escalation**: send parts of a document to a frontier
+model, ad hoc from an intelligence pane or offered as the reviewer works, and never compulsory —
+"sometimes a user doesn't need the boost and opts for the pre-AI way".
+
+Framed as a capability upgrade that is a modest idea. Framed as a **second independent opinion**
+it is the first substitution detector in this project that does not ask a model to audit itself.
+
+**It needs neither model to be right. It needs them to be independent.** A passage only one
+provider produced is a passage worth a human glance, whichever one is correct.
+
+Measured on ch17 p1, the only page with established ground truth — the local run invented
+`3, 10` and Gemini did not. `experiments/provider_disagreement.py` compares the two and
+produces **four passages to glance at**, of which **two are real defects**:
+
+| flag | what it is |
+|---|---|
+| `local='3, 10'` | **the fabrication.** Correct arithmetic, not on the page |
+| `gemini='17'` | **a silent omission I had missed.** The page reads *17 DUALITY*; local emitted `\section{Duality}` and dropped the chapter number, so LaTeX numbered it 1 |
+| diagram-marker ordering ×2 | noise |
+
+Two real findings out of four flags, on a page every gate passed. The dropped `17` is a
+constraint 5 violation that no gate saw and no human noticed, including me, across a chapter I
+had already read and shipped.
+
+**Compare text, not markup.** The naive form fails: diffing the emitted `.tex` surfaces
+formatting (`\item` against `\\`, `\section` against `\section*`) and buries the finding. Words
+first, and list markers dropped, takes the same page from seven flags to four.
+
+**A router, not a verdict.** It says *look here*, never *this one is right*. Presenting a
+frontier model's reading as authoritative would recreate the delegation hazard (§11.1.2) with
+the additional problem that the reviewer paid for the second opinion and will believe it.
+
+**It fits the privacy constraint rather than fighting it.** Escalating a *region* means only
+the parts the author chooses leave the machine — local by default, cloud by exception, at
+sub-page granularity. `crop_vector` already cuts regions, so the mechanism exists.
+
+**Cost of the idea, stated:** two recognitions per escalated region, and a detector whose
+precision on one page was 50%. n is one page. What it establishes is that the signal exists and
+is cheap to extract, not how well it performs.
+
 ### 5.6 Independent second reader (deferred to M1) — measured, does not work yet
 
 Proposed: run Tesseract per page as a reader with *uncorrelated* failure modes and score
