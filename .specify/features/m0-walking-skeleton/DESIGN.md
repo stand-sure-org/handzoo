@@ -1195,13 +1195,62 @@ was a diagram extraction" carries information that "the text changed" does not.
 
 The cropped file path goes in `after`, which already means "what the human made it."
 
-#### What must never happen
+#### Measured 2026-08-21: the model does return boxes, and they are confidently wrong
 
-- **No auto-crop without the human confirming the region.** See the substitution-in-image-form
-  argument above. A wrong crop compiles.
+`experiments/diagram_boxes.py`. Asked for diagram bounding boxes on a 0-1000 grid, three runs
+over `Cheng 217-220` p3:
+
+| | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| cone | x71 y82 w195 h137 | x71 y75 w200 h143 | x71 y75 w195 h143 |
+| pullback | x190 y595 w77 h41 | x190 y582 w66 h47 | x205 y595 w77 h47 |
+
+**Remarkably stable — and stability is not accuracy.** Cutting the boxes and looking at them:
+
+- The **pullback box is wrong.** It contains the word *"shape"* from the line above and an edge
+  of the box beneath. Three runs agreed on it. Auto-cropping would have shipped a figure of a
+  word, captioned as a pullback diagram, and nothing downstream could tell.
+- The **cone box clips its own caption**, cutting *"More complicated one"* in half.
+
+Three identical answers read as a confident one. That is the same shape as §5.5's substitution:
+the failure is not noise, it is consistent, and consistency is what makes it convincing.
+
+**Geometry and the model each know half.** The ink bands (`page_blocks`) got the cone's extent
+right — a clean crop, verified by eye — and could not separate the pullback square from the
+prose paragraph it sits under. The model found *both* diagrams and knew the pullback was one,
+which geometry cannot, and placed neither accurately. Snapping a model box to the nearest ink
+extent is the obvious synthesis and is **untested**.
+
+This is also the answer to D4 for this feature: the geometric route needs a prose-vs-diagram
+classifier, which is the heuristic segmenter D4 refuses; the model route is D4-compatible and
+is not yet good enough alone. Neither is a reason to ship an unreviewed crop.
+
+#### What must never happen — and why refusal is the wrong guard
+
+The earlier form of this rule was *"no auto-crop without the human confirming the region"*,
+argued from correctness. **The author's framing is better**, and it comes from using the
+alternative: repairing a bad crop in a competitor's output means opening the ink PDF, finding
+the page, cropping by hand, deciding where to save it for import, working out which
+`\includegraphics` it belongs to, replacing it, and recompiling to check.
+
+So the guard is not refusal. **It is cheap reversibility.** A wrong crop is tolerable when
+re-cutting is one keystroke with the image already on screen; it is intolerable when fixing it
+costs seven steps across three applications. That reframing points at auto-crop as the
+destination rather than the hazard — proposed automatically, marked unreviewed, confirmed or
+re-cut in the loop that already exists (`c` in §7).
+
+It also fits machinery already built: an unconfirmed auto-crop is a `crop-unreviewed`, exactly
+the distinction `keep-reviewed` against `keep-unreviewed` already draws. The document carries
+it, it compiles, and the log says plainly that nobody looked.
+
+Two rules survive unchanged:
+
 - **No marker deleted without a file that resolves.** Removing the marker is the *only*
   evidence that a diagram was there; deleting it on a broken reference converts a visible gap
   into a silent one.
+- **No crop presented as reviewed that was not.** The measurement above is why: the boxes are
+  wrong often enough, and confidently enough, that "the tool cropped it" must never read as
+  "someone checked it".
 
 #### Open
 

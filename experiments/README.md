@@ -38,3 +38,10 @@ unaffected: both filters keep an identical 576/304/431/291 paths and the same 1.
 Measured on Cheng 217-220 p3: violet writing, grey base-diagram arrows, green cone legs, where
 green against grey *is* the lesson. Twelve recognizer runs over those four pages emitted no
 colour at all and the gates passed. See DESIGN §6.
+
+## `diagram_boxes.py` — can the model place a crop?
+
+Gates the auto-crop direction. Asks for diagram boxes on a 0-1000 grid and scores them against
+ink extents. Answer on Cheng 217-220 p3: boxes are stable across three runs and **wrong** — the
+pullback box contains the word "shape", the cone box clips its own caption. Stability is not
+accuracy. See DESIGN §7.2.
