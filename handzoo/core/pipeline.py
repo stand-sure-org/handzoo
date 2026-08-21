@@ -44,6 +44,14 @@ class PageOutcome:
     """Gate findings, persisted so `handzoo review` can route a human to specific lines.
     Re-deriving them would mean re-running the recognizer, since the coverage gate needs an
     inventory that exists only during the run."""
+    source: str = ""
+    """The PDF this page came from. The crop verdict cannot cut a region without it, so this
+    is the first provenance field (DESIGN 8.1) to become load-bearing rather than merely
+    desirable. Defaulted so manifests written before it existed still load.
+
+    An absolute path is acceptable *here*: the manifest is the run's local record, not the
+    shareable artifact. 8.1's hash-and-purgable-sidecar rule governs what goes into the
+    emitted `.tex`, which is the file that travels."""
 
     @property
     def done(self) -> bool:
@@ -126,6 +134,7 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
             gates={g.gate: ("pass" if g.passed else "skipped" if not g.checked else "fail")
                    for g in emission.gates},
             rules=len(emission.rules),
+            source=str(pdf),
             findings=[
                 {"gate": g.gate, "detail": f.detail, "line": f.line, "excerpt": f.excerpt}
                 for g in emission.gates for f in g.failures

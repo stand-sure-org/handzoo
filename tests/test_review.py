@@ -293,3 +293,88 @@ def test_the_summary_counts_findings_not_only_keypresses(tmp_path: Path) -> None
 
     assert CorrectionLog.for_run(out).summary()["findings_covered"] == 3
     assert "3 finding(s)" in s.getvalue()
+
+
+# --------------------------------------------------------------- the crop verdict
+
+
+def _diagram_page(out_dir: Path, page: int, *, source: Path, markers: int = 1):
+    body = ("\\begin{document}\nSome prose.\n"
+            + "".join(f"\\texttt{{[TODO diagram: drawing {i}]}}\n" for i in range(markers))
+            + "More prose.\n\\end{document}\n")
+    tex = out_dir / f"page-{page:04d}.tex"
+    tex.write_text(body, encoding="utf-8")
+    (out_dir / "pages").mkdir(parents=True, exist_ok=True)
+    (out_dir / "pages" / f"p-{page:04d}-01.png").write_bytes(b"\x89PNG")
+    finding = {"gate": "coverage", "detail": "recognizer fabricated a drawing here",
+               "line": 3, "excerpt": ""}
+    return {"page": page, "output": str(tex), "verdict": "fail", "gates": {}, "error": None,
+            "rules": 0, "source": str(source), "findings": [finding] * markers}
+
+
+def test_crop_replaces_the_marker_with_the_drawing(tmp_path: Path, monkeypatch) -> None:
+    r"""The verdict the review loop was missing.
+
+    45 of 49 findings on a real run are fabricated diagrams, and a terminal cannot show a
+    drawing — so `edit` is useless when the correct fix is "here is the picture". The crop is
+    cut from the source as **vector**, which also preserves ink colour for free: page 3's green
+    cone legs against grey base-diagram arrows survive without anyone naming them.
+    """
+    src = tmp_path / "src.pdf"
+    src.write_bytes(b"%PDF-1.4\n")
+    out = _manifest(tmp_path, _diagram_page(tmp_path, 1, source=src))
+
+    cut = {}
+
+    def fake_crop(pdf, page, target, **region):
+        cut.update(region)
+        target.write_bytes(b"%PDF-1.4 cropped\n")
+        return target
+
+    monkeypatch.setattr(cli_review.rasterize, "crop_vector", fake_crop)
+    monkeypatch.setattr(cli_review.rasterize, "page_blocks",
+                        lambda *a, **k: (cli_review.rasterize.Block(10, 20, 100, 80, 5),))
+    monkeypatch.setattr(cli_review.rasterize, "page_size", lambda p: (514.0, 685.0))
+
+    cli_review.main([str(out)], stream=io.StringIO(), read_line=_keys("c", "1", "y"),
+                    open_file=lambda p: None)
+
+    text = (tmp_path / "page-0001.tex").read_text()
+    assert "includegraphics" in text, "the drawing must replace the marker"
+    assert "TODO diagram" not in text, "the marker must be gone once a real figure replaces it"
+    assert cut == {"x": 10, "y": 20, "width": 100, "height": 80}
+
+    (row,) = CorrectionLog.for_run(out).read()
+    assert row.verdict == "cropped" and row.is_gold
+    assert row.after.endswith(".pdf")
+
+
+def test_a_rejected_crop_leaves_the_document_untouched(tmp_path: Path, monkeypatch) -> None:
+    """Cut, look, decide. A crop the human rejects must not have edited anything — the marker
+    is the only evidence a diagram was there."""
+    src = tmp_path / "src.pdf"
+    src.write_bytes(b"%PDF-1.4\n")
+    out = _manifest(tmp_path, _diagram_page(tmp_path, 1, source=src))
+    before = (tmp_path / "page-0001.tex").read_text()
+
+    monkeypatch.setattr(cli_review.rasterize, "crop_vector",
+                        lambda pdf, page, target, **r: (target.write_bytes(b"x"), target)[1])
+    monkeypatch.setattr(cli_review.rasterize, "page_blocks",
+                        lambda *a, **k: (cli_review.rasterize.Block(10, 20, 100, 80, 5),))
+    monkeypatch.setattr(cli_review.rasterize, "page_size", lambda p: (514.0, 685.0))
+
+    cli_review.main([str(out)], stream=io.StringIO(), read_line=_keys("c", "1", "n", "q"),
+                    open_file=lambda p: None)
+    assert (tmp_path / "page-0001.tex").read_text() == before
+
+
+def test_crop_needs_a_source_and_says_so_when_there_is_none(tmp_path: Path) -> None:
+    """Manifests written before `source` existed have none. Crashing on them, or silently
+    doing nothing, are both worse than saying why."""
+    page = _diagram_page(tmp_path, 1, source=Path("/nonexistent.pdf"))
+    page.pop("source")
+    out = _manifest(tmp_path, page)
+
+    s = io.StringIO()
+    cli_review.main([str(out)], stream=s, read_line=_keys("c", "q"), open_file=lambda p: None)
+    assert "source" in s.getvalue().lower()

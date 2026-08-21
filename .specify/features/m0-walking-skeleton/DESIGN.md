@@ -1051,10 +1051,38 @@ for a transcription tool directly. This is precisely §11's open question, and i
 `keep`/`edit`/`flag` timestamps in `corrections.jsonl` are the fastest route to a real answer
 for this corpus — instrument them from the first run.
 
-### 7.2 The crop verdict — designed, not built
+### 7.2 The crop verdict — **built 2026-08-20**
 
-**Status: designed, not built (2026-08-20).** Recorded with a measured blocker that has to be
-cleared first.
+**Status: built (2026-08-20).** The blocker below was cleared first, as this note said it had
+to be.
+
+`c` on a finding offers **candidate regions derived from the ink itself** — paths grouped into
+horizontal bands separated by whitespace — or four numbers. The region is cut with
+`crop_vector`, shown to the human, and only on acceptance does it replace the marker. A
+rejected crop changes nothing: the marker is the only evidence a diagram was there.
+
+Two things had to be fixed to make the cut usable:
+
+- **Coordinates are the full affine transform, not the scale factor.** Using only the scale put
+  page 3's blocks at y=694..1307 on a 685pt page. Every proposal would have cropped the wrong
+  region, silently.
+- **`pdftocairo -pdf -x -y -W -H` clips content and leaves the page box full size.** Asking for
+  240x190pt of a 514x685 page produced a 514x685 PDF with the diagram in one corner, so
+  `\includegraphics` imported a mostly-blank page. `crop_vector` now tightens with `pdfcrop`,
+  best-effort, since it ships with the same distribution as the hardcoded `pdflatex`.
+
+`cropped` is a distinct verdict in `GOLD` rather than folded into `edited`: the exit criterion
+is a timing question, and with diagrams at 45 of 49 findings, seconds-per-crop is most of the
+answer rather than a footnote in it.
+
+**It required the first provenance field.** `PageOutcome.source` records the PDF a page came
+from — without it there is nothing to cut from. An absolute path is acceptable there because
+the manifest is the run's local record; §8.1's hash-and-sidecar rule governs the emitted
+`.tex`, which is the file that travels.
+
+Verified end to end on `Cheng 217-220` p3: the cone diagram cropped to 8,463 bytes of vector,
+the marker replaced, the *second* marker on the page correctly left alone, and the document
+compiles with the figure in place.
 
 #### Why a verdict, and not a better viewer
 

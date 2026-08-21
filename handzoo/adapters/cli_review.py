@@ -20,16 +20,24 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
 from dataclasses import replace
 from pathlib import Path
 
+from ..core import rasterize
 from ..core.corrections import Correction, CorrectionLog
 from ..core.pipeline import MANIFEST, PageOutcome
 
-PROMPT = "[k]eep  [e]dit  [f]lag  [s]kip  [q]uit > "
+PROMPT = "[k]eep  [e]dit  [c]rop  [f]lag  [s]kip  [q]uit > "
+
+_MARKER = re.compile(r"\\texttt\{\[TODO (?:diagram|fabricated):.*?\]\}", re.S)
+"""What R3 leaves behind where a drawing was. Replacing one with a real figure is the crop
+verdict's entire job."""
+
+CROP_WIDTH = r"0.6\textwidth"
 
 
 def load_outcomes(out_dir: Path) -> list[PageOutcome]:
@@ -100,8 +108,98 @@ def _edit(path: Path, line: int | None) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _open(path: Path) -> None:
+    """Show the human the crop. Cut, look, decide — a region is not judgeable as numbers."""
+    if sys.platform == "darwin":
+        subprocess.run(["open", str(path)], check=False)
+
+
+def _choose_region(outcome: PageOutcome, blocks, *, stream, read_line) -> dict | None:
+    """A numbered candidate, or four numbers. Returns None if the human backs out."""
+    if blocks:
+        print("\n  candidate regions (points, from the ink itself):", file=stream)
+        for i, b in enumerate(blocks, 1):
+            r = b.region
+            print(f"    {i}  x={r['x']:>4} y={r['y']:>4} w={r['width']:>4} h={r['height']:>4}"
+                  f"   ({b.paths} strokes)", file=stream)
+    else:
+        print("\n  no candidate regions — a scan has no vector paths to group.", file=stream)
+    print('  pick a number, or type "x y w h" in points, or [b]ack > ', end="",
+          file=stream, flush=True)
+    answer = (read_line() or "").strip()
+    if not answer or answer[:1].lower() == "b":
+        return None
+    if answer.isdigit() and blocks and 1 <= int(answer) <= len(blocks):
+        return blocks[int(answer) - 1].region
+    parts = answer.split()
+    if len(parts) == 4:
+        try:
+            x, y, w, h = (int(float(v)) for v in parts)
+        except ValueError:
+            print("  not four numbers — nothing cropped.", file=stream)
+            return None
+        return {"x": x, "y": y, "width": w, "height": h}
+    print("  did not understand that — nothing cropped.", file=stream)
+    return None
+
+
+def crop(outcome: PageOutcome, out_dir: Path, text: str, *, stream, read_line,
+         open_file) -> tuple[str, str] | None:
+    """Cut the region from the source and put it where the marker was.
+
+    Returns `(new_text, figure_name)`, or None if nothing was changed. **Vector**, which is why
+    this also solves colour for block diagrams for free: the crop *is* the image, so green
+    cone legs against grey base-diagram arrows survive without anyone naming them (DESIGN §6).
+    """
+    if not outcome.source or not Path(outcome.source).exists():
+        print("  no source PDF recorded for this page, so there is nothing to crop from.\n"
+              "  (Manifests written before `source` existed have none — re-run `handzoo`.)",
+              file=stream)
+        return None
+    if not _MARKER.search(text):
+        print("  no diagram marker on this page to replace.", file=stream)
+        return None
+
+    pdf = Path(outcome.source)
+    try:
+        blocks = rasterize.page_blocks(pdf, outcome.page)
+        width, height = rasterize.page_size(pdf)
+        print(f"  page is {width:.0f} x {height:.0f} pt", file=stream)
+    except rasterize.RasterizeError as exc:
+        print(f"  cannot read the source: {exc}", file=stream)
+        return None
+
+    n = 1
+    while True:
+        region = _choose_region(outcome, blocks, stream=stream, read_line=read_line)
+        if region is None:
+            return None
+        name = f"fig-p{outcome.page:04d}-{n}.pdf"
+        try:
+            figure = rasterize.crop_vector(pdf, outcome.page, out_dir / name, **region)
+        except rasterize.RasterizeError as exc:
+            print(f"  crop failed: {exc}", file=stream)
+            return None
+        size = figure.stat().st_size
+        print(f"  cropped -> {name}  ({size:,} bytes, vector)", file=stream)
+        open_file(figure)
+        print("  keep it? [y]es  [r]etry  [c]ancel > ", end="", file=stream, flush=True)
+        answer = (read_line() or "c").strip().lower()[:1] or "c"
+        if answer == "y":
+            figure_tex = f"\\includegraphics[width={CROP_WIDTH}]{{{name}}}"
+            # A function replacement, not a string: `re.sub` treats backslashes in a
+            # replacement string as escapes, and `\i` of `\includegraphics` is not a valid
+            # one. The figure would have blown up the substitution rather than the document.
+            replaced = _MARKER.sub(lambda _m: figure_tex, text, count=1)
+            return replaced, name
+        figure.unlink(missing_ok=True)
+        if answer != "r":
+            return None
+        n += 1
+
+
 def review_page(outcome: PageOutcome, out_dir: Path, log: CorrectionLog, *,
-                stream, read_line) -> str:
+                stream, read_line, open_file) -> str:
     """Walk one page's findings. Returns "quit" if the human stopped."""
     if not outcome.output or not Path(outcome.output).exists():
         print(f"page {outcome.page}: no output on disk ({outcome.error or 'unknown'})",
@@ -151,6 +249,13 @@ def review_page(outcome: PageOutcome, out_dir: Path, log: CorrectionLog, *,
             after = _edit(target, finding.get("line"))
             text = after
             verdict = "edited"
+        elif choice == "c":
+            result = crop(outcome, out_dir, text, stream=stream, read_line=read_line,
+                          open_file=open_file)
+            if result is not None:
+                text, figure = result
+                target.write_text(text, encoding="utf-8")
+                after, verdict = figure, "cropped"
         elif choice == "f":
             print("  why? > ", end="", file=stream, flush=True)
             reason = (read_line() or "").strip()
@@ -171,9 +276,11 @@ def review_page(outcome: PageOutcome, out_dir: Path, log: CorrectionLog, *,
     return "next"
 
 
-def main(argv: list[str] | None = None, *, stream=None, read_line=None) -> int:
+def main(argv: list[str] | None = None, *, stream=None, read_line=None,
+         open_file=None) -> int:
     stream = stream or sys.stdout
     read_line = read_line or (lambda: sys.stdin.readline())
+    open_file = open_file or _open
 
     parser = argparse.ArgumentParser(
         prog="handzoo-review",
@@ -231,7 +338,7 @@ def main(argv: list[str] | None = None, *, stream=None, read_line=None) -> int:
 
     for outcome in outcomes:
         if review_page(outcome, args.out_dir, log, stream=stream,
-                       read_line=read_line) == "quit":
+                       read_line=read_line, open_file=open_file) == "quit":
             print("\nstopped. Progress is in the log; re-run to continue.", file=stream)
             break
 

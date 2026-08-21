@@ -30,17 +30,21 @@ from typing import Literal
 
 LOG_NAME = "corrections.jsonl"
 
-Verdict = Literal["keep-reviewed", "keep-unreviewed", "edited", "flagged", "skipped"]
+Verdict = Literal["keep-reviewed", "keep-unreviewed", "edited", "cropped", "flagged",
+                  "skipped"]
 """What the human did.
 
 `keep-reviewed` — looked at it and accepted it.
 `keep-unreviewed` — accepted without inspection. Honest, common, and NOT evidence of quality.
 `edited`         — corrected it. The gold rows.
+`cropped`        — supplied the drawing the tool refused to invent. Gold, and counted
+                   separately: diagrams are 45 of 49 findings on a real run, so
+                   seconds-per-crop is most of the exit criterion, not a footnote in it.
 `flagged`        — wrong, and the human could not or would not fix it now.
 `skipped`        — deferred. Same evidentiary weight as `keep-unreviewed`: none.
 """
 
-GOLD: frozenset[str] = frozenset({"edited", "keep-reviewed"})
+GOLD: frozenset[str] = frozenset({"edited", "cropped", "keep-reviewed"})
 """Verdicts that carry evidence about correctness. The others record only that a human passed
 through, which is worth knowing and worth never mistaking for verification."""
 
