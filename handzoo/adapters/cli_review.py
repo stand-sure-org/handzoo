@@ -234,6 +234,15 @@ def transcribe(outcome: PageOutcome, out_dir: Path, log: CorrectionLog, *,
     text = _edit(target, None)
     seconds = round(time.monotonic() - started, 2)
 
+    if not text.strip():
+        # Opening an editor and closing it is not a transcription. Measured on the first real
+        # run: two abandoned attempts were logged at 14.4s and 4.9s with zero words, inflating
+        # the baseline arm by 19.3s before a single real number existed -- and inflating it in
+        # the direction that flatters the tool.
+        print(f"\n  nothing was typed after {seconds:.1f}s, so nothing was recorded.\n"
+              "  An abandoned attempt is not a measurement.", file=stream)
+        return 1
+
     log.append(Correction(
         page=outcome.page, verdict="transcribed",
         source_image=str(image) if image else "",

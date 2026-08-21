@@ -453,3 +453,39 @@ def test_the_summary_compares_the_two_arms_when_both_exist(tmp_path: Path) -> No
     text = s.getvalue()
     assert "exit criterion" in text.lower()
     assert "50" in text and "200" in text, "both arms have to be visible as numbers"
+
+
+def test_an_abandoned_transcription_is_not_a_measurement(tmp_path: Path, monkeypatch) -> None:
+    """Measured on the author's first real run: two attempts were opened and closed without
+    typing anything, and both were logged — 14.4s and 4.9s, zero words — inflating the baseline
+    arm by 19.3s before a single real number existed.
+
+    Opening an editor and closing it is not a transcription. Recording it as one corrupts the
+    exact measurement the milestone turns on, in the direction that flatters the tool.
+    """
+    out = _manifest(tmp_path, _page(tmp_path, 1, findings=[FINDING]))
+    monkeypatch.setattr(cli_review, "_edit", lambda path, line: "")
+
+    s = io.StringIO()
+    cli_review.main([str(out), "--transcribe", "1"], stream=s, read_line=_keys(""),
+                    open_file=lambda p: None)
+
+    assert CorrectionLog.for_run(out).read() == []
+    assert "nothing was typed" in s.getvalue().lower()
+
+
+def test_the_exit_criterion_ignores_empty_transcriptions_already_logged(tmp_path: Path) -> None:
+    """The log is append-only by design — it records what happened, and is not rewritten. So
+    the *interpretation* has to exclude the abandoned attempts, or every log written before the
+    guard existed reports a baseline that is too large."""
+    from handzoo.core.corrections import Correction, CorrectionLog
+
+    log = CorrectionLog(tmp_path / "corrections.jsonl")
+    log.append(Correction(page=1, verdict="transcribed", source_image="", before="",
+                          after="", seconds=14.4))
+    log.append(Correction(page=1, verdict="transcribed", source_image="", before="",
+                          after="real text here", seconds=146.7))
+    log.append(Correction(page=1, verdict="edited", source_image="", before="a", seconds=30.0))
+
+    arms = log.summary()["exit_criterion"][1]
+    assert arms["transcribing"] == 146.7, "the abandoned 14.4s attempt must not count"

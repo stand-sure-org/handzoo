@@ -160,8 +160,15 @@ def _exit_criterion(rows: list[Correction]) -> dict[int, dict[str, float]]:
     correcting: dict[int, float] = {}
     transcribing: dict[int, float] = {}
     for r in rows:
-        bucket = transcribing if r.verdict in BASELINE else correcting
-        bucket[r.page] = bucket.get(r.page, 0.0) + r.seconds
+        if r.verdict in BASELINE:
+            # An abandoned attempt produced no text. The log is append-only and keeps it,
+            # because it records what happened; the interpretation must not count it, or every
+            # log written before that guard existed reports a baseline that is too large.
+            if not (r.after or "").strip():
+                continue
+            transcribing[r.page] = transcribing.get(r.page, 0.0) + r.seconds
+        else:
+            correcting[r.page] = correcting.get(r.page, 0.0) + r.seconds
     return {
         page: {"correcting": round(correcting[page], 1),
                "transcribing": round(transcribing[page], 1)}
