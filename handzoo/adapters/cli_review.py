@@ -28,7 +28,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from ..core import rasterize
-from ..core.corrections import Correction, CorrectionLog
+from ..core.corrections import BASELINE, Correction, CorrectionLog
 from ..core.pipeline import MANIFEST, PageOutcome
 
 PROMPT = "[k]eep  [e]dit  [c]rop  [f]lag  [s]kip  [q]uit > "
@@ -198,6 +198,52 @@ def crop(outcome: PageOutcome, out_dir: Path, text: str, *, stream, read_line,
         n += 1
 
 
+def transcribe(outcome: PageOutcome, out_dir: Path, log: CorrectionLog, *,
+               stream, read_line, open_file) -> int:
+    """Time the author typing a page from blank — the exit criterion's control arm.
+
+    The emitted `.tex` is never shown. That is the point: the measurement is *minutes from a
+    blank file*, and a glance at the tool's output makes it something else.
+    """
+    prior = [r for r in log.read() if r.page == outcome.page and r.verdict not in BASELINE]
+    if prior:
+        print(f"page {outcome.page} has already been reviewed ({len(prior)} decision(s)).\n"
+              "Transcription time cannot be measured on a page whose emitted text you have\n"
+              "already read — you now know what is on it. Pick a page you have not reviewed.\n"
+              "A contaminated number that looks clean is worse than no number, and this is the\n"
+              "one measurement M0 turns on.", file=stream)
+        return 2
+
+    image = page_image(out_dir, outcome.page)
+    target = out_dir / f"transcript-p{outcome.page:04d}.tex"
+    if target.exists() and target.read_text(encoding="utf-8").strip():
+        print(f"{target.name} already has content. Move it aside first.", file=stream)
+        return 2
+    target.write_text("", encoding="utf-8")
+
+    print(f"\n=== transcribe page {outcome.page} from blank ===", file=stream)
+    if image:
+        print(f"  source: {image}", file=stream)
+        open_file(image)
+    print("  An empty file opens next. Type the page as you would want it to read, then save\n"
+          "  and quit. Timing starts when the editor opens.\n"
+          "  press enter when ready > ", end="", file=stream, flush=True)
+    read_line()
+
+    started = time.monotonic()
+    text = _edit(target, None)
+    seconds = round(time.monotonic() - started, 2)
+
+    log.append(Correction(
+        page=outcome.page, verdict="transcribed",
+        source_image=str(image) if image else "",
+        before="", after=text, seconds=seconds,
+        finding="exit criterion: transcription from blank",
+    ))
+    print(f"\n  {seconds:.1f}s, {len(text.split())} words -> {target.name}", file=stream)
+    return 0
+
+
 def review_page(outcome: PageOutcome, out_dir: Path, log: CorrectionLog, *,
                 stream, read_line, open_file) -> str:
     """Walk one page's findings. Returns "quit" if the human stopped."""
@@ -289,6 +335,9 @@ def main(argv: list[str] | None = None, *, stream=None, read_line=None,
     parser.add_argument("--page", type=int, help="review one page")
     parser.add_argument("--all", action="store_true",
                         help="include pages with no findings")
+    parser.add_argument("--transcribe", type=int, metavar="PAGE",
+                        help="time yourself typing this page from blank — the exit "
+                             "criterion's other arm. Refuses a page you have already reviewed.")
     parser.add_argument("--summary", action="store_true",
                         help="print what the correction log says and exit")
     args = parser.parse_args(argv)
@@ -303,6 +352,14 @@ def main(argv: list[str] | None = None, *, stream=None, read_line=None,
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=stream)
         return 2
+
+    if args.transcribe:
+        match = [o for o in outcomes if o.page == args.transcribe]
+        if not match:
+            print(f"page {args.transcribe} is not in the manifest.", file=stream)
+            return 2
+        return transcribe(match[0], args.out_dir, log, stream=stream, read_line=read_line,
+                          open_file=open_file)
 
     if args.page:
         outcomes = [o for o in outcomes if o.page == args.page]
@@ -354,7 +411,37 @@ def _print_summary(log: CorrectionLog, stream) -> int:
     print(f"\n{s['gold_pairs']} row(s) carry evidence about correctness. "
           f"{s['unexamined']} record only that a human passed through — "
           "keep-unreviewed and skipped are not verification.", file=stream)
+    _print_exit_criterion(s.get("exit_criterion") or {}, stream)
     return 0
+
+
+def _print_exit_criterion(pages: dict, stream) -> None:
+    """The milestone's actual question, once both arms exist for the same page.
+
+    Pages with only one arm are not shown. One number answers nothing, and printing it as
+    though it did is how a half-measurement gets quoted as a result.
+    """
+    if not pages:
+        return
+    print("\nEXIT CRITERION — seconds to correct against seconds to type from blank",
+          file=stream)
+    total_c = total_t = 0.0
+    for page, arms in pages.items():
+        c, t = arms["correcting"], arms["transcribing"]
+        total_c += c
+        total_t += t
+        verdict = "correcting wins" if c < t else "TRANSCRIBING WINS"
+        print(f"  page {page:>3}   correcting {c:>7.1f}s   transcribing {t:>7.1f}s   "
+              f"{verdict}", file=stream)
+    if len(pages) > 1:
+        print(f"  {'total':>8}   correcting {total_c:>7.1f}s   "
+              f"transcribing {total_t:>7.1f}s", file=stream)
+    if total_c >= total_t:
+        print("\n  Correction is not cheaper than transcription on these pages. "
+              "M0 has negative\n  value here, and no amount of green gates changes that.",
+              file=stream)
+    print(f"\n  {len(pages)} page(s) carry both arms. This is a sample, not a result.",
+          file=stream)
 
 
 if __name__ == "__main__":

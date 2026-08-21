@@ -1511,4 +1511,33 @@ Adopted from Value's dissent (binding condition 9), which no experiment in this 
 
 If correction time ≥ transcription time, M0 has negative value regardless of gate colour. Edit-distance alone is insufficient — catching `|||| < ||||` requires re-reading the source page, which is most of the transcription cost, and edit-distance scores that diff as small.
 
-This requires the author and cannot be automated.
+This requires the author and cannot be automated. **The measurement can be, and now is
+(2026-08-20).**
+
+`handzoo-review OUT --transcribe PAGE` times the control arm: the page image opens, an empty
+file opens, and the clock runs until the editor closes. The emitted `.tex` is never shown —
+the measurement is *minutes from blank*, and a glance at the tool's output makes it something
+else.
+
+**It refuses a page that has already been reviewed.** Once the author has read the emitted
+text they know what is on the page, and transcription time is no longer measurable there. This
+is the guard that matters most: a contaminated number that looks clean is worse than no number,
+and this is the one measurement the milestone turns on.
+
+`transcribed` is deliberately **outside `GOLD`**. It is ground truth for the page and says
+nothing about what the tool emitted; folding it in would inflate the count of rows that judge
+the output with rows that never looked at it — the conflation `keep-unreviewed` exists to
+prevent.
+
+`--summary` reports both arms per page, and **only for pages carrying both**. One arm answers
+nothing, and printing it as though it did is how a half-measurement gets quoted as a result.
+When correcting is not cheaper, the summary says so in the milestone's own words rather than
+leaving the reader to do the subtraction:
+
+```
+EXIT CRITERION — seconds to correct against seconds to type from blank
+  page   1   correcting    50.0s   transcribing   310.0s   correcting wins
+  page   2   correcting   265.0s   transcribing   180.0s   TRANSCRIBING WINS
+
+  2 page(s) carry both arms. This is a sample, not a result.
+```

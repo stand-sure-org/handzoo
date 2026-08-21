@@ -31,7 +31,7 @@ from typing import Literal
 LOG_NAME = "corrections.jsonl"
 
 Verdict = Literal["keep-reviewed", "keep-unreviewed", "edited", "cropped", "flagged",
-                  "skipped"]
+                  "skipped", "transcribed"]
 """What the human did.
 
 `keep-reviewed` — looked at it and accepted it.
@@ -42,7 +42,15 @@ Verdict = Literal["keep-reviewed", "keep-unreviewed", "edited", "cropped", "flag
                    seconds-per-crop is most of the exit criterion, not a footnote in it.
 `flagged`        — wrong, and the human could not or would not fix it now.
 `skipped`        — deferred. Same evidentiary weight as `keep-unreviewed`: none.
+`transcribed`    — typed the page from blank, against the image alone. **Not a verdict on the
+                   emitted document at all** — it is the control arm of the exit criterion, and
+                   ground truth for the page. Deliberately outside GOLD: folding it in would
+                   inflate the count of rows that judge the output with rows that never looked
+                   at it, the same conflation `keep-unreviewed` exists to prevent.
 """
+
+BASELINE: frozenset[str] = frozenset({"transcribed"})
+"""The control arm. Timed against the page image with no emitted text in sight."""
 
 GOLD: frozenset[str] = frozenset({"edited", "cropped", "keep-reviewed"})
 """Verdicts that carry evidence about correctness. The others record only that a human passed
@@ -135,4 +143,27 @@ class CorrectionLog:
             "unexamined": counts.get("keep-unreviewed", 0) + counts.get("skipped", 0),
             "total_seconds": round(sum(r.seconds for r in rows), 1),
             "pages_touched": len({r.page for r in rows}),
+            "exit_criterion": _exit_criterion(rows),
         }
+
+
+def _exit_criterion(rows: list[Correction]) -> dict[int, dict[str, float]]:
+    """Per page, seconds spent correcting against seconds spent transcribing from blank.
+
+    This is the milestone's actual question — *"minutes to correct emitted `.tex` to ground
+    truth, versus minutes to transcribe the same page from a blank file"* — and until both arms
+    were recorded here it lived in a stopwatch and a notebook.
+
+    Only pages carrying **both** numbers appear. One arm alone answers nothing, and showing it
+    as though it did is how a half-measurement gets quoted as a result.
+    """
+    correcting: dict[int, float] = {}
+    transcribing: dict[int, float] = {}
+    for r in rows:
+        bucket = transcribing if r.verdict in BASELINE else correcting
+        bucket[r.page] = bucket.get(r.page, 0.0) + r.seconds
+    return {
+        page: {"correcting": round(correcting[page], 1),
+               "transcribing": round(transcribing[page], 1)}
+        for page in sorted(set(correcting) & set(transcribing))
+    }

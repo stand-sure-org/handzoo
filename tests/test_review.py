@@ -378,3 +378,78 @@ def test_crop_needs_a_source_and_says_so_when_there_is_none(tmp_path: Path) -> N
     s = io.StringIO()
     cli_review.main([str(out)], stream=s, read_line=_keys("c", "q"), open_file=lambda p: None)
     assert "source" in s.getvalue().lower()
+
+
+# --------------------------------------------------------------- the exit criterion
+
+
+def test_transcribing_from_blank_records_the_other_arm(tmp_path: Path, monkeypatch) -> None:
+    """The M0 exit criterion is a comparison, and only one side of it was ever measured.
+
+    `handzoo-review` timed corrections. Nothing timed transcription from a blank file, so the
+    question the whole milestone turns on — is correcting faster than typing it yourself —
+    needed a stopwatch and a separate notebook. Both arms now land in one log.
+    """
+    src = tmp_path / "src.pdf"
+    src.write_bytes(b"%PDF-1.4\n")
+    out = _manifest(tmp_path, _page(tmp_path, 1, findings=[FINDING]))
+
+    monkeypatch.setattr(cli_review, "_edit",
+                        lambda path, line: (path.write_text("what the author typed\n"),
+                                            "what the author typed\n")[1])
+
+    s = io.StringIO()
+    assert cli_review.main([str(out), "--transcribe", "1"], stream=s,
+                           read_line=_keys(""), open_file=lambda p: None) == 0
+
+    (row,) = CorrectionLog.for_run(out).read()
+    assert row.verdict == "transcribed"
+    assert row.after.strip() == "what the author typed"
+    assert row.seconds >= 0
+
+
+def test_a_transcription_is_not_evidence_about_the_emitted_document(tmp_path: Path) -> None:
+    """It is ground truth for the *page*, and says nothing about what the tool produced.
+
+    Folding it into GOLD would inflate the count of rows that judge the output with rows that
+    never looked at it — the same conflation `keep-unreviewed` exists to prevent.
+    """
+    from handzoo.core.corrections import GOLD
+
+    assert "transcribed" not in GOLD
+
+
+def test_transcribing_a_page_already_reviewed_is_refused(tmp_path: Path) -> None:
+    """Reading the emitted text contaminates the timing.
+
+    Once a page has been reviewed, the author knows what is on it, and "minutes to transcribe
+    from blank" is no longer measurable there. Refusing is the whole value: a contaminated
+    number that looks clean is worse than no number, and this is the one measurement M0 turns
+    on.
+    """
+    out = _manifest(tmp_path, _page(tmp_path, 1, findings=[FINDING]))
+    cli_review.main([str(out)], stream=io.StringIO(), read_line=_keys("k"),
+                    open_file=lambda p: None)
+
+    s = io.StringIO()
+    assert cli_review.main([str(out), "--transcribe", "1"], stream=s,
+                           read_line=_keys(""), open_file=lambda p: None) == 2
+    assert "already been reviewed" in s.getvalue()
+    assert len([r for r in CorrectionLog.for_run(out).read()
+                if r.verdict == "transcribed"]) == 0
+
+
+def test_the_summary_compares_the_two_arms_when_both_exist(tmp_path: Path) -> None:
+    from handzoo.core.corrections import Correction, CorrectionLog
+
+    log = CorrectionLog(tmp_path / "corrections.jsonl")
+    log.append(Correction(page=1, verdict="cropped", source_image="", before="a", seconds=30.0))
+    log.append(Correction(page=1, verdict="edited", source_image="", before="b", seconds=20.0))
+    log.append(Correction(page=1, verdict="transcribed", source_image="", before="",
+                          after="x", seconds=200.0))
+
+    s = io.StringIO()
+    cli_review.main([str(tmp_path), "--summary"], stream=s)
+    text = s.getvalue()
+    assert "exit criterion" in text.lower()
+    assert "50" in text and "200" in text, "both arms have to be visible as numbers"
