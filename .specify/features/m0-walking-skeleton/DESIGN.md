@@ -780,6 +780,88 @@ hard.
   project had already fetched. It happened not to matter. That it happened not to matter is
   luck, not method.
 
+### 5.5.11 Literature on disagreement-as-detector — 2026-08-21
+
+Commissioned research on §5.5.6. Sources attributed; inferences marked.
+
+#### Every component has a literature; the assembly appears not to
+
+**Classical multi-recognizer work uses disagreement to produce a better output, not to flag one
+for review.** ROVER (Fiscus, IEEE ASRU 1997) aligns N transcriptions into a word transition
+network and votes; multi-engine OCR voting and classifier combination (Xu, Krzyżak & Suen, *IEEE
+Trans. SMC* 1992 — a **handwriting** paper) do the same. Disagreement is consumed internally and
+a single hypothesis comes out.
+
+The flag-and-route framing lives in three *other* literatures: selective prediction with a
+reject option (Chow 1970; SelectiveNet, arXiv:1901.09192), disagreement-based active learning
+(Query-by-Committee, Seung et al. 1992 — *literally* this algorithm, with a human oracle, but
+aimed at picking training data), and industrial **double data entry**, which is the closest
+procedural match and reports 0.14% residual error against 0.29% for single entry.
+
+So §5.5.6 is a bridge between known things rather than a new thing — and the bridge does not
+appear to be written down for handwritten mathematics. **Multi-model disagreement to localise
+errors in handwritten *math* recognition appears to be a genuine hole**; that literature's
+error detection is grammar-based on a single system's output.
+
+#### Nobody publishes the number we have
+
+**No published precision-of-disagreement-flag figure exists for any transcription task.** Fusion
+papers report WER/CER reduction; error-detection papers report token P/R against labelled error
+corpora using *confidence scores* rather than cross-engine disagreement.
+
+So the ch17 measurement — ~50% of flags real, 5.3 flags per page — is a quantity the field does
+not report. **It should be stated as precision-at-coverage on a risk–coverage curve**, which is
+the selective-prediction vocabulary and makes it comparable to a literature that currently has
+no entry for handwritten maths.
+
+#### The correction: this tempers §5.5.6, and it contradicts advice I gave
+
+*Correlated Errors in Large Language Models* (Kim, Garg, Peng & Garg, ICML 2025,
+arXiv:2506.07962), across 350+ models: **models agree 60% of the time when both err**, and the
+paper states this degrades disagreement as a reliability signal. *Great Models Think Alike*
+(Goel et al., ICML 2025 spotlight, arXiv:2502.04313) proposes **CAPA**, a chance-corrected
+similarity defined on *overlap in mistakes*, and finds **mistakes become more similar as
+capability increases**.
+
+That last finding cuts against what I recommended when asked whether to add Sonnet or Haiku. I
+argued for Sonnet on the grounds that a weaker model contributes its own errors as false flags.
+That is still true — and the opposite pressure is now documented: **a more capable third model
+is more likely to share the other strong models' mistakes**, which is exactly the failure a
+third opinion is meant to prevent. The choice is a genuine trade rather than the one-sided call
+I made, and it should be measured rather than argued.
+
+**The metric for it is twenty years old.** Kuncheva & Whitaker (*Machine Learning* 51(2), 2003)
+survey ensemble diversity measures; the one that matters here is the **double-fault measure** —
+the proportion of items *both* classifiers get wrong. That is precisely "agree and both wrong",
+and a two-model detector should report it beside its precision.
+
+**My inference, not a source's:** the 42–66% over-correction persisting across 15 VLMs
+(§5.5) *is* a double-fault floor on the substitution mode. It bounds what any disagreement
+detector can catch, and it is consistent with both ICML papers rather than contradicted by them.
+
+#### The representation problem is a known wall, hit at a known place
+
+Comparing raw LaTeX failed and comparing extracted words worked (§5.5.6). Three communities
+found this independently:
+
+- **CDM** (arXiv:2409.03643) renders predicted and ground-truth LaTeX to *images* and matches
+  characters spatially, explicitly because string metrics score formatting as content error.
+- **Label graphs / symLG** (Zanibbi, Mouchère & Viard-Gaudin, DRR 2013; the CROHME series)
+  convert LaTeX to a graph before scoring. The general framing — **presentation markup versus
+  content markup** — is the nearest thing to a standard name.
+- **Semantic entropy** (Farquhar, Kossen, Kuhn & Gal, *Nature* 630, 2024) clusters generations
+  by entailment *before* measuring, on the same argument in a different domain.
+
+Our fix sits between the word level and CDM's image level. Worth citing all three: it turns "we
+tried something and it failed" into "we hit a documented wall where others hit it."
+
+#### The nearest published neighbour to this whole project
+
+**TexOCR** (arXiv:2604.22880, April 2026) trains a 2B model with RL against **LaTeX unit tests
+enforcing compilability and referential integrity**. That is this project's gate philosophy
+inside a training loop. Single model, no disagreement, no normalisation discussion — so it does
+not scoop the thesis, and anyone assessing novelty should be told it exists.
+
 ### 5.5.7 One call for both passes would break D6 — noted 2026-08-21
 
 I suggested combining transcription and inventory into a single request to halve the round
@@ -816,6 +898,92 @@ that a stronger model's single-call inventory stays honest, or it may be that a 
 is *better* at rationalising what it already wrote. The measurement is cheap (run both ways on a
 page with a known dropped mark) and has not been done. Until it is, D6 holds for every provider,
 because it was derived from a failure that has never been shown to be model-specific.
+
+### 5.5.10 Literature on over-correction — what is known, 2026-08-21
+
+Commissioned research. Findings attributed to their sources; inferences marked as such.
+
+#### The measured null this project already relies on
+
+*When VLMs "Fix" Students* (arXiv:2604.22774), the source of the 42–66% figure, states that explicit
+anti-correction instructions "marginally reduced over-correction, [but] simultaneously degraded
+overall transcription accuracy, resulting in no net improvement" — attributing it to
+over-correction being "deeply entangled" with core reasoning rather than a surface behaviour.
+§5.5.1's conclusion stands, now with a citation rather than only our own runs.
+
+#### Scale: my hypothesis was half right, and the other half explains the tier sweep
+
+I proposed that over-correction *worsens* with capability, because the mechanism is helpfulness
+rather than incapacity. Then §5.5.8 found every Gemini tier avoiding both ch17 p1 defects,
+which looked like a refutation. The paper resolves both at once:
+
+- **Within a family, larger is worse.** The paper reports larger models "consistently exhibit
+  higher over-correction rates, suggesting this behavior may be an emergent property of advanced
+  reasoning capabilities."
+- **Across families, capability does not predict faithfulness.** The 42–66% spread crosses
+  vendors and is therefore confounded. Gemini 2.5 Flash was the *most faithful* model in the
+  study, rising from 10th under BLEU to 1st under the faithfulness-penalising metric; GPT-4o
+  moved the other way.
+
+So the tier sweep is not a refutation — it is the cross-family effect, and both observations
+hold. **Family, not size, is the variable that matters**, which is also what §5.5.6's detector
+needs: independence comes from choosing a different lineage, not a bigger model.
+
+#### The finding that lands on our own two-pass design
+
+*Verification Mirage* (arXiv:2605.10850), on self-verification in medical VQA, reports
+false-positive rates above 60% — verifiers systematically accept incorrect answers — and
+**verifier error 57× higher when the generator fails**, describing the result as "a consistency
+check over the model's own answer rather than an independent correctness check."
+
+Cross-model verification helps **asymmetrically**: false-accepts drop 12–20%, discrimination
+error only 2–5%.
+
+**Bearing on D6, and it is uncomfortable.** Our two passes are structurally independent —
+separate calls, no shared context (§5.5.7) — but they are *the same model*. Shared blind spots
+produce agreement, and the coverage gate reads agreement as coverage. The existing hedge
+("trustworthy about *where*, untrustworthy about *what*") is the right instinct and this is
+evidence for it.
+
+**The actionable form:** run the inventory pass on a **different family** from the
+transcription pass. Three providers now exist, so this is configuration rather than
+engineering. Expect fewer false accepts, *not* better reading — and measure it rather than
+assume it, because the domain gap (medical VQA → handwritten maths) is real and untested.
+
+#### Perturbation probing — the eval this project lacks
+
+*Do VLMs Read or Rewrite?* (arXiv:2607.21617) supplies the method: **deliberately corrupt the
+source** — scrambled characters, visually-similar swaps — and measure whether the model
+reproduces the corruption or silently rewrites it into something plausible. General VLMs
+degrade up to 4.5 WER points; OCR-specialised ones 0.2–2; traditional pipelines under 0.6.
+
+This is what §11.2 has been missing. We have **one** page with established ground truth and no
+way to tell whether a change helped. Perturbed fixtures are *synthetic*, which also resolves the
+tension in constraint 7: they can be shared where the manuscript cannot.
+
+Pair it with **olmOCR-Bench**'s key-phrase **absence** tests, so an addition is its own failure
+class rather than a few insertions in an edit distance. Evidence that this matters and is not
+merely tidy: in 2604.22774 the metric choice *inverts the leaderboard* — GPT-4o 3rd under BLEU
+and 6th under the faithfulness metric, Gemini 2.5 Flash 10th and 1st.
+
+#### Confirmed absent
+
+No published work on fine-tuning specifically for refusal-to-embellish, and no sample-efficiency
+numbers for such a narrow behavioural fine-tune. §5.5.9's caution stands, with one addition:
+*Training large language models on narrow tasks can lead to broad misalignment* (Nature, 2025)
+warns that narrow behavioural fine-tunes have effects outside their target — relevant if
+"never add content" also suppresses inference we want.
+
+Also ranked down: latent-representation probes (arXiv:2511.19806) need hidden states Ollama does
+not expose; contrastive decoding has **no** transcription-faithfulness evidence, and
+arXiv:2504.10020 argues its object-hallucination gains are metric artifacts.
+
+#### The caveat that matters most
+
+**None of this addresses baseline page 1.** Every technique above targets unsupported additions
+and instability. Multi-view consensus will agree, five times over, that a stick figure is not
+text. The dropped-glyph failure — where meaning inverts because an inline mark was treated as
+decoration — remains unaddressed by the literature as well as by us.
 
 ### 5.5.6 Two providers disagreeing is a detector — measured 2026-08-21
 
