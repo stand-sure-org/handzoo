@@ -28,6 +28,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from ..core import rasterize
+from ..core.assemble import assemble
 from ..core.corrections import BASELINE, Correction, CorrectionLog
 from ..core.pipeline import MANIFEST, PageOutcome
 
@@ -253,8 +254,32 @@ def transcribe(outcome: PageOutcome, out_dir: Path, log: CorrectionLog, *,
     return 0
 
 
+def _typeset(outcome: PageOutcome, out_dir: Path) -> Path | None:
+    """Compile one page to a PDF the author can annotate.
+
+    Reuses the assembler rather than inventing a second path to a document: a one-page master
+    owns the preamble the fragment lacks, and puts the crop figures within reach of a relative
+    `\\includegraphics` (DESIGN 6.1). `-synctex=1` is passed because a point in the result
+    resolves back to a source line, which is what an annotation loop needs (DESIGN 7.3).
+    """
+    source = Path(outcome.output) if outcome.output else None
+    if source and source.exists() and "\\documentclass" in source.read_text(encoding="utf-8"):
+        # Already a document. Assembling it would produce the "standalone, not assemblable"
+        # placeholder and nothing else -- a page with none of the author's content on it,
+        # handed over and timed. A measurement of nothing, reported as a measurement.
+        master = out_dir / f"review-p{outcome.page:04d}.tex"
+        master.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    else:
+        master = assemble(out_dir, [outcome], name=f"review-p{outcome.page:04d}.tex")
+    proc = subprocess.run(
+        ["pdflatex", "-interaction=nonstopmode", "-halt-on-error", "-synctex=1", master.name],
+        cwd=out_dir, capture_output=True, text=True, check=False)
+    pdf = master.with_suffix(".pdf")
+    return pdf if proc.returncode == 0 and pdf.exists() else None
+
+
 def fix(outcome: PageOutcome, out_dir: Path, log: CorrectionLog, *,
-        stream, read_line, open_file, mode: str = "") -> int:
+        stream, read_line, open_file, mode: str = "", seconds: float | None = None) -> int:
     """Time the author correcting the emitted document — the same protocol as `--transcribe`,
     seeded with our output instead of a blank file.
 
@@ -289,6 +314,51 @@ def fix(outcome: PageOutcome, out_dir: Path, log: CorrectionLog, *,
     if image:
         print(f"  source: {image}", file=stream)
         open_file(image)
+
+    if seconds is not None:
+        # A mode the tool cannot watch -- paper, or a device. Refusing to record it would push
+        # the author back to a stopwatch and a notebook, which is what this harness exists to
+        # end. Marked self-reported: a number the tool took and a number the author took are
+        # different evidence and the log must not blur them (DESIGN 5.7).
+        log.append(Correction(
+            page=outcome.page, verdict="edited",
+            source_image=str(image) if image else "",
+            before=before, after="", seconds=float(seconds), mode=mode,
+            finding="exit criterion: correction of emitted output (self-reported time)",
+        ))
+        print(f"  recorded {seconds:.1f}s, self-reported, mode={mode or 'unset'}", file=stream)
+        return 0
+
+    if mode.startswith("pdf"):
+        # The author reviews by annotating the typeset output, not by editing source. Timing
+        # them in an editor would measure a workflow they do not use -- and measure it worse
+        # than their real one, understating the tool through an artefact of the harness.
+        pdf = _typeset(outcome, out_dir)
+        if pdf is None:
+            print("  this page does not compile on its own, so there is no typeset PDF to\n"
+                  "  annotate. Correct it as source instead, or use --seconds.", file=stream)
+            return 2
+        print(f"  typeset: {pdf}\n"
+              "  Annotate it however you review — on the device, or on paper. The clock runs\n"
+              "  from the next keypress until you say you are done, so it includes getting the\n"
+              "  file there and back. That is real cost in this workflow; use --seconds if you\n"
+              "  would rather report correction time alone.\n"
+              "  press enter when you begin > ", end="", file=stream, flush=True)
+        read_line()
+        open_file(pdf)
+        started = time.monotonic()
+        print("  press enter when you are done > ", end="", file=stream, flush=True)
+        read_line()
+        elapsed = round(time.monotonic() - started, 2)
+        log.append(Correction(
+            page=outcome.page, verdict="edited",
+            source_image=str(image) if image else "",
+            before=before, after=str(pdf), seconds=elapsed, mode=mode,
+            finding="exit criterion: correction by annotating the typeset output",
+        ))
+        print(f"\n  {elapsed:.1f}s annotating {pdf.name}", file=stream)
+        return 0
+
     print(f"  {target.name} opens next, with what the tool produced. Fix it until it says what\n"
           "  the page says, then save and quit. Timing starts when the editor opens.\n"
           "  press enter when ready > ", end="", file=stream, flush=True)
@@ -423,6 +493,11 @@ def main(argv: list[str] | None = None, *, stream=None, read_line=None,
                         help="time yourself correcting this page's emitted .tex against the "
                              "ink — the exit criterion's other arm, measured through the same "
                              "interaction as --transcribe. Refuses a page you transcribed.")
+    parser.add_argument("--seconds", type=float, metavar="N",
+                        help="record a time you measured yourself, for a mode the tool cannot "
+                             "watch — reviewing on paper, or on a device. Marked self-reported, "
+                             "because a number the tool took and one you took are different "
+                             "evidence.")
     parser.add_argument("--mode", default="",
                         help="what you are working against — e.g. tex, pdf, markdown, agent. "
                              "Recorded with the timing, because correction cost is one number "
@@ -456,7 +531,7 @@ def main(argv: list[str] | None = None, *, stream=None, read_line=None,
             print(f"page {args.fix} is not in the manifest.", file=stream)
             return 2
         return fix(match[0], args.out_dir, log, stream=stream, read_line=read_line,
-                   open_file=open_file, mode=args.mode)
+                   open_file=open_file, mode=args.mode, seconds=args.seconds)
 
     if args.page:
         outcomes = [o for o in outcomes if o.page == args.page]

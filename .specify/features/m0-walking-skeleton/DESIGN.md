@@ -1348,7 +1348,28 @@ The panes (§11.1.2) are a bet on where the author will want to work. This is a 
 where the author already works. It reuses the recognizer, the ink extraction and the assembly
 that exist, adds one verified mechanism (synctex), and needs no UI at all in its first form.
 
-Not scoped for M0. Recorded as the strongest known candidate for what follows it.
+**The exit criterion needed it immediately, so the timing half is built.** The author's
+clarification was specifically about *this review*, which makes it a measurement problem rather
+than a roadmap item: `--fix` timed them editing `.tex`, a mode they do not use. That would have
+measured an artificial workflow and measured it *worse* than their real one, understating the
+tool through an artefact of the harness.
+
+- `--fix PAGE --mode pdf-annotate` typesets the page, hands it over, and times from *begin* to
+  *done*. The elapsed figure includes getting the file onto the device and back, which is real
+  cost in that workflow and is stated rather than hidden.
+- `--seconds N` records a time the author measured, for modes the tool cannot watch — paper
+  above all. Marked **self-reported**, because a number the tool took and a number the author
+  took are different evidence.
+
+**One trap caught before it produced a number.** `_typeset` assembled a one-page master, and
+`assemble` cannot `\input` a standalone page — so on a `--standalone` run it produced a
+document containing only the *"standalone, not assemblable"* placeholder. The author would have
+been handed a page with none of their content on it and timed while annotating it: a
+measurement of nothing, reported as a measurement. A standalone page needs no assembly, so it
+is now compiled as it stands, and both run modes work.
+
+Not scoped for M0 beyond that. The rest — reading annotations back — is recorded as the
+strongest known candidate for what follows.
 
 ## 8. CLI behaviour
 
