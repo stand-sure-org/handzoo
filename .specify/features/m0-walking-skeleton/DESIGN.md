@@ -1051,6 +1051,40 @@ for a transcription tool directly. This is precisely §11's open question, and i
 `keep`/`edit`/`flag` timestamps in `corrections.jsonl` are the fastest route to a real answer
 for this corpus — instrument them from the first run.
 
+### 7.1.1 Silent *addition* is a failure class nobody named
+
+Constraint 4 forbids fabricating a diagram. Constraint 5 forbids silently dropping, rewording
+or renotating a mark. **Nothing forbids silently adding text**, because until ch17 p1 it had
+not occurred to anyone that the model would.
+
+It did: the page lists three divisor pairs of 30 and an ellipsis, and the emitted document
+carries four. `3, 10` is correct arithmetic and is not on the page.
+
+**The author's reaction is the important part of this finding.** Asked whether the addition was
+an error, they said no — they had followed the book, and had been *annoyed* that the book
+stopped at three. The insertion was welcome.
+
+That is exactly why the class is dangerous, and the argument is the automation-bias one from §7
+turned around. A fabrication the author welcomes is a fabrication the author stops checking
+for. The tool did not judge the completion safe; it had no idea it was completing anything. The
+mechanism that supplies a helpful divisor pair supplies a reversed morphism with equal
+confidence, and by then the reviewer has learned that additions are usually improvements.
+
+**So the answer is not suppression, it is disclosure** — the rule the rest of the project
+already runs on, applied to a direction it never faced. An addition is permitted and is marked:
+
+```
+\item $3, 10$  % handzoo: not on the page
+```
+
+Symmetric with `[[FABRICATED:]]` for diagrams. The author keeps the completion they wanted, and
+keeps the ability to see that it was one.
+
+**Detection is the same unsolved problem as substitution**, and the same mechanism addresses
+it: self-verification (§5.5.5) compares emitted text against the image, and an added line is
+precisely what that comparison sees. This adds a requirement to it — when it fires, the verdict
+is *mark*, not *delete*.
+
 ### 7.2 The crop verdict — **built 2026-08-20**
 
 **Status: built (2026-08-20).** The blocker below was cleared first, as this note said it had
@@ -1260,6 +1294,61 @@ Two rules survive unchanged:
   sentence* -- a stick figure used as a noun cannot be lifted out without destroying the
   sentence, which is what killed the brief's crop-and-reference policy as a complete answer.
   The crop verdict serves `block` marks. Inline ones remain the grille's problem.
+
+### 7.3 Annotate the typeset PDF — the review loop the author actually uses
+
+**Stated 2026-08-21:** the author reviews best by annotating the typeset output — on paper by
+preference, and in practice by importing the PDF into the reMarkable and marking it by hand.
+
+That is not the loop anything here was built for, and it is a better one, because it is the
+loop they already perform. Every interface discussed so far (§7, §11.1.2) asks the author to
+come to the tool. This one lets the tool go where the reviewing already happens.
+
+**It closes on itself, which is the pleasing part.** The corrections arrive as *handwriting on
+a page* — which is the problem this project already solves. The tool that reads your notes
+reads your corrections in the same way, with the same recognizer and the same refusals.
+
+#### Why it is tractable rather than speculative
+
+Three mechanisms, all verified:
+
+1. **Annotation ink separates from typeset text by kind, not by guesswork.** The typeset layer
+   is text in fonts; the annotations are vector paths. `pdftotext` sees one, `pdftocairo -svg`
+   sees the other, and both are already in the pipeline (§6.0, `ink_colours`). No classifier is
+   needed, so D4 is not engaged.
+2. **A point in the PDF resolves to a source line.** `pdflatex -synctex=1` plus
+   `synctex edit -o "page:x:y:chapter.pdf"` returns the input file and line. Verified on the
+   real assembled chapter: page 2 of the PDF resolves to `page-0006.tex` line 18, through the
+   `\input` chain, correctly.
+3. **The annotation's own position is its anchor.** An ink stroke has coordinates; (2) turns
+   those into a source location. A margin mark beside a wrong word lands on the line holding
+   that word.
+
+So the loop is: emit `chapter.pdf` with synctex → author annotates on the device → export →
+extract ink → resolve each mark to a source line → show the author their own annotation beside
+the line it points at, and record a decision.
+
+#### What is genuinely hard, and must not be hand-waved
+
+- **Recognizing an instruction is not recognizing prose.** "delete this", a caret with a word
+  above it, a circled term with an arrow — these are *edit operations*, and misreading one
+  changes the document rather than merely describing it wrongly. This is substitution with a
+  larger blast radius.
+- **Applying an edit automatically is the delegation hazard** of §11.1.2, arriving by a
+  different road. An annotation the author *made* carries even more borrowed authority than an
+  agent's suggestion.
+- **Therefore: resolve and present, do not apply.** The loop's output is *the author's mark,
+  attached to the right line, with the source image nearby* — which is most of the value, and
+  it does not require the tool to interpret a single instruction. Interpretation is a later
+  question and a separate decision.
+
+#### Why this outranks the four-pane application
+
+The panes (§11.1.2) are a bet on where the author will want to work. This is a measurement of
+where the author already works. It reuses the recognizer, the ink extraction and the assembly
+that exist, adds one verified mechanism (synctex), and needs no UI at all in its first form.
+
+Not scoped for M0. Recorded as the strongest known candidate for what follows it.
 
 ## 8. CLI behaviour
 

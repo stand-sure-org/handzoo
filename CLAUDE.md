@@ -69,6 +69,11 @@ Environment, verified on this machine:
 3. **Five gates, all hard fails:** zero non-ASCII (unless the `--standalone` preamble supports it) · delimiter and environment balance · compiles clean under `pdflatex` · **no silent mark loss** · **no silent colour loss** (read from the vector source; a raster source reports *not checked*, never *clean*).
 4. **Never fabricate `tikz`.** Diagrams are cropped, referenced, and flagged `% TODO: author diagram`.
 5. **Never silently drop, reword, or renotate a mark.** This is the same principle as (4), applied where the baseline proved it was missing.
+5b. **Never silently *add*.** ch17 p1 lists three divisor pairs and an ellipsis; the emitted
+   document carried four. The extra pair was correct arithmetic and was not on the page, and
+   the author welcomed it — which is exactly why the class is dangerous. An addition the
+   author welcomes is one they stop checking for. Mark it (`% handzoo: not on the page`),
+   do not suppress it. See DESIGN §7.1.1.
 6. **Absence of evidence is not evidence of absence.** A check that did not run must never
    read as a check that passed. The codebase has rediscovered this three times —
    `GateResult.checked`, `coverage_gate` on an empty inventory, and `Emission.verdict` — each
