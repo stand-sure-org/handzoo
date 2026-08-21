@@ -1796,7 +1796,7 @@ swapping machine — treat them as upper bounds, not characteristics.
 |---|---|---|---|
 | Naive Math | 39 | multi-colour | Inline glyph-as-noun, **semantic colour**, tables, tally marks |
 | Cheng ch14–16 | 26+ | monochrome purple | Dense symbolic math, labelled arrows, theorem environments |
-| **Number theory** | **126** | monochrome | Long-run consistency; the only document large enough to test drift |
+| **Number theory** | **126** | **red + green** (catalogued monochrome; the colour gate found otherwise, 2026-08-21) | Long-run consistency; the only document large enough to test drift — **run 2026-08-21: no drift.** 126 pages, 0 recognition failures, failures do not rise with position |
 | **Topology** | **8** | blue | Deep set-brace nesting, `∪`/`∩`/`∉`, **checkmarks as inline annotations**, circled and boxed elements |
 | **Quick sheets** | **42** | black | **`6 x 9 = 42` in base 13** — a correct claim a naive arithmetic checker flags; shape-recognized circle; arrow chain wrapping mod 13 |
 | **Team of Teams** | **17** | black | **Prose only, zero math** — plus rotated marginalia, enclosure-as-emphasis, margin markers |

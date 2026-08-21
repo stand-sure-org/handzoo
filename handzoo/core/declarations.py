@@ -66,6 +66,23 @@ REPAIRS = {
     "underarrow": r"\providecommand{\underarrow}[1]{\underset{\downarrow}{#1}}",
 }
 
+# Characters `pylatexenc` cannot map, measured in the corpus, with the glyph the author
+# plainly meant. Same pattern as REPAIRS above: what has been *seen* gets a mapping, and
+# everything else keeps the marked fallback rather than a guess (DESIGN 5.7.1).
+#
+# Measured on the 126-page Number theory run: 8 checkmarks, 5 ballot crosses, 13 circled
+# digits. A checkmark asserting an axiom holds is a term in the sentence, not decoration, so
+# rendering it as a bullet is a marked substitution -- better than a silent one, worse than
+# the right glyph.
+CHARACTER_REPAIRS = {
+    "\u2713": ("\\ensuremath{\\checkmark}", "amssymb"),
+    "\u2714": ("\\ensuremath{\\checkmark}", "amssymb"),
+    "\u2717": ("\\ding{55}", "pifont"),
+    "\u2718": ("\\ding{55}", "pifont"),
+    **{chr(0x2460 + i): (f"\\textcircled{{\\small {i + 1}}}", "base")
+       for i in range(9)},
+}
+
 # Operator-shaped: a short all-lowercase word. `len`, `ord`, `lcm`, `im`, `coker`.
 _OPERATOR_SHAPED = re.compile(r"^[a-z]{2,6}$")
 _MACRO = re.compile(r"\\([a-zA-Z]+)")
@@ -145,8 +162,15 @@ def declarations_for(undefined: list[str], unmapped_chars: list[str] | None = No
 
     for ch in unmapped_chars or []:
         # \DeclareUnicodeCharacter has no \ifdefined equivalent; redeclaring is harmless.
-        lines.append(f"\\DeclareUnicodeCharacter{{{ord(ch):04X}}}{{\\ensuremath{{\\bullet}}}}"
-                     f"  % TODO: {ch!r} has no mapping; choose a representation")
+        repair = CHARACTER_REPAIRS.get(ch)
+        if repair:
+            glyph, _pkg = repair
+            lines.append(f"\\DeclareUnicodeCharacter{{{ord(ch):04X}}}{{{glyph}}}"
+                         f"  % measured in the corpus")
+        else:
+            lines.append(
+                f"\\DeclareUnicodeCharacter{{{ord(ch):04X}}}{{\\ensuremath{{\\bullet}}}}"
+                f"  % TODO: {ch!r} has no mapping; choose a representation")
 
     if not lines:
         return ""

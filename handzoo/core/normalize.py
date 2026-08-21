@@ -32,6 +32,22 @@ MATH_ONLY = frozenset(
     ["oplus", "otimes", "odot", "uparrow", "downarrow", "leftarrow", "rightarrow", "longrightarrow", "to", "mapsto", "leq", "geq", "neq", "approx", "equiv", "in", "notin", "subset", "supset", "subseteq", "supseteq", "cup", "cap", "setminus", "forall", "exists", "nexists", "cdots", "ldots", "vdots", "times", "div", "circ", "pm", "mp", "cdot", "ast", "alpha", "beta", "gamma", "delta", "epsilon", "varepsilon", "zeta", "eta", "theta", "iota", "kappa", "lambda", "mu", "nu", "xi", "pi", "rho", "sigma", "tau", "upsilon", "phi", "varphi", "chi", "psi", "omega", "Gamma", "Delta", "Theta", "Lambda", "Xi", "Pi", "Sigma", "Upsilon", "Phi", "Psi", "Omega", "mathbb", "mathcal", "mathfrak", "mathrm", "mathbf", "mathsf", "sqrt", "frac", "sum", "prod", "int", "infty", "partial", "varnothing", "emptyset", "langle", "rangle", "xrightarrow", "xleftarrow", "Rightarrow", "Leftarrow", "Leftrightarrow", "leftrightarrow", "Longrightarrow", "implies", "iff", "hookrightarrow", "twoheadrightarrow", "rightsquigarrow", "simeq", "cong", "sim", "propto", "text", "quad", "qquad", "colon", "bmod"]
 )
 
+# Display-math environments. `pylatexenc` reports `$...$` as a *math* node, which the walker
+# leaves verbatim -- but `\begin{align*}` is an **environment** node, so the walker recursed in
+# and treated its contents as text. R2 wrapped operators in \ensuremath and R10 escaped `_` and
+# `^` as stray specials; in math mode `\^` is the circumflex *accent command*, giving "Please
+# use \mathaccent for accents in math mode". Measured on the 126-page Number theory run, where
+# it broke pages 7, 14, 16 and others.
+#
+# Inside these, `_` and `^` are the operators the notation is made of, not specials to escape.
+MATH_ENVS = frozenset(
+    """
+    equation equation* align align* gather gather* multline multline* alignat alignat*
+    flalign flalign* eqnarray eqnarray* displaymath math split aligned gathered alignedat
+    cases dcases array matrix pmatrix bmatrix Bmatrix vmatrix Vmatrix smallmatrix
+    """.split()
+)
+
 # Environments the recognizer emits unprompted. Good recognition the emitter must support.
 THEOREM_ENVS = ("definition", "proposition", "theorem", "lemma", "corollary", "example", "remark")
 
@@ -47,6 +63,9 @@ PREAMBLE = (
     # \\includegraphics as an unknown macro and the optional [width=...] fails with
     # "Missing number, treated as zero". Unlike hyperref it redefines nothing.
     "\\usepackage{graphicx}\n"
+    # pifont for the ballot cross measured in the corpus (declarations.CHARACTER_REPAIRS).
+    # amssymb already supplies \\checkmark and \\textcircled is base LaTeX.
+    "\\usepackage{pifont}\n"
     + "".join(f"\\newtheorem{{{e}}}{{{e.capitalize()}}}\n" for e in THEOREM_ENVS)
 )
 
@@ -203,6 +222,9 @@ def _walk(nodes, rules: list[str]) -> str:
         elif "Macro" in cls and node.macroname in MATH_ONLY:
             rules.append(f"R2 \\{node.macroname} wrapped for text mode")
             out.append(f"\\ensuremath{{{node.latex_verbatim()}}}")
+        elif "Environment" in cls and node.environmentname in MATH_ENVS:
+            # Math. Leave it exactly as it came, like `$...$`.
+            out.append(node.latex_verbatim())
         elif "Environment" in cls:
             body = _walk(node.nodelist, rules)
             name = node.environmentname
