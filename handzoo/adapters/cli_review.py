@@ -199,7 +199,7 @@ def crop(outcome: PageOutcome, out_dir: Path, text: str, *, stream, read_line,
 
 
 def transcribe(outcome: PageOutcome, out_dir: Path, log: CorrectionLog, *,
-               stream, read_line, open_file) -> int:
+               stream, read_line, open_file, mode: str = "") -> int:
     """Time the author typing a page from blank — the exit criterion's control arm.
 
     The emitted `.tex` is never shown. That is the point: the measurement is *minutes from a
@@ -246,7 +246,7 @@ def transcribe(outcome: PageOutcome, out_dir: Path, log: CorrectionLog, *,
     log.append(Correction(
         page=outcome.page, verdict="transcribed",
         source_image=str(image) if image else "",
-        before="", after=text, seconds=seconds,
+        before="", after=text, seconds=seconds, mode=mode,
         finding="exit criterion: transcription from blank",
     ))
     print(f"\n  {seconds:.1f}s, {len(text.split())} words -> {target.name}", file=stream)
@@ -347,6 +347,10 @@ def main(argv: list[str] | None = None, *, stream=None, read_line=None,
     parser.add_argument("--transcribe", type=int, metavar="PAGE",
                         help="time yourself typing this page from blank — the exit "
                              "criterion's other arm. Refuses a page you have already reviewed.")
+    parser.add_argument("--mode", default="",
+                        help="what you are working against — e.g. tex, pdf, markdown, agent. "
+                             "Recorded with the timing, because correction cost is one number "
+                             "per mode and pooling them makes the average meaningless.")
     parser.add_argument("--summary", action="store_true",
                         help="print what the correction log says and exit")
     args = parser.parse_args(argv)
@@ -368,7 +372,7 @@ def main(argv: list[str] | None = None, *, stream=None, read_line=None,
             print(f"page {args.transcribe} is not in the manifest.", file=stream)
             return 2
         return transcribe(match[0], args.out_dir, log, stream=stream, read_line=read_line,
-                          open_file=open_file)
+                          open_file=open_file, mode=args.mode)
 
     if args.page:
         outcomes = [o for o in outcomes if o.page == args.page]
@@ -421,6 +425,16 @@ def _print_summary(log: CorrectionLog, stream) -> int:
           f"{s['unexamined']} record only that a human passed through — "
           "keep-unreviewed and skipped are not verification.", file=stream)
     _print_exit_criterion(s.get("exit_criterion") or {}, stream)
+    modes = s.get("modes") or []
+    if len(modes) > 1:
+        print(f"\n  NOTE: these rows mix modes ({', '.join(modes)}). Correction cost is one\n"
+              "  number per mode; pooling them makes the average mean less than it looks.",
+              file=stream)
+    elif modes:
+        print(f"\n  mode: {modes[0]}", file=stream)
+    else:
+        print("\n  mode: not recorded — pass --mode so a timing can be compared to another.",
+              file=stream)
     return 0
 
 

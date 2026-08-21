@@ -489,3 +489,38 @@ def test_the_exit_criterion_ignores_empty_transcriptions_already_logged(tmp_path
 
     arms = log.summary()["exit_criterion"][1]
     assert arms["transcribing"] == 146.7, "the abandoned 14.4s attempt must not count"
+
+
+def test_a_timing_carries_the_mode_it_was_taken_in(tmp_path: Path, monkeypatch) -> None:
+    """Correction cost depends on what the human edits *against* — the ink, the rendered PDF,
+    an intermediary format, or a prompt to an agent (DESIGN §11.1). Those are different
+    numbers, and pooling them silently makes the average meaningless.
+
+    Evidence this is real: given a blank file and no instruction, the author wrote markdown
+    headings and `% insert snip`, using one LaTeX command in three pages. The target format was
+    not the working format, and nothing recorded that.
+    """
+    out = _manifest(tmp_path, _page(tmp_path, 1, findings=[FINDING]))
+    monkeypatch.setattr(cli_review, "_edit", lambda path, line: "## a heading\n")
+
+    cli_review.main([str(out), "--transcribe", "1", "--mode", "markdown"],
+                    stream=io.StringIO(), read_line=_keys(""), open_file=lambda p: None)
+
+    (row,) = CorrectionLog.for_run(out).read()
+    assert row.mode == "markdown"
+
+
+def test_the_summary_says_when_it_is_pooling_modes(tmp_path: Path) -> None:
+    """Silently averaging across modes is the same class of error as a gate that cannot run
+    reporting a pass: the number looks like one thing and is another."""
+    from handzoo.core.corrections import Correction, CorrectionLog
+
+    log = CorrectionLog(tmp_path / "corrections.jsonl")
+    log.append(Correction(page=1, verdict="edited", source_image="", before="a", seconds=10.0,
+                          mode="tex"))
+    log.append(Correction(page=1, verdict="transcribed", source_image="", before="", after="x",
+                          seconds=100.0, mode="markdown"))
+
+    s = io.StringIO()
+    cli_review.main([str(tmp_path), "--summary"], stream=s)
+    assert "mode" in s.getvalue().lower()

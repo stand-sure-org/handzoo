@@ -84,6 +84,15 @@ class Correction:
     fabrication findings on one line. Those are one defect and get one decision, but the
     corpus must not read as though only one finding existed. Stored, so a grouped row can
     never be mistaken for a singleton."""
+    mode: str = ""
+    """What the human was working *against* — the ink, the rendered PDF, an intermediary
+    format, a prompt to an agent (DESIGN 11.1).
+
+    Correction cost is not one number, it is one number per mode, and a timing without its mode
+    cannot be compared to anything. Recorded rather than assumed: given a blank file and no
+    instruction about format, the author wrote markdown headings and `% insert snip`, using one
+    LaTeX command across three pages. The target format was not the working format, and nothing
+    captured that."""
     line: int | None = None
     """Line the finding pointed at. Part of the identity of a decision: two findings can
     share a gate and a detail and still be different defects on different lines."""
@@ -144,6 +153,7 @@ class CorrectionLog:
             "total_seconds": round(sum(r.seconds for r in rows), 1),
             "pages_touched": len({r.page for r in rows}),
             "exit_criterion": _exit_criterion(rows),
+            "modes": sorted({r.mode for r in rows if r.mode}),
         }
 
 

@@ -1505,6 +1505,83 @@ assumption.
 
 ## 11. M0 exit criterion
 
+### 11.0 What the criterion is actually asking (author, 2026-08-21)
+
+The criterion as written compares correcting emitted `.tex` against transcribing the same page
+from blank. The author's objection: **an author will review every page at some point anyway.**
+Transcription is not an alternative to review, it is a way of doing it — you cannot type a page
+out without reading it. So the two worlds are not "review" against "no review":
+
+| | world without the tool | world with it |
+|---|---|---|
+| read the page against the ink | yes | yes |
+| type | all of it | only the corrections |
+| verify text you did not write | no | **yes** |
+
+Reading is the constant. The criterion therefore reduces to
+
+> **(verify + fix) against (type).**
+
+That is a better question than the one originally written, and it is worse for the tool in one
+specific way the original framing hides: **the tool adds a task that did not exist.**
+Verification is not authorship. Reading text someone else produced, against a source, is a
+different cognitive act from writing it, and it fails differently — a reader accepts plausible
+wrong text that a writer would never have produced. That is the project's own villain,
+relocated into the human.
+
+**And the first ground truth cuts the other way.** On ch19 p1 the emitted document was *more
+accurate than the author's own from-blank transcript*: three discrepancies against the page
+image, all of them the author's — a misread word that changes meaning in category theory, a
+typo, and an unmarked expansion of an abbreviation. Page 3 repeated it, including a malformed
+`\underline` that would not have compiled. So verification is not simply the weaker act; on
+these pages it had less to go wrong with.
+
+Two things follow. The human arm is **not ground truth** — it is a second transcription with
+its own error rate, and the criterion compares two fallible processes rather than one against
+truth. And the tool's value is the typing avoided, less the verification added, which is a
+smaller and more honest claim than "faster than transcribing".
+
+### 11.1 The unmodelled variable: where the human's attention sits
+
+Correction cost is not one number. It depends on what the author edits *against*, and nothing
+in the design has ever said which:
+
+| mode | what it needs | what it costs |
+|---|---|---|
+| the `.tex` against the ink | image and source side by side, LaTeX literacy | what `handzoo-review` does today |
+| the rendered PDF against the ink | a compile per edit; the author's own proposal | slower loop, but the artefact is what ships |
+| an intermediary, converted afterwards | a second format and a converter | cheap to edit, another translation to get wrong |
+| prompting an agent | no manual editing at all | unmeasured, and a new substitution surface |
+
+**The harness captured evidence for the third by accident.** Given a blank file and a page
+image, with no instruction about format, the author wrote **markdown headings**, used exactly
+one LaTeX command (`\underline`, six times, once misspelled), and left `% insert snip` where
+each diagram belonged. Nobody asked for that shape. It is the strongest available signal about
+how this author actually wants to work at the correction stage, and it says the target format
+is not the working format.
+
+The deferred-snip placeholder is worth noting separately: **the author independently invented
+the crop verdict** (§7.2) as a note to self, before using it. A tool that emits a marker and
+lets the human cut the region later is not an imposed workflow; it is the one already in use.
+
+**Consequence for the criterion.** A timing taken in one mode does not transfer to another, so
+the mode has to be recorded alongside the number, or the measurement means less than it looks.
+It is currently not recorded at all.
+
+### 11.2 Recorded, unmeasured: fidelity against the incumbents
+
+The author reports text fidelity "definitely better than tesseract and mathpix". Consistent
+with the three ground-truth pages above, and **unmeasured** — no comparison against either tool
+has been run here, and one page beating a rushed human transcript is not a benchmark.
+
+It matters because the positioning depends on it being *false enough*: HandZoo is deliberately
+not "OCR for math", on the grounds that Mathpix owns that and is mature. If HandZoo's text
+fidelity genuinely leads on handwritten mathematical prose, that is a second claim, and it
+needs a measured A/B on the fixture corpus before it may be said out loud.
+
+### 11.3 The criterion as originally written
+
+
 Adopted from Value's dissent (binding condition 9), which no experiment in this review could settle:
 
 > **Author-timed:** minutes to correct emitted `.tex` to ground truth, versus minutes to transcribe the same page from a blank file. Both on the same two baseline pages, by the author.
