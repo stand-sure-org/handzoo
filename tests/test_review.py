@@ -7,6 +7,7 @@ loop *records*, which is the part that becomes corpus and outlives the session.
 from __future__ import annotations
 
 import io
+import subprocess
 import json
 from pathlib import Path
 
@@ -14,7 +15,7 @@ import pytest
 
 from handzoo.adapters import cli_review
 from handzoo.core.corrections import Correction, CorrectionLog
-from handzoo.core.pipeline import MANIFEST
+from handzoo.core.pipeline import MANIFEST, PageOutcome
 
 
 def _manifest(out_dir: Path, *outcomes: dict) -> Path:
@@ -609,3 +610,78 @@ def test_an_unchanged_fix_is_asked_about_rather_than_assumed(tmp_path: Path,
                     read_line=_keys("", "y"), open_file=lambda p: None)
     (row,) = CorrectionLog.for_run(out).read()
     assert row.verdict == "keep-reviewed" and row.is_gold
+
+
+def test_fix_can_hand_over_the_typeset_pdf_instead_of_the_source(tmp_path: Path,
+                                                                 monkeypatch) -> None:
+    """The author reviews by annotating the typeset output, not by editing `.tex`.
+
+    Timing them in an editor would measure a workflow they do not use, and would measure it
+    *worse* than their real one — so the exit criterion's correcting arm would understate the
+    tool through an artefact of the harness. §11.1 said mode changes the number; this is the
+    author's mode.
+    """
+    src = tmp_path / "src.pdf"
+    src.write_bytes(b"%PDF-1.4\n")
+    out = _manifest(tmp_path, _page(tmp_path, 1, findings=[FINDING], body="Body text.\n"))
+
+    handed = {}
+    monkeypatch.setattr(cli_review, "_typeset", lambda o, d: (handed.setdefault("pdf", d / "x.pdf"),
+                                                              d / "x.pdf")[1])
+    cli_review.main([str(out), "--fix", "1", "--mode", "pdf-annotate"], stream=io.StringIO(),
+                    read_line=_keys("", ""), open_file=lambda p: handed.setdefault("opened", p))
+
+    (row,) = CorrectionLog.for_run(out).read()
+    assert row.mode == "pdf-annotate"
+    assert row.verdict in {"edited", "keep-reviewed"}
+    assert handed.get("opened") is not None, "the author must be handed the typeset PDF"
+
+
+def test_a_time_measured_off_tool_can_be_recorded(tmp_path: Path) -> None:
+    """Reviewing on paper, or on a device the tool cannot see, still produces a real number.
+
+    Refusing to record it would push the author back to a stopwatch and a notebook, which is
+    the situation the harness exists to end.
+    """
+    out = _manifest(tmp_path, _page(tmp_path, 1, findings=[FINDING]))
+    cli_review.main([str(out), "--fix", "1", "--mode", "paper", "--seconds", "480"],
+                    stream=io.StringIO(), read_line=_keys(""), open_file=lambda p: None)
+
+    (row,) = CorrectionLog.for_run(out).read()
+    assert row.seconds == 480.0 and row.mode == "paper"
+
+
+def test_an_off_tool_time_is_marked_as_self_reported(tmp_path: Path) -> None:
+    """A number the tool measured and a number the author reported are different evidence, and
+    the log must not blur them (DESIGN §5.7)."""
+    out = _manifest(tmp_path, _page(tmp_path, 1, findings=[FINDING]))
+    cli_review.main([str(out), "--fix", "1", "--mode", "paper", "--seconds", "480"],
+                    stream=io.StringIO(), read_line=_keys(""), open_file=lambda p: None)
+
+    (row,) = CorrectionLog.for_run(out).read()
+    assert "self-reported" in row.finding
+
+
+def test_a_standalone_page_is_typeset_directly_not_through_assembly(tmp_path: Path) -> None:
+    r"""Caught before it could produce a wrong number.
+
+    `_typeset` assembled a one-page master, and `assemble` cannot `\input` a standalone page —
+    so on a `--standalone` run it produced a document containing only the placeholder *"PAGE 5:
+    standalone, not assemblable"*. The author would have been handed a page with none of their
+    content on it, and timed while annotating it. A measurement of nothing, reported as a
+    measurement.
+
+    A standalone page needs no assembly: it is already a document. Compile it as it stands.
+    """
+    page = tmp_path / "page-0001.tex"
+    page.write_text("\\documentclass{article}\n\\begin{document}\nReal content here.\n"
+                    "\\end{document}\n", encoding="utf-8")
+    outcome = PageOutcome(page=1, output=str(page), verdict="pass", gates={}, findings=[])
+
+    pdf = cli_review._typeset(outcome, tmp_path)
+    if pdf is None:
+        pytest.skip("pdflatex not installed")
+    text = subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True,
+                          text=True, check=False).stdout
+    assert "Real content" in text
+    assert "not assemblable" not in text
