@@ -1693,11 +1693,86 @@ the walker descends into braced arguments, except for macros whose braces hold a
 a path (`\label`, `\ref`, `\includegraphics`), where rewriting a character silently breaks a
 reference instead of a word.
 
-### 11.2 Recorded, unmeasured: fidelity against the incumbents
+### 11.2 Measured against Mathpix (ch17, 13 pages, 2026-08-21)
 
-The author reports text fidelity "definitely better than tesseract and mathpix". Consistent
-with the three ground-truth pages above, and **unmeasured** — no comparison against either tool
-has been run here, and one page beating a rushed human transcript is not a benchmark.
+The author ran the same chapter through Mathpix. Both directions of the result matter, and the
+one that matters most is against us.
+
+#### We committed the substitution this project exists to refuse
+
+Page 1 lists divisor pairs of 30. The source, read at 200 dpi, carries **three** pairs and an
+ellipsis:
+
+```
+1, 30      2, 15      5, 6      . . .
+```
+
+HandZoo emitted **four**:
+
+```
+1, 30      2, 15      3, 10      5, 6      \dots
+```
+
+`3, 10` is a real divisor pair of 30. It is mathematically correct, it is what a helpful
+assistant would add, and **it is not on the page.** The model completed the author's list.
+
+Every gate passed. ASCII, delimiters, coverage, colour — all clean, and the page was
+`unverified` only because the compile gate cannot run on a fragment. This is §5.5's
+over-correction, caught in our own output, on a page that the whole apparatus reported as fine.
+
+**It is the better regression fixture than baseline page 1**, because the failure is smaller.
+Page 1 of the baseline dropped four glyphs and produced a contradiction a reader would notice.
+This adds one line that no reader would question, in a document about category theory, where a
+list of divisors is scenery rather than argument.
+
+Mathpix, on the same list, misread the `6` as a `4` and dropped the ellipsis. **It did not
+invent anything.** That is the sharper distinction than accuracy: a misreading is wrong and
+looks wrong; an invention is wrong and looks right.
+
+#### On text and symbol fidelity, we lead substantially
+
+The chapter's central object is a script `C` — the category. Counted across both outputs:
+
+| rendering of the category object | Mathpix | HandZoo |
+|---|---|---|
+| `\mathcal{C}` (correct) | — | **40** |
+| bare `e` | 17 | 0 |
+| `\tau` | 4 | 0 |
+| `\mathscr{C}` | 1 | 0 |
+| `C` | 7 | 0 |
+
+Mathpix read one glyph four different ways, and `e^{op}` for `\mathcal{C}^{op}` makes the
+mathematics meaningless while typesetting perfectly. Alongside it: *eategory*, *co-Cuthor*,
+*mathametician*, *womorphism*, *monie*, *eoprojections*, and `\$17.3` where the section sign
+became a dollar. HandZoo's rendering of the same content is consistent and, on the passages
+compared, correct.
+
+**So the author's impression is confirmed on this document** — and one document by one author
+in one hand is not a benchmark. What it does establish is that the claim in §11.2's earlier
+form ("recorded, unmeasured") can no longer be waved at.
+
+#### Where Mathpix is plainly better, and what it costs
+
+It **crops diagrams automatically.** Thirteen regions extracted with bounding boxes, embedded
+with `\includegraphics` and captions, in colour, without being asked. The divisibility lattice
+on page 1 came out clean. HandZoo emits `[TODO diagram: ...]` and waits for a human (§7.2).
+
+That is the capability gap, and it is real. But it is also §7.2's argument made concrete from
+the other side: Mathpix's crops arrive **unflagged**. Nothing distinguishes a well-placed box
+from a badly-placed one, and a wrong crop is a plausible figure of the wrong region. The design
+decision to require human confirmation is a cost paid deliberately; this comparison is the
+first evidence of what is bought and what is spent.
+
+#### What the comparison actually says about positioning
+
+Mathpix produced a complete, compiling, well-typeset document with images, for all thirteen
+pages, and it is **wrong in ways nothing in the artefact discloses**. HandZoo produced nine
+pages, held four back with visible placeholders, marked every diagram it would not draw — and
+still slipped an invented line past every gate.
+
+Neither of those is "better OCR". The difference is the disclosure, and our own page 1 is proof
+that disclosure is not yet good enough: the gates say nothing about substitution, and this is
+what that silence costs.
 
 It matters because the positioning depends on it being *false enough*: HandZoo is deliberately
 not "OCR for math", on the grounds that Mathpix owns that and is mature. If HandZoo's text
