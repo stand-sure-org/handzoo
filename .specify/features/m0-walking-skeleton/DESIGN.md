@@ -859,6 +859,49 @@ sub-page granularity. `crop_vector` already cuts regions, so the mechanism exist
 precision on one page was 50%. n is one page. What it establishes is that the signal exists and
 is cheap to extract, not how well it performs.
 
+### 5.5.9 Fine-tuning — out of scope, and what it is downstream of (author, 2026-08-21)
+
+Raised as out of scope and recorded because the reasoning is short and the conclusion is not
+obvious: **the tier sweep makes fine-tuning look more attractive than it is, and the corpus
+question makes it look further away than it seems.**
+
+**The case is real.** Every cloud tier avoids both of ch17 p1's defects and the local model
+avoids neither, so this is not a task-difficulty ceiling — the gap is closable in principle.
+Closing it locally would preserve constraint 7, which is the constraint that actually matters.
+LoRA on a VLM is cheap; compute is not the barrier.
+
+**Data is the barrier, and the number is small.** Across every run so far the correction log
+holds 74 rows — of which **42 are `skipped`**, 26 are `keep-reviewed`, and exactly **3** are
+(image, human-written text) pairs. Fine-tuning is downstream of the review loop rather than
+parallel to it, and the loop has barely run.
+
+**`GOLD` is already the right filter, for a reason worth naming.** It was built to answer *does
+this row carry evidence about correctness?* — and that is the same predicate as *is this row
+usable as a training pair?* Both require that a human actually looked. `keep-unreviewed` and
+`skipped` are worthless as evidence and worthless as labels, for the identical reason. The
+honesty distinction and the data-quality distinction turn out to be one distinction.
+
+**The obvious corpus is contaminated.** The author's from-blank transcriptions look like clean
+ground truth and are not: §11.0 measured them containing a misread word that changes meaning in
+category theory, two typos, and a malformed `\underline` that would not compile. Training on
+those teaches the author's error rate as truth. This is the same finding as "the human arm is
+not ground truth", arriving where it does more damage.
+
+**The practical path is distillation, and the machinery exists.** Where two or more independent
+providers *agree* on a passage, that is a high-confidence label costing no author time — and
+§5.5.6's detector already computes exactly that, from the other direction. It was built to
+surface disagreement for review; its complement is agreement, which is a label. Local at
+inference, cloud at training time, constraint 7 intact where it counts.
+
+**Target named failures, not general accuracy.** "Do not complete a list the author left open"
+is a narrow behaviour and narrow behaviours need dozens of examples rather than thousands.
+General transcription accuracy is where the corpus is too small; specific refusals may not be.
+
+**The blocker is evaluation, not training.** There is exactly **one** page with established
+ground truth in this entire project. Fine-tuning without a held-out eval set is not an
+experiment, and building that set costs the same author-time as the exit criterion — which is
+also still unrun. Both roads lead through the same hour of the author's attention.
+
 ### 5.6 Independent second reader (deferred to M1) — measured, does not work yet
 
 Proposed: run Tesseract per page as a reader with *uncorrelated* failure modes and score
