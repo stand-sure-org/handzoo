@@ -41,9 +41,14 @@ handzoo notes.pdf --pages 1-5 --resume    # triage a range; resume from the mani
 The correction loop is a **separate binary**, `handzoo-review` (not a `handzoo` subcommand):
 
 ```
-handzoo-review out/              # walk pages with findings, record a verdict each
-handzoo-review out/ --summary    # what the correction log says so far
+handzoo-review out/                 # walk pages with findings, record a verdict each
+handzoo-review out/ --transcribe 4  # time yourself typing page 4 from blank (exit criterion)
+handzoo-review out/ --summary       # the log, and both exit-criterion arms
 ```
+
+`c` on a finding crops the region from the source as vector and drops it in where the marker
+was — the fix for the 45-of-49 findings that are fabricated diagrams. `--transcribe` refuses a
+page you have already reviewed, because reading the emitted text contaminates the timing.
 
 Environment, verified on this machine:
 
@@ -78,7 +83,7 @@ Environment, verified on this machine:
 | `handzoo/core/declarations.py` | **Working.** Generates `\ifdefined`-guarded declarations for macros the recognizer invents. |
 | Rasterizer, recognizer, gates, emitter, pipeline, CLI | **Working.** The command is `handzoo <pdf>` — see Commands above; there is no `convert` subcommand. |
 | `handzoo-review` — the correction loop | **Built** (PLAN Wave 5). Walks gate findings, records a verdict per page, and can **crop** a diagram from the source as vector (`c`) — the fix for 45 of 49 findings on a real run. The M0 exit criterion still needs author-timed runs through it. |
-| Tests | **153**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
+| Tests | **157**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
 
 Measured state of the Normalizer, on identical raw recognizer output (Naive Math, the hardest
 document): 16/22 → **22/22**. Older Thinking-checkpoint corpora hold at 30/34 as a fixed
@@ -142,6 +147,11 @@ TDD, consumer-first (ISP) — `pipeline.py` is written against the ports before 
 Not a code artifact, and no amount of green gates substitutes for it:
 
 > **Author-timed** minutes to correct emitted `.tex` to ground truth, versus minutes to transcribe the same page from blank. If correction ≥ transcription, M0 has negative value.
+
+Both arms are now measured by the tool — `handzoo-review out/ --transcribe N` for the control
+arm, `--summary` for the comparison. It still requires the author; only the stopwatch is
+automated. Transcribe pages you have **not** reviewed: the tool refuses reviewed ones, because
+knowing what is on the page is exactly what the measurement cannot survive.
 
 ## Branding
 

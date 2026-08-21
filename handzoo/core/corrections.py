@@ -31,7 +31,7 @@ from typing import Literal
 LOG_NAME = "corrections.jsonl"
 
 Verdict = Literal["keep-reviewed", "keep-unreviewed", "edited", "cropped", "flagged",
-                  "skipped"]
+                  "skipped", "transcribed"]
 """What the human did.
 
 `keep-reviewed` — looked at it and accepted it.
@@ -42,7 +42,15 @@ Verdict = Literal["keep-reviewed", "keep-unreviewed", "edited", "cropped", "flag
                    seconds-per-crop is most of the exit criterion, not a footnote in it.
 `flagged`        — wrong, and the human could not or would not fix it now.
 `skipped`        — deferred. Same evidentiary weight as `keep-unreviewed`: none.
+`transcribed`    — typed the page from blank, against the image alone. **Not a verdict on the
+                   emitted document at all** — it is the control arm of the exit criterion, and
+                   ground truth for the page. Deliberately outside GOLD: folding it in would
+                   inflate the count of rows that judge the output with rows that never looked
+                   at it, the same conflation `keep-unreviewed` exists to prevent.
 """
+
+BASELINE: frozenset[str] = frozenset({"transcribed"})
+"""The control arm. Timed against the page image with no emitted text in sight."""
 
 GOLD: frozenset[str] = frozenset({"edited", "cropped", "keep-reviewed"})
 """Verdicts that carry evidence about correctness. The others record only that a human passed
@@ -76,6 +84,15 @@ class Correction:
     fabrication findings on one line. Those are one defect and get one decision, but the
     corpus must not read as though only one finding existed. Stored, so a grouped row can
     never be mistaken for a singleton."""
+    mode: str = ""
+    """What the human was working *against* — the ink, the rendered PDF, an intermediary
+    format, a prompt to an agent (DESIGN 11.1).
+
+    Correction cost is not one number, it is one number per mode, and a timing without its mode
+    cannot be compared to anything. Recorded rather than assumed: given a blank file and no
+    instruction about format, the author wrote markdown headings and `% insert snip`, using one
+    LaTeX command across three pages. The target format was not the working format, and nothing
+    captured that."""
     line: int | None = None
     """Line the finding pointed at. Part of the identity of a decision: two findings can
     share a gate and a detail and still be different defects on different lines."""
@@ -135,4 +152,35 @@ class CorrectionLog:
             "unexamined": counts.get("keep-unreviewed", 0) + counts.get("skipped", 0),
             "total_seconds": round(sum(r.seconds for r in rows), 1),
             "pages_touched": len({r.page for r in rows}),
+            "exit_criterion": _exit_criterion(rows),
+            "modes": sorted({r.mode for r in rows if r.mode}),
         }
+
+
+def _exit_criterion(rows: list[Correction]) -> dict[int, dict[str, float]]:
+    """Per page, seconds spent correcting against seconds spent transcribing from blank.
+
+    This is the milestone's actual question — *"minutes to correct emitted `.tex` to ground
+    truth, versus minutes to transcribe the same page from a blank file"* — and until both arms
+    were recorded here it lived in a stopwatch and a notebook.
+
+    Only pages carrying **both** numbers appear. One arm alone answers nothing, and showing it
+    as though it did is how a half-measurement gets quoted as a result.
+    """
+    correcting: dict[int, float] = {}
+    transcribing: dict[int, float] = {}
+    for r in rows:
+        if r.verdict in BASELINE:
+            # An abandoned attempt produced no text. The log is append-only and keeps it,
+            # because it records what happened; the interpretation must not count it, or every
+            # log written before that guard existed reports a baseline that is too large.
+            if not (r.after or "").strip():
+                continue
+            transcribing[r.page] = transcribing.get(r.page, 0.0) + r.seconds
+        else:
+            correcting[r.page] = correcting.get(r.page, 0.0) + r.seconds
+    return {
+        page: {"correcting": round(correcting[page], 1),
+               "transcribing": round(transcribing[page], 1)}
+        for page in sorted(set(correcting) & set(transcribing))
+    }
