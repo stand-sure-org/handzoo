@@ -170,14 +170,34 @@ each, on different pages because either order contaminates the other).
 | `--transcribe` (ch18) | 2 | 522.7s |
 | `--transcribe` (ch19) | 3 | 196.0s |
 
-**Correction is 2.5x–6.6x cheaper on the median**, depending on which chapter's baseline is
-used. Quote the range, not the 0.15x: the control arm varies 2.7x between chapters, and
-picking the slow one is selecting the baseline that flatters the tool.
+Correction is cheaper than transcription on the median under every baseline above.
+
+**Do not publish a speed-up figure.** The ratio is a go/no-go gate for *this* author on *this*
+corpus, not a product metric. Another writer types at a different speed, so the denominator is
+a property of the person; and correction time is driven by the author's composition traits, the
+visual recognition the page demands, and a stochastic resolution process in which the reader
+reconstructs ambiguous symbols from comprehension. None of that transfers. Quoting an
+improvement number would be reporting the author's typing speed as a product claim.
 
 **What it does not license.** The arms do not share a target. A transcript is ground truth by
 construction; a correction is what the author judged right *after reading our output*, which
 anchors them. Plausible substitution survives correction and would not survive transcription.
 And on ch19 p1/p3 the human arm was the less accurate one — see DESIGN §11.0.
+
+**What the author actually corrected** (six labelled pages, all of which passed all five
+gates) — DESIGN §11.0.1a:
+
+| class | n | caught? |
+|---|---|---|
+| lost emphasis (underline dropped) | 3 | **no — and nothing looks for it** |
+| semantic substitution (`Sps` emitted as `\Rightarrow`) | 1 | no |
+| dropped mark (a *dashed* arrow; a missing `\square`) | 2 | no |
+| notation degradation (blackboard-bold R read as `IR`) | 1 | no |
+| lost sentence boundary | 1 | no |
+
+Lost emphasis is the most frequent real defect and is **mechanically detectable** — an
+underline is a stroke in the vector source. `Sps` → `\Rightarrow` is the first substitution
+found in the wild rather than injected, and it inverts the logic of a proof.
 
 **`mode` was not recorded on any row**, so these timings cannot be compared against a future
 `--mode pdf-annotate` or `--mode paper` run.
