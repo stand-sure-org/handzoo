@@ -26,7 +26,7 @@ from .emit import Emission, emit
 from .recognize.base import Recognition, Recognizer
 from .recognize.ollama_vlm import RecognitionError
 from .validate import (ascii_gate, colour_gate, compile_gate, coverage_gate,
-                       delimiter_gate)
+                       delimiter_gate, reference_gate)
 
 MANIFEST = "manifest.jsonl"
 
@@ -166,6 +166,7 @@ def _validate(recognition: Recognition, pdf: Path, page: int, *, mode: str,
         coverage_gate.check(draft.text, recognition.inventory, ink=ink,
                             inventory_failed=recognition.inventory_failed),
         colour_gate.check(draft.text, colours=colours),
+        reference_gate.check(draft.text),
     )
     # Reuse the draft rather than normalising a second time. Deterministic today, but
     # nothing enforced that the two runs agreed, and a divergence would have meant the

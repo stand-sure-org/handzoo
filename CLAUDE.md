@@ -97,7 +97,7 @@ Environment, verified on this machine:
 | Rasterizer, recognizer, gates, emitter, pipeline, CLI | **Working.** The command is `handzoo <pdf>` — see Commands above; there is no `convert` subcommand. |
 | `handzoo/core/assemble.py` | **Working.** Writes `chapter.tex` after a run — pages `\input` in order, failures as visible placeholders. A `--standalone` page cannot be assembled and says so. |
 | `handzoo-review` — the correction loop | **Built** (PLAN Wave 5). Walks gate findings, records a verdict per page, and can **crop** a diagram from the source as vector (`c`) — the fix for 45 of 49 findings on a real run. **The M0 exit criterion has now been run through it** — see below. |
-| Tests | **217**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
+| Tests | **233**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
 
 Measured state of the Normalizer, on identical raw recognizer output (Naive Math, the hardest
 document): 16/22 → **22/22**. Older Thinking-checkpoint corpora hold at 30/34 as a fixed
@@ -189,15 +189,26 @@ gates) — DESIGN §11.0.1a:
 
 | class | n | caught? |
 |---|---|---|
-| lost emphasis (underline dropped) | 3 | **no — and nothing looks for it** |
+| lost emphasis (underline dropped) | 3 | 1 of 3, by the **reference gate** (advisory) |
 | semantic substitution (`Sps` emitted as `\Rightarrow`) | 1 | no |
 | dropped mark (a *dashed* arrow; a missing `\square`) | 2 | no |
 | notation degradation (blackboard-bold R read as `IR`) | 1 | no |
 | lost sentence boundary | 1 | no |
 
-Lost emphasis is the most frequent real defect and is **mechanically detectable** — an
-underline is a stroke in the vector source. `Sps` → `\Rightarrow` is the first substitution
+**The underline is a label, not emphasis.** Cheng numbers claims but not equations, and the
+author underlines the thing she numbered — so the mark does what `\label` does. The
+**reference gate** flags a numbered claim carrying no marking: 1 true positive, 2 true
+negatives, **0 false positives across 44 pages**. It is **advisory** (`GateResult.advisory`) —
+the convention is *normally*, not always, so it flags for review and does not refuse the page.
+
+Note the recognizer usually *translates* the mark (`\underline` → `\textbf`) rather than
+dropping it; the gate accepts any marking. `Sps` → `\Rightarrow` is the first substitution
 found in the wild rather than injected, and it inverts the logic of a proof.
+
+**The author's abbreviations are a private lexicon** — `Defn`, `Prop` (Proposition *or*
+Property, by context), `Sps`, `b/w`, `wts`, `iff`. Every private token is a place the model can
+resolve an unfamiliar string into a familiar one. Whether that contributed to defects beyond
+`Sps` is **unmeasured**: ground truth exists for six pages only.
 
 **`mode` was not recorded on any row**, so these timings cannot be compared against a future
 `--mode pdf-annotate` or `--mode paper` run.

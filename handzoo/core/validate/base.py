@@ -41,6 +41,18 @@ class GateResult:
     A gate that did not run is **not** a gate that passed, and the distinction has to survive
     into the report. Silent skips are how a suite goes green while checking nothing.
     """
+    advisory: bool = False
+    """True when findings are for a human to look at, not grounds to refuse the page.
+
+    Every gate before this one enforced a property that is true or false — ASCII, balance,
+    compilation. The reference gate enforces a *convention*: the author underlines the claims
+    Cheng numbered, **normally**. A convention that holds most of the time cannot be a hard
+    fail; a reader who meets a red page over a defensible exception learns to bypass the gate,
+    and that costs more than the defect. So the finding stays visible and the page stays
+    usable — the three-verdict reasoning (DESIGN 6) applied to a gate rather than a page.
+
+    An advisory gate must never be counted as a pass either. It reports what it saw.
+    """
     note: str = ""
     """Why it could not run. "SKIPPED" tells a reader that nothing was checked; it does not
     tell them whether that is expected, fixable, or a broken installation — and those call for

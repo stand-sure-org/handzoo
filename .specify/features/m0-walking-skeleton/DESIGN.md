@@ -2099,12 +2099,17 @@ theoretical one.
 | **notation degradation** | 1 | blackboard-bold R read as the two letters `IR` (p10) | no |
 | **lost sentence boundary** | 1 | two sentences run together (p13) | no |
 
-**Lost emphasis is the most frequent defect, and nothing looks for it.** Three of eight edits.
-There is a colour gate because ink colour is semantic, and underlining is semantic in exactly
-the same way — the author underlines a proposition label to mark it as one. It is also
-**mechanically detectable**: an underline is a stroke in the vector source with a known
-geometry relative to the text it sits under, so this is a coverage-gate problem, not a
-comprehension problem. It is the cheapest unclaimed correctness win in the project.
+**Lost emphasis is the most frequent defect, and nothing looked for it.** Three of eight edits.
+There is a colour gate because ink colour is semantic, and the author's underline is semantic in
+a stronger way still — see §11.0.1b, where it turns out not to be emphasis at all.
+
+**A correction to the first reading of this.** An earlier pass here claimed that *0 of 5*
+numbered claim references in raw output carried any marking, counted by searching for
+`\underline`. That was wrong: four of the five are marked with `\textbf`. The recognizer
+usually *translates* the mark into a LaTeX-conventional one rather than dropping it. The
+defect is real — p11 lost the mark entirely — but it is less frequent than first stated, and
+the difference matters because a gate built on the wrong frequency would have been built to
+the wrong precision.
 
 **`Sps` → `\Rightarrow` is the first substitution caught in the wild.** Every previous instance
 was injected by us to test a detector. This one is the real thing, and it is the bad kind: the
@@ -2119,6 +2124,47 @@ it is precisely §5.5's over-correction, with a concrete instance at last.
 
 **These belong in `baseline/` as fixtures.** The pages themselves are third-party published
 content and stay out of the repo; the *defects* are ours to keep, as minimal synthetic cases.
+
+### 11.0.1b The underline is a label, not emphasis — and the gate that follows
+
+**The author's convention, in their own words:** Cheng numbers claims but not equations, and
+the author underlines the thing she numbered. `Defn` is Definition; `Prop` is Proposition *or*
+Property, resolved by context.
+
+That reframes the defect. The underline is doing what `\label` does in a typed document — it
+marks the referent that a later *"by Prop 18.2"* points at. Losing it does not make the page
+plainer; it removes the anchor. This is the colour gate's argument exactly: ink carrying
+meaning, so silent loss is a D6 violation.
+
+**It also names a substitution surface the project had not considered.** `Prop` is genuinely
+ambiguous, and the recognizer must choose. A wrong choice is invisible — well-typeset,
+compiling, and wrong about which kind of claim is being stated. The author's abbreviations are
+a *private lexicon*, and every private token is a place where the model resolves an unfamiliar
+string into a familiar one. `Sps` → `\Rightarrow` (§11.0.1a) is that mechanism caught in the
+act.
+
+**The reference gate** (`handzoo/core/validate/reference_gate.py`) flags a numbered claim
+reference carrying no marking at all. Measured against the labelled set:
+
+| page | author's verdict | gate |
+|---|---|---|
+| 11 | changed — added `\underline{Prop 18.2}` | **flagged it** |
+| 9, 15 | confirmed correct unchanged | silent |
+| 10, 13, 14 | changed for other defect classes | silent |
+
+**Zero false positives across all 44 pages of ch18.** One true positive, two true negatives,
+and three misses that are out of scope by construction — `Proof` and `as products` are
+underlined but not numbered, so the gate does not see them.
+
+**It is advisory, not a hard fail.** The convention is *normally*, not always, and the author
+asked for a review flag rather than a refusal. A red page over a defensible exception teaches
+the reader to bypass the gate, which costs more than the defect does. `GateResult.advisory`
+carries this: the finding stays visible, the page stays usable, and an advisory gate is still
+never counted as a pass.
+
+**What it does not do.** It catches one of the three measured emphasis losses. General emphasis
+loss needs the underline strokes read out of the vector source — stronger, and unavailable on a
+scan (§8.1). This is the cheap text-level case that actually occurred, not the complete answer.
 
 ### 11.0.2 The reporter could never have run
 

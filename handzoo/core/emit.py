@@ -42,7 +42,7 @@ class Emission:
     @property
     def failed(self) -> bool:
         """A gate actively refused this document."""
-        return any(g.checked and g.failures for g in self.gates)
+        return any(g.checked and g.failures and not g.advisory for g in self.gates)
 
     @property
     def unverified(self) -> tuple[str, ...]:
