@@ -98,7 +98,7 @@ def compare(before: Path, after: Path, work: Path) -> tuple[bool, str]:
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        raise SystemExit("usage: roundtrip_fidelity.py BEFORE.tex AFTER.tex [workdir]")
+        raise SystemExit("usage: blink.py BEFORE.tex AFTER.tex [workdir]")
     work = Path(sys.argv[3]) if len(sys.argv) > 3 else Path("/tmp/handzoo-roundtrip")
     ok, why = compare(Path(sys.argv[1]), Path(sys.argv[2]), work)
     print(("PRESERVED  " if ok else "CHANGED    ") + why)
