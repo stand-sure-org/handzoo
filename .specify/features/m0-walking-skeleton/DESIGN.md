@@ -2699,10 +2699,42 @@ being discovered afterwards. The natural home is beside the crop verdict in `han
 `c` cuts the real ink, and a sibling key offers scaffolding for an author who would rather
 draw it in `tikz` than paste an image.
 
-**Astryx is unverified.** The survey reports a Meta agent-native React design system released
-2026-06-28. That is after this assistant's knowledge cutoff and could not be checked; the
-citations are plausible and were not confirmed. Treat it as a lead, not a fact, and verify
-before it appears in a dependency list.
+**Astryx: verified real, and not the thing this project needs.** Checked against primary
+sources 2026-08-25 (`github.com/facebook/astryx` via the REST API, the in-repo launch post, the
+npm registry).
+
+Real, genuinely Meta — MIT, `Copyright (c) Meta Platforms, Inc.`, commits from `@meta.com`
+addresses, docs on `atmeta.com`, 12.4K stars, pushed the same day it was checked. The MCP
+server, the JSON CLI manifest and the StyleX architecture all exist as described. The survey's
+release date was wrong by ten days (**2026-06-18**, per the repo's own post; 06-28 appears to
+be drift from a secondary article) — a small error, but the kind that arrives via reblog rather
+than source.
+
+**It does not address our gap.** It is a general-purpose component library, and the roster was
+enumerated rather than assumed: no math rendering (no KaTeX or MathJax anywhere in the repo),
+no PDF viewer, no image-region or annotation surface, no diff view. A page-review UI needs
+exactly three things — LaTeX math rendering, source-page display with vector region cropping
+(the `c` key, which answered 45 of 49 findings), and side-by-side source/output comparison —
+and Astryx supplies none of them. It would supply the chrome around them competently. The one
+package that maps to document editing, `packages/richtext` (Lexical-based), is `private: true`,
+canary-only, with no stable release and an explicitly unstable API.
+
+Two things to weigh if a GUI ever becomes a committed milestone. Its MCP server is
+**remote-hosted** at `astryx.atmeta.com/mcp` rather than run locally, which is worth naming
+against §7's local-first constraint — it carries only component queries, never page content,
+but the default is someone else's server. And it is Beta at `0.5.0`.
+
+**One reported behaviour is worth recording for its own sake.** An independent tester (single
+hands-on account, not a study) found that outside about four components Astryx **silently falls
+back to its own default colours** instead of the supplied brand — demonstrated by re-running
+with a brand whose blue happened to match the default and getting a correct-looking render.
+That is this project's villain in another domain entirely: output that looks right, is not, and
+whose wrongness is invisible precisely because the plausible answer was substituted for the
+specified one. A useful reminder that the failure mode is not peculiar to VLMs.
+
+**Bottom line: correctly identified as real, and orthogonal.** Adopting it presupposes a much
+larger decision — build a desktop or web review app — which should be made on its own merits
+first.
 
 ### 12.4 The ordering this implies
 
