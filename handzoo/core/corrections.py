@@ -22,6 +22,8 @@ for this corpus, so review must not be the only thing that fails to measure itse
 
 from __future__ import annotations
 
+import statistics
+
 import json
 import time
 from dataclasses import asdict, dataclass, field
@@ -153,8 +155,66 @@ class CorrectionLog:
             "total_seconds": round(sum(r.seconds for r in rows), 1),
             "pages_touched": len({r.page for r in rows}),
             "exit_criterion": _exit_criterion(rows),
+            "unpaired_arms": _unpaired_arms(rows),
             "modes": sorted({r.mode for r in rows if r.mode}),
         }
+
+
+FIX_MARKER = "exit criterion: correction"
+"""Marks a whole-page `--fix` timing, as opposed to a row from the finding walk.
+
+The distinction is the measurement. `--fix` times one continuous pass over a page, the same
+protocol `--transcribe` uses; the review loop times a single keypress on a single finding.
+Summing the second and calling it the correction arm compares a whole-page task against a
+pile of keystrokes and reports a median of under a second -- measured, on the first log that
+carried both. The arms only mean anything if both are whole-page.
+"""
+
+
+def _arm_seconds(rows: list[Correction]) -> tuple[list[float], list[float]]:
+    """Split rows into (correcting, transcribing) seconds, dropping abandoned attempts.
+
+    Shared so the paired and unpaired reports cannot disagree about what counts. They did not
+    disagree, but two copies of the empty-transcript rule is one copy too many: the exclusion
+    only matters because leaving it out understates the baseline arm, which is the direction
+    that flatters the tool.
+    """
+    correcting: list[float] = []
+    transcribing: list[float] = []
+    for r in rows:
+        if r.verdict in BASELINE:
+            if not (r.after or "").strip():
+                continue
+            transcribing.append(r.seconds)
+        elif r.finding.startswith(FIX_MARKER):
+            correcting.append(r.seconds)
+    return correcting, transcribing
+
+
+def _unpaired_arms(rows: list[Correction]) -> dict[str, dict[str, float]]:
+    """Both arms as distributions, because the CLI cannot produce them paired.
+
+    `_exit_criterion` compares the two arms **on the same page**, which is the stronger
+    comparison and the one to prefer when it exists. It cannot exist here. `--transcribe`
+    refuses a page already reviewed and `--fix` refuses a page already transcribed; both
+    guards are right, and together they guarantee no page carries both arms. The paired
+    report therefore printed nothing on a real run holding six corrections and five
+    transcriptions, and read as *no comparison available* rather than *the comparison is
+    unpaired* (DESIGN 5.7).
+
+    Unpaired costs the pairing, so page difficulty is a confound and the medians are not a
+    controlled result. Reporting them with `n` beside them says that; reporting nothing said
+    less.
+    """
+    correcting, transcribing = _arm_seconds(rows)
+    if not (correcting and transcribing):
+        return {}
+    return {
+        "correcting": {"n": len(correcting),
+                       "median": round(statistics.median(correcting), 1)},
+        "transcribing": {"n": len(transcribing),
+                         "median": round(statistics.median(transcribing), 1)},
+    }
 
 
 def _exit_criterion(rows: list[Correction]) -> dict[int, dict[str, float]]:

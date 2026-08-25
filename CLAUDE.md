@@ -97,7 +97,7 @@ Environment, verified on this machine:
 | Rasterizer, recognizer, gates, emitter, pipeline, CLI | **Working.** The command is `handzoo <pdf>` — see Commands above; there is no `convert` subcommand. |
 | `handzoo/core/assemble.py` | **Working.** Writes `chapter.tex` after a run — pages `\input` in order, failures as visible placeholders. A `--standalone` page cannot be assembled and says so. |
 | `handzoo-review` — the correction loop | **Built** (PLAN Wave 5). Walks gate findings, records a verdict per page, and can **crop** a diagram from the source as vector (`c`) — the fix for 45 of 49 findings on a real run. The M0 exit criterion still needs author-timed runs through it. |
-| Tests | **213**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
+| Tests | **217**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
 
 Measured state of the Normalizer, on identical raw recognizer output (Naive Math, the hardest
 document): 16/22 → **22/22**. Older Thinking-checkpoint corpora hold at 30/34 as a fixed
@@ -156,17 +156,31 @@ TDD, consumer-first (ISP) — `pipeline.py` is written against the ports before 
 
 **CI never calls the recognizer.** Golden tests feed the frozen `.tex` bytes in `baseline/` directly into gate functions. Recognizer accuracy is nondeterministic and model-versioned: measure and record it, never assert it.
 
-## M0 exit criterion
+## M0 exit criterion — measured 2026-08-25: it passes
 
-Not a code artifact, and no amount of green gates substitutes for it:
+> **Author-timed** minutes to correct emitted `.tex` to ground truth, versus minutes to
+> transcribe the same page from blank. If correction ≥ transcription, M0 has negative value.
 
-> **Author-timed** minutes to correct emitted `.tex` to ground truth, versus minutes to transcribe the same page from blank. If correction ≥ transcription, M0 has negative value.
+**Both arms are now run, on the same protocol** (`--fix` against `--transcribe`, whole page
+each, on different pages because either order contaminates the other).
 
-Both arms are now measured by the tool — `handzoo-review out/ --transcribe N` for the control
-arm, `--summary` for the comparison. It still requires the author; only the stopwatch is
-automated. The two arms run on **different pages** and the tool enforces it both ways — `--transcribe`
-refuses a reviewed page, `--fix` refuses a transcribed one. Having typed a page out you
-know it by heart, and correcting it then measures memory rather than tooling.
+| arm | n | median |
+|---|---|---|
+| `--fix` | 6 | **77.3s** |
+| `--transcribe` (ch18) | 2 | 522.7s |
+| `--transcribe` (ch19) | 3 | 196.0s |
+
+**Correction is 2.5x–6.6x cheaper on the median**, depending on which chapter's baseline is
+used. Quote the range, not the 0.15x: the control arm varies 2.7x between chapters, and
+picking the slow one is selecting the baseline that flatters the tool.
+
+**What it does not license.** The arms do not share a target. A transcript is ground truth by
+construction; a correction is what the author judged right *after reading our output*, which
+anchors them. Plausible substitution survives correction and would not survive transcription.
+And on ch19 p1/p3 the human arm was the less accurate one — see DESIGN §11.0.
+
+**`mode` was not recorded on any row**, so these timings cannot be compared against a future
+`--mode pdf-annotate` or `--mode paper` run.
 
 ## Branding
 
