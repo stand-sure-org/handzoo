@@ -2166,6 +2166,78 @@ never counted as a pass.
 loss needs the underline strokes read out of the vector source — stronger, and unavailable on a
 scan (§8.1). This is the cheap text-level case that actually occurred, not the complete answer.
 
+### 11.0.1c The lexicon: tell the model the token exists, never what it means
+
+The author supplied a sheet of their own shorthands. It holds **five different mechanisms**,
+and `handzoo/core/lexicon.py` models exactly one:
+
+| mechanism | example from the sheet | modelled |
+|---|---|---|
+| word abbreviation | `Sps`, `Defn`, `BWOI`, `BWOC`, `WLOG` | **yes** |
+| positional rule | `g:` = "given", *only at the start of a line in proofs* | no — a flat list cannot say where |
+| acknowledged ambiguity | `Prop` = Proposition **or** Property; `§` = section **or** integral | no — the model must choose; a lexicon cannot resolve it |
+| mark, not token | the contradiction bolt, `→←`, the ampersand glyph | no — inventory and coverage path |
+| rendering convention | "generally draw the letter 2x" for `\mathbb{A}` | no — about strokes, not strings |
+
+Naming the four it does **not** cover is the point. Otherwise the file accretes entries and
+everyone assumes something reads them.
+
+**The trap is the obvious file format.** `Sps -> Suppose` is the natural way to write this and
+the wrong thing to send. Handing the model the expansion licenses it to write *"Suppose"* where
+the page says `Sps` — constraint #5b, *never silently add*, built into the seed rather than
+arrived at by mistake. And 5b's own warning applies with force: an addition the author agrees
+with is one they stop checking for.
+
+So the halves are separated **at the type level, not by discipline**. `Lexicon.tokens` is
+prompt-visible; `Lexicon.meanings` is for a human and a gate that does not exist. And
+`prompt_fragment()` takes `tokens: tuple[str, ...]` rather than the `Lexicon`, so the prompt
+builder has no path to the meanings even after a careless edit. `test_architecture.py` asserts
+no module outside `lexicon.py` reads `.meanings` at all.
+
+**Measured, on the page that produced the defect.** CI never calls a model (§9), so a prompt
+change is unmeasurable by policy unless someone runs the experiment. ch18 p13 is the page where
+`Sps` became `\Rightarrow`; four paired runs, changing only whether the tokens were in the
+prompt:
+
+| | `Sps` recovered | `\Rightarrow` | `Suppose` |
+|---|---|---|---|
+| without lexicon | **0 / 4** | 2 / 4 | 0 / 4 |
+| with lexicon | **4 / 4** | 0 / 4 | **0 / 4** |
+
+Two things in that table. The token is recovered every time — and in the two runs where it did
+not become `\Rightarrow` it did not survive either, so the failure is not always the same
+symbol. And `Suppose` never appears, which is the constraint holding: the model was told the
+token exists, not what it means, and it did not expand.
+
+**No lexicon gate, deliberately.** Tallied against the six labelled pages it would have caught
+nothing. `Sps` → `\Rightarrow` is detectable only as an *absence*; expansions are unverifiable
+because the author does sometimes write the word out; the `IR` misreads sit inside a TODO block
+already flagged. The reference gate earned its place on 1 true positive and 0 false positives
+across 44 pages. This has neither, and a gate built on six pages of evidence would be built to
+the wrong precision — the mistake §11.0.1a already made once.
+
+**The learned lexicon is blocked, not nearly-free.** The author's idea — infer the convention
+from repeated corrections — needs *repeated* before→after pairs for the same token. Six pages
+and eight edits contain **zero repeats**. And the author's own example, `def^{\underline{n}}`,
+is a **typographic pattern rather than a string**, which a token-mapping learner cannot
+represent at all. The correction log is the right place to mine and it does not yet hold enough
+to mine.
+
+### 11.0.1d The diagram-description path has weaker notation fidelity
+
+Separate finding, from the same investigation. Blackboard-bold `\mathbb{R}` is emitted
+correctly **29 times** across ch18. Every failure — `IR` four times, `IR2` three times — sits
+inside a single `[TODO diagram: ...]` block on p10.
+
+Inside a description the model is writing free prose about a picture, and none of the
+transcription discipline applies: no math mode, no notation, no structure to preserve. The
+author's rendering convention (a doubled stroke for blackboard bold) then reads as two letters.
+
+**This predicts that everything inside a TODO description is lower quality than the page around
+it**, which is a fact about how `handzoo-review` should present them — a description is a
+prompt for the author to redraw, never text to be trusted. It is not a gate: the block is
+already flagged, and the author is already going to replace it.
+
 ### 11.0.2 The reporter could never have run
 
 Finding both arms in the log and no comparison printed exposed two defects. Neither was

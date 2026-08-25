@@ -12,3 +12,9 @@ __pycache__/
 # extracted to docs/handoff.md and assets/ at merge time
 .handoff.zip
 fnox.toml
+
+# An author's own lexicon is personal notation, and personal notation plus a
+# manuscript is more identifying than either alone. The shipped example in
+# examples/ is generic; a real one never enters the repo.
+lexicon.toml
+!examples/lexicon.example.toml

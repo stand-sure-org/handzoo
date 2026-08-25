@@ -132,6 +132,13 @@ class OllamaRecognizer:
     attempts: int = 3
     temperature: float = 0.1
     transport: Transport = field(default=_http_transport)
+    lexicon_tokens: tuple[str, ...] = ()
+    """The author's written shorthands, appended to the transcription prompt.
+
+    **Tokens only.** The meanings live in `Lexicon.meanings` and never arrive here: telling
+    the model that `Sps` means "Suppose" licenses it to write the expansion, which is text the
+    author did not put on the page (constraint #5b). See `handzoo.core.lexicon`.
+    """
 
     def __post_init__(self) -> None:
         if self.model in THINKING_ALIASES:
@@ -144,13 +151,18 @@ class OllamaRecognizer:
 
     def recognize(self, page: Path) -> Recognition:
         """Transcribe a page, then inventory its marks in a second, independent pass."""
-        markup = self._ask(page, TRANSCRIBE_PROMPT)
+        markup = self._ask(page, self._transcribe_prompt())
         inventory, failed = self._inventory(page)
         return Recognition(markup=markup, inventory=inventory, inventory_failed=failed,
                            provider="ollama", model=self.model)
 
     def transcribe(self, page: Path) -> str:
-        return self._ask(page, TRANSCRIBE_PROMPT)
+        return self._ask(page, self._transcribe_prompt())
+
+    def _transcribe_prompt(self) -> str:
+        """The standing prompt, plus the author's token inventory if one was supplied."""
+        from ..lexicon import prompt_fragment
+        return TRANSCRIBE_PROMPT + prompt_fragment(self.lexicon_tokens)
 
     def inventory(self, page: Path) -> tuple[Mark, ...]:
         """The independent second pass.
