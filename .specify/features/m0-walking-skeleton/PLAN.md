@@ -21,7 +21,7 @@ Estimates are complexity points (Fibonacci), not time. Ordering follows the Oper
 | 3.1 | Coverage gate | **done** — catches the page-1 glyph loss live |
 | 3.2 | Ink cross-check | **partial** — `rasterize.ink_profile` exists and is wired only for the empty-inventory case |
 | 4.1–4.5 | Emitter, pipeline, CLI | **done**. `handzoo` is a real command |
-| 5.1–5.2 | `handzoo review` | **not started** — the M0 exit criterion depends on it |
+| 5.1–5.2 | `handzoo-review` | **done** — and the M0 exit criterion has now been run through it (DESIGN §11.0.1) |
 | 6.1–6.2 | Test consolidation | **partial** — 104 tests exist; CI never calls a model |
 
 **Estimate revision.** 1.4 was scoped at 5 points and consumed far more, because every rule
