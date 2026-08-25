@@ -2657,6 +2657,16 @@ and layout" than any text extraction can give:
 Everything semantic is caught; the one true alias is correctly called equivalent. `pdftoppm` is
 already a dependency (`rasterize.py`), so this costs nothing new.
 
+**It is called Blink** (`experiments/blink.py`), for the blink comparator — two plates of the
+same star field alternated until something moves, the instrument Tombaugh found Pluto with. It
+knows only that something changed, which is both the capability and the limit.
+
+Two names were rejected on substance rather than taste. `Veritas` and `Ma'at` both claim
+**truth**, and this project's load-bearing hedge is that the gates prove output *builds*, not
+that it is *true* (§5.5, and "never print an unqualified PASS"). A component reporting
+PRESERVED under a name meaning truth would undercut the positioning from inside the codebase.
+`Horus` and `Heimdall` describe watchers, and a watcher understands what it sees; this does not.
+
 **How to use it.** Pixels are an **oracle, not an explanation** — they say *that* something
 changed and where on the page, never what. So the instrument is two-layer: pixel comparison
 decides pass/fail and localises the region; a source diff, run only on pages that already

@@ -1,4 +1,18 @@
-r"""Does a transformation of a `.tex` still say the same thing? Compare the render.
+r"""**Blink** — does a transformation of a `.tex` still say the same thing? Compare the render.
+
+Named for the **blink comparator**: two photographic plates of the same star field, alternated
+rapidly, so that anything which moved jumps out. Clyde Tombaugh found Pluto with one in 1930.
+The instrument has no idea what it is looking at. It knows only that something changed — which
+is this tool's exact capability and its exact limitation.
+
+The other resonance is apt too. Weeping Angels move only when unobserved, and silent corruption
+is the same creature: the substitution happens where nobody is looking. Blink is the deliberate
+look.
+
+*Names considered and rejected: `Veritas`, `Ma'at`. Both claim truth, and this project's
+load-bearing hedge is that the gates prove output **builds**, not that it is **true** — a
+component reporting PRESERVED under a name meaning "truth" would undercut the positioning from
+inside the codebase. `Horus`, `Heimdall`: a watcher sees and understands; this does not.*
 
 **Why not a source diff.** `\mid` against `\vert`, `\to` against `\rightarrow` — LaTeX has many
 spellings per glyph, so a textual diff reports differences that are not differences. Normalising
@@ -84,7 +98,7 @@ def compare(before: Path, after: Path, work: Path) -> tuple[bool, str]:
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        raise SystemExit("usage: roundtrip_fidelity.py BEFORE.tex AFTER.tex [workdir]")
+        raise SystemExit("usage: blink.py BEFORE.tex AFTER.tex [workdir]")
     work = Path(sys.argv[3]) if len(sys.argv) > 3 else Path("/tmp/handzoo-roundtrip")
     ok, why = compare(Path(sys.argv[1]), Path(sys.argv[2]), work)
     print(("PRESERVED  " if ok else "CHANGED    ") + why)
