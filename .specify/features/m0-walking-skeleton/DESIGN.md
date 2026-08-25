@@ -2609,6 +2609,70 @@ third**. The diagram markers are a gate's output; the marking is the mark §11.0
 defend. So the editor's fidelity burden falls precisely on what this project refuses to lose,
 and "we'll render the math and pass the rest through" is not a plan, it is the whole risk.
 
+### 12.1.1 The instrument: compare the render, not the source — but not via `pdftotext`
+
+**Measured 2026-08-25.** The author's reasoning: a `.tex` diff is too noisy to be useful, since
+`\mid` / `\vert` / `\middle|` and the arrow variants differ textually while meaning the same
+thing; normalising to a convention is a fool's errand. Better to diff the *typeset* output, up
+to an isomorphism that is "probably whitespace and layout".
+
+**The premise is right and the instrument is wrong**, and the second half is the interesting
+part. `pdftotext` is blind in exactly the places this project is not allowed to be.
+
+Semantically different pairs, compiled and extracted:
+
+| pair | extraction A | extraction B | |
+|---|---|---|---|
+| `\underline{Prop 18.2}` vs plain | `Prop 18.2 holds.` | `Prop 18.2 holds.` | **collapsed** |
+| `\textcolor{red}{R}` vs plain | `R house` | `R house` | **collapsed** |
+| `$x^2$` vs `$x2$` | `x2` | `x2` | **collapsed** |
+| `$\frac{a}{b}$` vs `$a/b$` | `ab` | `a/b` | distinguished |
+| `$\sum_{i=1}^{n}x_i$` vs `$\sum x$` | `Pni=1 xi` | `Px` | distinguished |
+
+The first three are **the label mark (§11.0.1b), semantic ink colour (§6), and notation
+degradation (§11.0.1a)** — three of the five classes in the measured defect taxonomy. A
+`pdftotext` diff would report a clean round trip on a transformation that dropped every one of
+them. Its lossiness is not incidental to our use; it is aligned with our subject.
+
+**And it is not even conservative about the noise it was chosen to suppress.** `\mid` and
+`\vert` extract identically — but they are different math classes, `\mathrel` against
+`\mathord`, so they typeset with different spacing and the pages do not match. The construct
+offered as the example of noise turns out to be a real difference that the text extractor was
+hiding. `\to` and `\rightarrow` genuinely are aliases, and those do match.
+
+**Pixels are the isomorphism the author was reaching for.** Compile both sides, rasterise, hash
+the pixel data. Two documents compare equal exactly when they *look* identical, which is the
+definition of "renders the same" and is a stricter and more honest reading of "up to whitespace
+and layout" than any text extraction can give:
+
+| pair | pixels | |
+|---|---|---|
+| `\to` vs `\rightarrow` | identical | correctly equivalent |
+| `\mid` vs `\vert` | differ | **caught** — different spacing class |
+| underline vs plain | differ | **caught** |
+| colour vs plain | differ | **caught** |
+| `x^2` vs `x2` | differ | **caught** |
+| fraction, sum limits | differ | **caught** |
+
+Everything semantic is caught; the one true alias is correctly called equivalent. `pdftoppm` is
+already a dependency (`rasterize.py`), so this costs nothing new.
+
+**How to use it.** Pixels are an **oracle, not an explanation** — they say *that* something
+changed and where on the page, never what. So the instrument is two-layer: pixel comparison
+decides pass/fail and localises the region; a source diff, run only on pages that already
+failed, describes it. That also makes the `.tex` diff's noisiness harmless, because it is no
+longer the thing deciding.
+
+One property to respect: pixel equality is intolerant of reflow, so a single dropped word
+shifts everything after it and the whole page differs. That is a defect for comparing two
+*different* documents and exactly right for a round trip, where the correct answer is
+byte-identical layout. Do not reach for it to compare a corrected page against its original.
+
+**A note on the corpus.** The `.tex` on disk for ch18 has been edited in place by `--fix` runs,
+so it is no longer pristine recognizer output. A round-trip test needs **fresh runs on a long
+document**, as the author noted — both to have an unedited baseline and to give the comparison
+enough pages to be worth trusting.
+
 ### 12.2 What the survey got right, and what we already have for it
 
 The author's research (Gemini, 2026-08-25) landed on a **block-based document editor** —

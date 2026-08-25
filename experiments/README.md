@@ -53,3 +53,15 @@ independent. On ch17 p1 it produces four passages to glance at, of which two are
 the fabricated `3, 10`, and a dropped chapter number nobody had noticed. Compare **words, not
 markup** — diffing `.tex` buries the finding in formatting. A router, never a verdict.
 See DESIGN §5.5.6.
+
+## `roundtrip_fidelity.py` — is the artifact the human approved the artifact that ships?
+
+The instrument for DESIGN §12.1: take an emitted `.tex`, push it through a candidate editor
+representation, bring it back, and ask whether it still renders the same.
+
+Compares **pixels**, not source and not `pdftotext`. Measured: a text extraction collapses
+`\underline{X}` with `X`, `\textcolor{red}{R}` with `R`, and `$x^2$` with `$x2$` — the label
+mark, semantic colour, and notation degradation, three of the five measured defect classes. It
+also calls `\mid` and `\vert` identical when they typeset with different spacing.
+
+Pixels catch all of those and still call `\to` and `\rightarrow` equivalent, which they are.
