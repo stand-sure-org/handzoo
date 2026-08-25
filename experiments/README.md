@@ -54,7 +54,7 @@ the fabricated `3, 10`, and a dropped chapter number nobody had noticed. Compare
 markup** — diffing `.tex` buries the finding in formatting. A router, never a verdict.
 See DESIGN §5.5.6.
 
-## `roundtrip_fidelity.py` — is the artifact the human approved the artifact that ships?
+## `blink.py` — is the artifact the human approved the artifact that ships?
 
 The instrument for DESIGN §12.1: take an emitted `.tex`, push it through a candidate editor
 representation, bring it back, and ask whether it still renders the same.
@@ -65,3 +65,12 @@ mark, semantic colour, and notation degradation, three of the five measured defe
 also calls `\mid` and `\vert` identical when they typeset with different spacing.
 
 Pixels catch all of those and still call `\to` and `\rightarrow` equivalent, which they are.
+
+Named for the blink comparator — two plates of the same star field alternated until something
+moves. It knows that a page changed, never what changed; run a source diff on the pages it
+flags.
+
+```
+$ python experiments/blink.py before.tex after.tex
+CHANGED    1 of 1 page(s) render differently: [1]. Diff the source for those pages to see what.
+```
