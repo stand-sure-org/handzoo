@@ -461,3 +461,102 @@ def test_macro_arguments_survive_when_there_is_nothing_to_fix() -> None:
 
     src = r"\section{Plain Heading} and \textbf{bold} text"
     assert normalize(src, standalone=False).text.strip() == src
+
+
+def test_a_fragment_cannot_answer_the_ascii_question_and_says_so() -> None:
+    r"""The deadlock the 126-page run exposed.
+
+    `pylatexenc` cannot map a checkmark, so R1 leaves it. The remedy is
+    `\DeclareUnicodeCharacter`, which only a **preamble** can carry — and a fragment has none.
+    So the fragment failed, was held back from the assembled document, and the master declares
+    only for pages it includes. The page could never pass, and the declaration could never fire.
+
+    The fragment is simply not the unit that can answer this. Whether a surviving character
+    renders is the master's business, so the gate returns `unverified` — the same conclusion
+    §11.4 reached for the compile gate, arrived at independently by a different gate.
+
+    A *mappable* character never reaches here: R1 converts it. Reaching here at all means a
+    declaration is required, which means a preamble is required.
+    """
+    from handzoo.core.validate import ascii_gate
+
+    r = ascii_gate.check("Axiom holds ✓", fragment=True)
+    assert not r.checked, "a fragment cannot decide this"
+    assert not r.passed, "and unverified is never a pass"
+    assert "preamble" in r.report().lower()
+
+
+def test_a_standalone_document_still_fails_on_undeclared_characters() -> None:
+    """It has a preamble, so it *can* answer — and an undeclared character in a document that
+    could have declared one is a real failure, not an open question."""
+    from handzoo.core.validate import ascii_gate
+
+    assert not ascii_gate.check("Axiom holds ✓").passed
+    assert ascii_gate.check("Axiom holds ✓").checked
+
+
+@pytest.mark.parametrize("char,expect", [
+    ("✓", "checkmark"), ("✗", "ding{55}"),
+    ("①", "textcircled"), ("④", "textcircled"),
+])
+def test_measured_characters_get_the_right_glyph_not_a_bullet(char: str, expect: str) -> None:
+    r"""The generic fallback for an unmappable character is `\ensuremath{\bullet}` with a TODO.
+    Honest, and wrong.
+
+    A checkmark asserting an axiom holds is a *term in the sentence* — `base.py` says so, and
+    Topology is in the corpus specifically to stress "checkmarks as inline annotations".
+    Rendering it as a bullet is a marked substitution, which is better than a silent one and
+    worse than the correct glyph. All three of these compile with what the preamble already
+    carries, plus `pifont` for the ballot cross.
+
+    Same pattern as `REPAIRS` for invented macros: characters actually measured get a mapping;
+    everything else keeps the marked fallback.
+    """
+    from handzoo.core.declarations import declarations_for
+
+    out = declarations_for([], [char])
+    assert expect in out, out
+    assert "bullet" not in out, "a measured character should not fall back to a bullet"
+
+
+def test_an_unmeasured_character_still_gets_the_marked_fallback() -> None:
+    """The mapping table is for what has been seen. Guessing at the rest is how a rule written
+    against one instance becomes a rule that misses the next (§5.7.1)."""
+    from handzoo.core.declarations import declarations_for
+
+    out = declarations_for([], ["☃"])   # snowman: not in the corpus
+    assert "bullet" in out and "TODO" in out
+
+
+@pytest.mark.parametrize("env", ["align*", "align", "equation", "equation*", "gather*",
+                                 "multline", "alignat*", "eqnarray", "cases", "aligned"])
+def test_display_math_environments_are_left_alone(env: str) -> None:
+    r"""The normalizer was corrupting every display-math environment on the page.
+
+    `pylatexenc` reports `$...$` as a *math* node, which `_walk` leaves verbatim — but
+    `\begin{align*}` is an **environment** node, so the walker recursed into it and treated its
+    contents as text. R2 wrapped operators in `\ensuremath`, and R10 escaped `_` and `^` as if
+    they were stray specials.
+
+    In math mode `\_` is an underscore character and `\^` is the **circumflex accent command**,
+    so the result was *"Please use \mathaccent for accents in math mode"* — measured on the
+    126-page Number theory run, where it broke pages 7, 14, 16 and more.
+
+    R10 exists to catch a literal `___` in prose. It has no business inside math, where those
+    characters are the operators the notation is made of.
+    """
+    from handzoo.core.normalize import normalize
+
+    body = r"\sum_{k=1}^{n} k^2 = x"
+    out = normalize(f"\\begin{{{env}}}{body}\\end{{{env}}}", standalone=False).text
+    assert r"\_" not in out, f"subscript escaped into an underscore: {out}"
+    assert r"\^" not in out, f"superscript escaped into an accent: {out}"
+    assert "_{k=1}" in out and "^{n}" in out, out
+
+
+def test_prose_specials_are_still_escaped_outside_math() -> None:
+    """R10's actual job — the literal `___` in "carry the ___" (Naive Math p9) — is unchanged."""
+    from handzoo.core.normalize import normalize
+
+    out = normalize("carry the ___ here", standalone=False).text
+    assert r"\_" in out

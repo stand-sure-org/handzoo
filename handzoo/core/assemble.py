@@ -20,7 +20,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .declarations import declarations_for
 from .normalize import PREAMBLE
+from .validate.ascii_gate import non_ascii_chars
 from .pipeline import PageOutcome
 
 MASTER = "chapter.tex"
@@ -62,18 +64,21 @@ def assemble(out_dir: Path, outcomes: list[PageOutcome], *, name: str = MASTER) 
     be relying on how it happened to be built.
     """
     body: list[str] = []
+    included: list[str] = []
     usable = 0
     for outcome in sorted(outcomes, key=lambda o: o.page):
         if outcome.verdict == "fail" or not outcome.output:
             body.append(_placeholder(outcome))
             continue
-        if _is_standalone(Path(outcome.output)):
+        source = Path(outcome.output)
+        if _is_standalone(source):
             body.append(_standalone_placeholder(outcome))
             continue
         stem = Path(outcome.output).name
         if stem.endswith(".tex"):
             stem = stem[: -len(".tex")]
         body.append(f"\\input{{{stem}}}\n")
+        included.append(source.read_text(encoding="utf-8"))
         usable += 1
 
     if not usable:
@@ -81,9 +86,18 @@ def assemble(out_dir: Path, outcomes: list[PageOutcome], *, name: str = MASTER) 
                     "\\begin{center}\\texttt{[no page passed --- nothing to assemble]}"
                     "\\end{center}\n")
 
+    # Characters `pylatexenc` cannot map -- checkmarks, ballot crosses, circled digits -- have
+    # no remedy inside a fragment, because `\\DeclareUnicodeCharacter` only works in a preamble.
+    # The master owns the preamble, so the master owns this. Measured on the 126-page Number
+    # theory run, where 9 pages failed the ASCII gate with no way to fix them; a checkmark
+    # asserting an axiom holds is a term in the sentence, not decoration.
+    residual = sorted({c for text in included for c in non_ascii_chars(text)})
+    declarations = declarations_for([], residual) if residual else ""
+
     master = out_dir / name
     master.write_text(
         PREAMBLE
+        + declarations
         + "% --- assembled by handzoo. Pages that failed a gate appear as placeholders,\n"
           "% --- never silently omitted: a chapter with an invisible hole reads as complete.\n"
         + "\\begin{document}\n" + "\n".join(body) + "\\end{document}\n",

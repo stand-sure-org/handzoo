@@ -11,3 +11,4 @@ __pycache__/
 
 # extracted to docs/handoff.md and assets/ at merge time
 .handoff.zip
+fnox.toml

@@ -45,3 +45,11 @@ Gates the auto-crop direction. Asks for diagram boxes on a 0-1000 grid and score
 ink extents. Answer on Cheng 217-220 p3: boxes are stable across three runs and **wrong** — the
 pullback box contains the word "shape", the cone box clips its own caption. Stability is not
 accuracy. See DESIGN §7.2.
+
+## `provider_disagreement.py` — a second opinion as a detector
+
+Two providers disagreeing localizes substitution, and needs neither to be right — only
+independent. On ch17 p1 it produces four passages to glance at, of which two are real defects:
+the fabricated `3, 10`, and a dropped chapter number nobody had noticed. Compare **words, not
+markup** — diffing `.tex` buries the finding in formatting. A router, never a verdict.
+See DESIGN §5.5.6.

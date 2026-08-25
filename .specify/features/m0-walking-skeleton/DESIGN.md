@@ -740,6 +740,336 @@ the only true negative control — that wants extending before this becomes a ga
 the strongest available lead on the problem the project has never had an answer for.
 Script: `experiments/self_verification.py`.
 
+### 5.5.8 Tier sweep: the defects are model-family, not model-size — measured 2026-08-21
+
+The author's instinct was that a larger Google model would do better, and that Google's
+efficiency lets one reach for it cheaply. The first half is not what the measurement shows, and
+the second half turns out not to matter.
+
+Page 1 of ch17 — the only page with established ground truth — through five Gemini tiers,
+scored on both known local defects:
+
+| model | invents `3, 10` | keeps `17` | words |
+|---|---|---|---|
+| gemini-3-flash-preview | no | yes | 141 |
+| gemini-3.7-flash | no | yes | 146 |
+| gemini-3.5-flash | no | yes | 141 |
+| gemini-3.1-pro-preview | no | yes | 154 |
+| gemini-2.5-pro | no | yes | 177 |
+
+**Every tier gets both right, including the oldest and smallest.** So does claude-sonnet-5. Only
+qwen3-vl:8b-instruct gets both wrong.
+
+That is a stronger result than "bigger is better", and a different one: **the two defects are
+not a capability threshold.** Nothing here needed a pro tier — a flash model from a prior
+generation cleared both. What separates the outputs is the model *family*, not its size, which
+means the local model's fabrication is a property of that model rather than of the page being
+hard.
+
+**Consequences.**
+
+- For the disagreement detector (§5.5.6), a cheap tier is a perfectly good second opinion. The
+  detector needs independence, not capability, and paying for pro buys neither.
+- The word counts drift upward with tier (141 → 177), which is *not* obviously good. More words
+  on a fixed page means more description, and description is the untrustworthy half of the §3
+  boundary. `gemini-2.5-pro` produced 25% more text than `3.5-flash` for the same ink; whether
+  that is more fidelity or more elaboration is unmeasured, and elaboration is what over-correction
+  looks like before it becomes an error.
+- **I picked badly and should say so.** The first cloud run used `gemini-3-flash-preview` —
+  a preview of an older generation — chosen from memory rather than from the model list this
+  project had already fetched. It happened not to matter. That it happened not to matter is
+  luck, not method.
+
+### 5.5.11 Literature on disagreement-as-detector — 2026-08-21
+
+Commissioned research on §5.5.6. Sources attributed; inferences marked.
+
+#### Every component has a literature; the assembly appears not to
+
+**Classical multi-recognizer work uses disagreement to produce a better output, not to flag one
+for review.** ROVER (Fiscus, IEEE ASRU 1997) aligns N transcriptions into a word transition
+network and votes; multi-engine OCR voting and classifier combination (Xu, Krzyżak & Suen, *IEEE
+Trans. SMC* 1992 — a **handwriting** paper) do the same. Disagreement is consumed internally and
+a single hypothesis comes out.
+
+The flag-and-route framing lives in three *other* literatures: selective prediction with a
+reject option (Chow 1970; SelectiveNet, arXiv:1901.09192), disagreement-based active learning
+(Query-by-Committee, Seung et al. 1992 — *literally* this algorithm, with a human oracle, but
+aimed at picking training data), and industrial **double data entry**, which is the closest
+procedural match and reports 0.14% residual error against 0.29% for single entry.
+
+So §5.5.6 is a bridge between known things rather than a new thing — and the bridge does not
+appear to be written down for handwritten mathematics. **Multi-model disagreement to localise
+errors in handwritten *math* recognition appears to be a genuine hole**; that literature's
+error detection is grammar-based on a single system's output.
+
+#### Nobody publishes the number we have
+
+**No published precision-of-disagreement-flag figure exists for any transcription task.** Fusion
+papers report WER/CER reduction; error-detection papers report token P/R against labelled error
+corpora using *confidence scores* rather than cross-engine disagreement.
+
+So the ch17 measurement — ~50% of flags real, 5.3 flags per page — is a quantity the field does
+not report. **It should be stated as precision-at-coverage on a risk–coverage curve**, which is
+the selective-prediction vocabulary and makes it comparable to a literature that currently has
+no entry for handwritten maths.
+
+#### The correction: this tempers §5.5.6, and it contradicts advice I gave
+
+*Correlated Errors in Large Language Models* (Kim, Garg, Peng & Garg, ICML 2025,
+arXiv:2506.07962), across 350+ models: **models agree 60% of the time when both err**, and the
+paper states this degrades disagreement as a reliability signal. *Great Models Think Alike*
+(Goel et al., ICML 2025 spotlight, arXiv:2502.04313) proposes **CAPA**, a chance-corrected
+similarity defined on *overlap in mistakes*, and finds **mistakes become more similar as
+capability increases**.
+
+That last finding cuts against what I recommended when asked whether to add Sonnet or Haiku. I
+argued for Sonnet on the grounds that a weaker model contributes its own errors as false flags.
+That is still true — and the opposite pressure is now documented: **a more capable third model
+is more likely to share the other strong models' mistakes**, which is exactly the failure a
+third opinion is meant to prevent. The choice is a genuine trade rather than the one-sided call
+I made, and it should be measured rather than argued.
+
+**The metric for it is twenty years old.** Kuncheva & Whitaker (*Machine Learning* 51(2), 2003)
+survey ensemble diversity measures; the one that matters here is the **double-fault measure** —
+the proportion of items *both* classifiers get wrong. That is precisely "agree and both wrong",
+and a two-model detector should report it beside its precision.
+
+**My inference, not a source's:** the 42–66% over-correction persisting across 15 VLMs
+(§5.5) *is* a double-fault floor on the substitution mode. It bounds what any disagreement
+detector can catch, and it is consistent with both ICML papers rather than contradicted by them.
+
+#### The representation problem is a known wall, hit at a known place
+
+Comparing raw LaTeX failed and comparing extracted words worked (§5.5.6). Three communities
+found this independently:
+
+- **CDM** (arXiv:2409.03643) renders predicted and ground-truth LaTeX to *images* and matches
+  characters spatially, explicitly because string metrics score formatting as content error.
+- **Label graphs / symLG** (Zanibbi, Mouchère & Viard-Gaudin, DRR 2013; the CROHME series)
+  convert LaTeX to a graph before scoring. The general framing — **presentation markup versus
+  content markup** — is the nearest thing to a standard name.
+- **Semantic entropy** (Farquhar, Kossen, Kuhn & Gal, *Nature* 630, 2024) clusters generations
+  by entailment *before* measuring, on the same argument in a different domain.
+
+Our fix sits between the word level and CDM's image level. Worth citing all three: it turns "we
+tried something and it failed" into "we hit a documented wall where others hit it."
+
+#### The nearest published neighbour to this whole project
+
+**TexOCR** (arXiv:2604.22880, April 2026) trains a 2B model with RL against **LaTeX unit tests
+enforcing compilability and referential integrity**. That is this project's gate philosophy
+inside a training loop. Single model, no disagreement, no normalisation discussion — so it does
+not scoop the thesis, and anyone assessing novelty should be told it exists.
+
+### 5.5.7 One call for both passes would break D6 — noted 2026-08-21
+
+I suggested combining transcription and inventory into a single request to halve the round
+trips against a cloud provider. **That was careless, and the author's question is why.**
+
+Asked whether context flushes between the two calls, the answer is **yes, structurally, on all
+three providers.** Each `_ask` builds a fresh single-turn body — one user message, no history,
+no session — so the inventory pass has never seen the transcription and cannot be influenced by
+it.
+
+That is not an implementation detail. It is D6, and it was adjudicated empirically: *"a
+self-report from the pass being audited has already decided to drop the glyph."* The independent
+pass surfaced exactly what transcription discarded, which is the entire basis of the coverage
+gate. Producing both in one call would give the inventory the transcription's decisions as
+context — and an auditor that has read the thing it is auditing is not an auditor.
+
+**So the saving is not free. It costs the only mechanism that catches dropped marks.**
+
+**What can safely combine, and what cannot.** The test is whether one output is a *check* on the
+other:
+
+| combination | safe? | why |
+|---|---|---|
+| transcription + inventory | **no** | the inventory audits the transcription |
+| transcription + boxes | **no** | boxes would inherit whatever the transcription decided was a mark |
+| inventory + boxes | **yes** | both describe marks, neither checks the other — a box is a refinement of "where", which the inventory already reports |
+
+So the efficiency available is one call fewer *if boxes are ever added*, not one call fewer now.
+Transcription stays alone, and stays first.
+
+**A separate question the same instinct raises**, and this one is open: the two-pass separation
+was established by measuring qwen3-vl. Whether a cloud model needs it is untested — it may be
+that a stronger model's single-call inventory stays honest, or it may be that a stronger model
+is *better* at rationalising what it already wrote. The measurement is cheap (run both ways on a
+page with a known dropped mark) and has not been done. Until it is, D6 holds for every provider,
+because it was derived from a failure that has never been shown to be model-specific.
+
+### 5.5.10 Literature on over-correction — what is known, 2026-08-21
+
+Commissioned research. Findings attributed to their sources; inferences marked as such.
+
+#### The measured null this project already relies on
+
+*When VLMs "Fix" Students* (arXiv:2604.22774), the source of the 42–66% figure, states that explicit
+anti-correction instructions "marginally reduced over-correction, [but] simultaneously degraded
+overall transcription accuracy, resulting in no net improvement" — attributing it to
+over-correction being "deeply entangled" with core reasoning rather than a surface behaviour.
+§5.5.1's conclusion stands, now with a citation rather than only our own runs.
+
+#### Scale: my hypothesis was half right, and the other half explains the tier sweep
+
+I proposed that over-correction *worsens* with capability, because the mechanism is helpfulness
+rather than incapacity. Then §5.5.8 found every Gemini tier avoiding both ch17 p1 defects,
+which looked like a refutation. The paper resolves both at once:
+
+- **Within a family, larger is worse.** The paper reports larger models "consistently exhibit
+  higher over-correction rates, suggesting this behavior may be an emergent property of advanced
+  reasoning capabilities."
+- **Across families, capability does not predict faithfulness.** The 42–66% spread crosses
+  vendors and is therefore confounded. Gemini 2.5 Flash was the *most faithful* model in the
+  study, rising from 10th under BLEU to 1st under the faithfulness-penalising metric; GPT-4o
+  moved the other way.
+
+So the tier sweep is not a refutation — it is the cross-family effect, and both observations
+hold. **Family, not size, is the variable that matters**, which is also what §5.5.6's detector
+needs: independence comes from choosing a different lineage, not a bigger model.
+
+#### The finding that lands on our own two-pass design
+
+*Verification Mirage* (arXiv:2605.10850), on self-verification in medical VQA, reports
+false-positive rates above 60% — verifiers systematically accept incorrect answers — and
+**verifier error 57× higher when the generator fails**, describing the result as "a consistency
+check over the model's own answer rather than an independent correctness check."
+
+Cross-model verification helps **asymmetrically**: false-accepts drop 12–20%, discrimination
+error only 2–5%.
+
+**Bearing on D6, and it is uncomfortable.** Our two passes are structurally independent —
+separate calls, no shared context (§5.5.7) — but they are *the same model*. Shared blind spots
+produce agreement, and the coverage gate reads agreement as coverage. The existing hedge
+("trustworthy about *where*, untrustworthy about *what*") is the right instinct and this is
+evidence for it.
+
+**The actionable form:** run the inventory pass on a **different family** from the
+transcription pass. Three providers now exist, so this is configuration rather than
+engineering. Expect fewer false accepts, *not* better reading — and measure it rather than
+assume it, because the domain gap (medical VQA → handwritten maths) is real and untested.
+
+#### Perturbation probing — the eval this project lacks
+
+*Do VLMs Read or Rewrite?* (arXiv:2607.21617) supplies the method: **deliberately corrupt the
+source** — scrambled characters, visually-similar swaps — and measure whether the model
+reproduces the corruption or silently rewrites it into something plausible. General VLMs
+degrade up to 4.5 WER points; OCR-specialised ones 0.2–2; traditional pipelines under 0.6.
+
+This is what §11.2 has been missing. We have **one** page with established ground truth and no
+way to tell whether a change helped. Perturbed fixtures are *synthetic*, which also resolves the
+tension in constraint 7: they can be shared where the manuscript cannot.
+
+Pair it with **olmOCR-Bench**'s key-phrase **absence** tests, so an addition is its own failure
+class rather than a few insertions in an edit distance. Evidence that this matters and is not
+merely tidy: in 2604.22774 the metric choice *inverts the leaderboard* — GPT-4o 3rd under BLEU
+and 6th under the faithfulness metric, Gemini 2.5 Flash 10th and 1st.
+
+#### Confirmed absent
+
+No published work on fine-tuning specifically for refusal-to-embellish, and no sample-efficiency
+numbers for such a narrow behavioural fine-tune. §5.5.9's caution stands, with one addition:
+*Training large language models on narrow tasks can lead to broad misalignment* (Nature, 2025)
+warns that narrow behavioural fine-tunes have effects outside their target — relevant if
+"never add content" also suppresses inference we want.
+
+Also ranked down: latent-representation probes (arXiv:2511.19806) need hidden states Ollama does
+not expose; contrastive decoding has **no** transcription-faithfulness evidence, and
+arXiv:2504.10020 argues its object-hallucination gains are metric artifacts.
+
+#### The caveat that matters most
+
+**None of this addresses baseline page 1.** Every technique above targets unsupported additions
+and instability. Multi-view consensus will agree, five times over, that a stick figure is not
+text. The dropped-glyph failure — where meaning inverts because an inline mark was treated as
+decoration — remains unaddressed by the literature as well as by us.
+
+### 5.5.6 Two providers disagreeing is a detector — measured 2026-08-21
+
+The author's proposal was **selective escalation**: send parts of a document to a frontier
+model, ad hoc from an intelligence pane or offered as the reviewer works, and never compulsory —
+"sometimes a user doesn't need the boost and opts for the pre-AI way".
+
+Framed as a capability upgrade that is a modest idea. Framed as a **second independent opinion**
+it is the first substitution detector in this project that does not ask a model to audit itself.
+
+**It needs neither model to be right. It needs them to be independent.** A passage only one
+provider produced is a passage worth a human glance, whichever one is correct.
+
+Measured on ch17 p1, the only page with established ground truth — the local run invented
+`3, 10` and Gemini did not. `experiments/provider_disagreement.py` compares the two and
+produces **four passages to glance at**, of which **two are real defects**:
+
+| flag | what it is |
+|---|---|
+| `local='3, 10'` | **the fabrication.** Correct arithmetic, not on the page |
+| `gemini='17'` | **a silent omission I had missed.** The page reads *17 DUALITY*; local emitted `\section{Duality}` and dropped the chapter number, so LaTeX numbered it 1 |
+| diagram-marker ordering ×2 | noise |
+
+Two real findings out of four flags, on a page every gate passed. The dropped `17` is a
+constraint 5 violation that no gate saw and no human noticed, including me, across a chapter I
+had already read and shipped.
+
+**Compare text, not markup.** The naive form fails: diffing the emitted `.tex` surfaces
+formatting (`\item` against `\\`, `\section` against `\section*`) and buries the finding. Words
+first, and list markers dropped, takes the same page from seven flags to four.
+
+**A router, not a verdict.** It says *look here*, never *this one is right*. Presenting a
+frontier model's reading as authoritative would recreate the delegation hazard (§11.1.2) with
+the additional problem that the reviewer paid for the second opinion and will believe it.
+
+**It fits the privacy constraint rather than fighting it.** Escalating a *region* means only
+the parts the author chooses leave the machine — local by default, cloud by exception, at
+sub-page granularity. `crop_vector` already cuts regions, so the mechanism exists.
+
+**Cost of the idea, stated:** two recognitions per escalated region, and a detector whose
+precision on one page was 50%. n is one page. What it establishes is that the signal exists and
+is cheap to extract, not how well it performs.
+
+### 5.5.9 Fine-tuning — out of scope, and what it is downstream of (author, 2026-08-21)
+
+Raised as out of scope and recorded because the reasoning is short and the conclusion is not
+obvious: **the tier sweep makes fine-tuning look more attractive than it is, and the corpus
+question makes it look further away than it seems.**
+
+**The case is real.** Every cloud tier avoids both of ch17 p1's defects and the local model
+avoids neither, so this is not a task-difficulty ceiling — the gap is closable in principle.
+Closing it locally would preserve constraint 7, which is the constraint that actually matters.
+LoRA on a VLM is cheap; compute is not the barrier.
+
+**Data is the barrier, and the number is small.** Across every run so far the correction log
+holds 74 rows — of which **42 are `skipped`**, 26 are `keep-reviewed`, and exactly **3** are
+(image, human-written text) pairs. Fine-tuning is downstream of the review loop rather than
+parallel to it, and the loop has barely run.
+
+**`GOLD` is already the right filter, for a reason worth naming.** It was built to answer *does
+this row carry evidence about correctness?* — and that is the same predicate as *is this row
+usable as a training pair?* Both require that a human actually looked. `keep-unreviewed` and
+`skipped` are worthless as evidence and worthless as labels, for the identical reason. The
+honesty distinction and the data-quality distinction turn out to be one distinction.
+
+**The obvious corpus is contaminated.** The author's from-blank transcriptions look like clean
+ground truth and are not: §11.0 measured them containing a misread word that changes meaning in
+category theory, two typos, and a malformed `\underline` that would not compile. Training on
+those teaches the author's error rate as truth. This is the same finding as "the human arm is
+not ground truth", arriving where it does more damage.
+
+**The practical path is distillation, and the machinery exists.** Where two or more independent
+providers *agree* on a passage, that is a high-confidence label costing no author time — and
+§5.5.6's detector already computes exactly that, from the other direction. It was built to
+surface disagreement for review; its complement is agreement, which is a label. Local at
+inference, cloud at training time, constraint 7 intact where it counts.
+
+**Target named failures, not general accuracy.** "Do not complete a list the author left open"
+is a narrow behaviour and narrow behaviours need dozens of examples rather than thousands.
+General transcription accuracy is where the corpus is too small; specific refusals may not be.
+
+**The blocker is evaluation, not training.** There is exactly **one** page with established
+ground truth in this entire project. Fine-tuning without a held-out eval set is not an
+experiment, and building that set costs the same author-time as the exit criterion — which is
+also still unrun. Both roads lead through the same hour of the author's attention.
+
 ### 5.6 Independent second reader (deferred to M1) — measured, does not work yet
 
 Proposed: run Tesseract per page as a reader with *uncorrelated* failure modes and score
@@ -1634,7 +1964,7 @@ swapping machine — treat them as upper bounds, not characteristics.
 |---|---|---|---|
 | Naive Math | 39 | multi-colour | Inline glyph-as-noun, **semantic colour**, tables, tally marks |
 | Cheng ch14–16 | 26+ | monochrome purple | Dense symbolic math, labelled arrows, theorem environments |
-| **Number theory** | **126** | monochrome | Long-run consistency; the only document large enough to test drift |
+| **Number theory** | **126** | **red + green** (catalogued monochrome; the colour gate found otherwise, 2026-08-21) | Long-run consistency; the only document large enough to test drift — **run 2026-08-21: no drift.** 126 pages, 0 recognition failures, failures do not rise with position |
 | **Topology** | **8** | blue | Deep set-brace nesting, `∪`/`∩`/`∉`, **checkmarks as inline annotations**, circled and boxed elements |
 | **Quick sheets** | **42** | black | **`6 x 9 = 42` in base 13** — a correct claim a naive arithmetic checker flags; shape-recognized circle; arrow chain wrapping mod 13 |
 | **Team of Teams** | **17** | black | **Prose only, zero math** — plus rotated marginalia, enclosure-as-emphasis, margin markers |
