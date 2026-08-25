@@ -69,6 +69,9 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
     first, last = _parse_range(args.pages)
     _preflight(stream)
 
+    from ..core.lexicon import discover as _discover_lexicon
+    lexicon = _discover_lexicon(args.out)
+
     try:
         if args.provider == "gemini":
             from ..core.recognize.gemini_vlm import DEFAULT_MODEL as GEMINI_DEFAULT
@@ -85,7 +88,13 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
                   "Anthropic.\n           Local-first is the default for a reason; this run is "
                   "not local.", file=stream)
         else:
-            recognizer = OllamaRecognizer(model=args.model or DEFAULT_MODEL)
+            recognizer = OllamaRecognizer(model=args.model or DEFAULT_MODEL,
+                                          lexicon_tokens=lexicon.tokens)
+            if lexicon:
+                # Announced, because it changes the prompt and therefore the output. A silent
+                # prompt change makes two runs incomparable with nothing to say why.
+                print(f"lexicon: {len(lexicon.tokens)} author shorthand(s) named to the "
+                      "recognizer — tokens only, never their meanings.", file=stream)
     except ValueError as exc:
         print(f"error: {exc}", file=stream)
         return 2

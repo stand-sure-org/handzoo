@@ -43,3 +43,40 @@ def test_core_does_not_import_adapters() -> None:
             if FORBIDDEN in name or "adapters" in name.split("."):
                 offenders.append(f"{path.relative_to(CORE.parent.parent)} imports {name}")
     assert not offenders, "core/ must not depend on adapters/:\n  " + "\n  ".join(offenders)
+
+
+def test_no_code_path_substitutes_a_lexicon_meaning_into_output() -> None:
+    r""""Never auto-expand" as an enforced invariant, not a comment.
+
+    A lexicon maps `Sps` to "Suppose". The moment any code writes the value where the key
+    was, handzoo is putting words on the page that the author did not write — constraint #5b,
+    and the more dangerous half of it: an expansion the author agrees with is one they stop
+    checking for.
+
+    So `meanings` may be read by a human and by a future gate, and by nothing that produces
+    emitted text. This greps for the shape of the mistake rather than trusting review.
+    """
+    import ast
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent / "handzoo"
+    offenders = []
+    for path in root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            # `lex.meanings[...]` or `.meanings.get(...)` anywhere outside lexicon.py itself
+            if isinstance(node, ast.Attribute) and node.attr == "meanings":
+                if path.name != "lexicon.py":
+                    offenders.append(f"{path.name}: reads .meanings")
+    assert not offenders, (
+        "meanings must never be reachable from code that builds prompts or emits text: "
+        f"{offenders}")
+
+
+def test_the_prompt_fragment_is_the_only_lexicon_surface_the_recognizer_sees() -> None:
+    """The recognizer takes tokens, never a `Lexicon`, so it has no path to the meanings."""
+    from handzoo.core.recognize.ollama_vlm import OllamaRecognizer
+
+    fields = OllamaRecognizer.__dataclass_fields__
+    assert "lexicon_tokens" in fields
+    assert "lexicon" not in fields, "holding the whole object would expose meanings"

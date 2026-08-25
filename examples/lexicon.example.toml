@@ -1,0 +1,53 @@
+# handzoo lexicon — an author's written shorthands.
+#
+# Copy to `.config/handzoo/lexicon.toml`, or drop a `lexicon.toml` beside a run's
+# output directory. Neither is required: with no lexicon, handzoo behaves as before.
+#
+# WHY THIS FILE EXISTS
+# A recognizer that meets an unfamiliar string resolves it into a familiar one. On a
+# real page `Sps` came back as `\Rightarrow` — which compiles, reads plausibly, and
+# inverts a proof. Naming the token gives the model a correct hypothesis.
+#
+# THE TWO SECTIONS ARE NOT INTERCHANGEABLE
+#   [tokens]   -> sent to the recognizer. "These strings exist; copy them exactly."
+#   [meanings] -> NEVER sent. For you, and for a future check.
+# Sending a meaning would license the model to write the expansion where the page
+# says the abbreviation, which is text you did not write.
+#
+# The entries below are ordinary mathematical shorthand, not any particular author's.
+# Replace them with your own.
+
+[tokens]
+literal = [
+    "WLOG",   # generic enough to be near-universal
+    "TFAE",
+    "QED",
+    "iff",
+    "st",
+    "wrt",
+    "resp",
+]
+
+[meanings]
+# Every key here must also appear in tokens.literal, or loading fails: a meaning with
+# no token is a line nothing will ever look for.
+WLOG = "without loss of generality"
+TFAE = "the following are equivalent"
+QED  = "quod erat demonstrandum — end of proof"
+iff  = "if and only if"
+st   = "such that"
+wrt  = "with respect to"
+resp = "respectively"
+
+# WHAT THIS FILE DOES NOT COVER — four other kinds of notation, none modelled here:
+#
+#   positional      a token meaning one thing only at the start of a line in a proof.
+#                   A flat list cannot say *where*.
+#   ambiguous       a shorthand that is genuinely two things by context (Proposition
+#                   or Property). The model must choose; this cannot resolve it.
+#   marks           a drawn symbol rather than a string — a contradiction bolt, an
+#                   arrow pair. Those belong to the inventory and coverage path.
+#   rendering       how a letter is drawn (blackboard bold as a doubled stroke).
+#                   About strokes, not strings.
+#
+# Adding such entries here is harmless but inert. Nothing reads them.
