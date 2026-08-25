@@ -2053,9 +2053,20 @@ answer more than anything the tool does:
 | pooled median, 236.1s | **0.33x** | |
 | ch19 median, 196.0s | **0.39x** | the conservative reading |
 
-**The criterion passes on every one of them.** Correction is between 2.5x and 6.6x cheaper than
-transcription on the median. Quoting the 0.15x alone would be selecting the baseline that
-flatters the tool, which is the failure mode this project is built around.
+**The criterion passes on every one of them.** Correction is cheaper than transcription on the
+median under every baseline in the table.
+
+**The ratio is not a product metric, and must not be published as one** (author, 2026-08-25).
+It is a go/no-go gate for *this* author on *this* corpus. Another writer types at a different
+speed, so the denominator is a property of the person, not of the tool — and the numerator is
+no better behaved. Correction time is driven by at least three things the tool does not
+control: the author's **composition traits**, the **visual recognition** the page demands, and
+a **stochastic resolution process** in which the reader reconstructs an ambiguous symbol from
+comprehension of the surrounding argument. None of those transfer between people.
+
+So the number answers *"does M0 have positive value for the author who built it"* — yes — and
+nothing else. Quoting an improvement figure would be reporting the author's typing speed as a
+product claim.
 
 **It does not pass everywhere.** The slowest `--fix` (ch18 p10, 230.4s) exceeds the fastest
 transcription (ch19 p1, 146.7s). That is worst-case against best-case across different
@@ -2072,6 +2083,42 @@ this: on ch19 p1 and p3 the human arm was the *less* accurate one.
 **Recorded as unmeasurable from this data:** `mode` is empty on every row, so none of these
 timings can be compared against a future `--mode pdf-annotate` or `--mode paper` run (§11.1).
 The comparison the author most wants is the one this sample cannot support.
+
+### 11.0.1a What the author actually corrected — the first real defect taxonomy
+
+The `--fix` rows carry the full page **before and after**, so the six pages are a labelled set:
+four the author changed, two confirmed correct unchanged. Every one of them had **passed all
+five gates**. This is the first empirical answer to *what gets through*, as opposed to the
+theoretical one.
+
+| class | instances | example | caught by any gate? |
+|---|---|---|---|
+| **lost emphasis** | 3 | `Prop 18.2` and `Proof` were underlined on the page; both came back plain (p11). `as products` likewise (p14) | no |
+| **semantic substitution** | 1 | `Sps` (the author's "Suppose") emitted as `\Rightarrow` (p13) | no |
+| **dropped mark** | 2 | the *dashed* arrow in a diagram description (p10); a missing `\square` closing a proof (p13) | no |
+| **notation degradation** | 1 | blackboard-bold R read as the two letters `IR` (p10) | no |
+| **lost sentence boundary** | 1 | two sentences run together (p13) | no |
+
+**Lost emphasis is the most frequent defect, and nothing looks for it.** Three of eight edits.
+There is a colour gate because ink colour is semantic, and underlining is semantic in exactly
+the same way — the author underlines a proposition label to mark it as one. It is also
+**mechanically detectable**: an underline is a stroke in the vector source with a known
+geometry relative to the text it sits under, so this is a coverage-gate problem, not a
+comprehension problem. It is the cheapest unclaimed correctness win in the project.
+
+**`Sps` → `\Rightarrow` is the first substitution caught in the wild.** Every previous instance
+was injected by us to test a detector. This one is the real thing, and it is the bad kind: the
+output is ASCII-clean, balanced, compiles, and **inverts the logic of a proof**. "Suppose there
+exists a morphism k" is a hypothesis; "⇒ there exists a morphism k" is an inference. One opens
+an argument, the other claims it. A reader who trusts the output reads a different proof.
+
+Note what makes it dangerous rather than merely wrong: `Sps` is an abbreviation *this author*
+uses, and the model resolved an unfamiliar token into a familiar one from context. That is the
+"stochastic resolution process" named above, running in the machine instead of the human — and
+it is precisely §5.5's over-correction, with a concrete instance at last.
+
+**These belong in `baseline/` as fixtures.** The pages themselves are third-party published
+content and stay out of the repo; the *defects* are ours to keep, as minimal synthetic cases.
 
 ### 11.0.2 The reporter could never have run
 
