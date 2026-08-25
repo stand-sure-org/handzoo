@@ -2542,3 +2542,175 @@ EXIT CRITERION — seconds to correct against seconds to type from blank
 
   2 page(s) carry both arms. This is a sample, not a result.
 ```
+
+## 12. The correction surface — designed, not scoped (2026-08-25)
+
+M0 is cleared, and the author's judgement is that ingestion and correction are not yet
+approachable enough for anyone else to generate the labelled pages everything else needs. So
+the UI comes before more harness work. This section records what is settled, what is refused,
+and the one question that has to be answered before any of it is built.
+
+### 12.1 The question is the round trip, not the format
+
+The author framed the tension precisely: markdown opens a route to a WYSIWYG surface, at the
+risk of inheriting Typora's failure modes or of **being judged on the editor** rather than on
+what the tool refuses.
+
+The second risk is not a risk, it is the default outcome. Ship an editing surface and every
+user compares it to the editor they already have; the refusal — the actual product — becomes
+chrome around a text box. That argues for a **review tool that can edit**, not an editor that
+can review: findings-first, page-at-a-time, editing as something done *to* a finding. It is
+what `handzoo-review` already is, and it is defensible ground precisely because no one is
+competing there.
+
+But the format question underneath it is real, and it is not *markdown or LaTeX*. It is:
+
+> **Is the artifact the human approved the artifact that ships?**
+
+Today it is. The author corrects the emitted `.tex`, the gates run on that `.tex`, and that
+`.tex` is what gets built. Introduce a rendered surface and a translation sits between the two,
+and **the translation can lose exactly what the gates exist to protect** — the underline that
+is a label (§11.0.1b), the ink colour, the mark. That is the same class as the "delegate edit"
+pane in §11.1.2: a new substitution surface, arriving with the author's own authority.
+
+**The concrete mechanism, and why "just render it" does not settle it.** KaTeX and MathJax
+implement a *subset* of LaTeX math — no arbitrary packages, no `tikz`, no document structure.
+Our compile gate is `pdflatex`. Those are two different languages that share a syntax, so:
+
+- a block can render cleanly in the editor and **fail the compile gate**
+- a block can fail to render and **compile perfectly**
+
+An editor that shows a green preview while the artifact fails is the project's own villain
+wearing a friendlier face. Whatever is built, **the gate result and the preview must be
+distinguishable on screen**, and the gate is the one that decides whether a page ships.
+
+**So the prerequisite is a fidelity test, not a framework choice.** Take the emitted `.tex`
+for a chapter, round-trip it through whatever intermediate representation the editor uses, and
+diff. If it survives, the editor is a rendering choice. If it does not, the losses are the
+specification for what the editor must preserve. That is cheap, mechanical, and it can be run
+before a line of UI exists.
+
+**First cut, measured on the 44 emitted pages of ch18.** A math renderer covers math spans;
+everything else is the editor's own problem:
+
+| | count | |
+|---|---|---|
+| math spans | 269 | what KaTeX/MathJax actually render |
+| sectioning | 45 | document structure |
+| `[TODO diagram: …]` markers | 22 | **a gate's output** |
+| line breaks | 22 | |
+| marking (`\underline` / `\textbf`) | 26 | **the label mark — §11.0.1b** |
+| lists | 11 | |
+| tabular | 1 | |
+
+The distribution is the finding. Roughly a third of the constructs on a page sit outside what
+a math renderer touches — and **the gate-protected ones are concentrated entirely in that
+third**. The diagram markers are a gate's output; the marking is the mark §11.0.1b exists to
+defend. So the editor's fidelity burden falls precisely on what this project refuses to lose,
+and "we'll render the math and pass the rest through" is not a plan, it is the whole risk.
+
+### 12.2 What the survey got right, and what we already have for it
+
+The author's research (Gemini, 2026-08-25) landed on a **block-based document editor** —
+Tiptap/ProseMirror, Lexical, Editor.js, Milkdown — with a three-state node: rendered by
+default, region-review on hover, raw source behind an explicit toggle. That is a good fit, and
+several pieces already exist here:
+
+| the pattern | what handzoo already has |
+|---|---|
+| per-block error badge, rest of document stays clean | `GateResult.failures` carry a line and an excerpt; `advisory` already distinguishes *look at this* from *refused* |
+| click a block, highlight the source region | `crop_vector()` cuts a region as vector; ink-region detection finds boxes |
+| hover a formula, see the original handwriting | the crop verdict already does this, non-interactively |
+| per-block provenance ("Origin: local / cloud") | DESIGN §8.1 — designed, and this is a second consumer for it |
+
+**The per-block cloud upgrade is better than what we ship today.** `--provider gemini` sends
+*whole page images* to Google. Sending only one block's crop, only when the author asks, is
+strictly less exposure for the same benefit — and it makes the local-first default meaningful
+rather than nominal. If the online provider survives into the UI, this is the shape it should
+take.
+
+Two mechanical notes worth keeping: streaming output must suspend preview compilation between
+`\begin{...}` and its closer or the screen thrashes on every partial token (we already salvage
+truncated JSON, which is the same problem one layer down); and a two-pane anchor map is what
+the author sketched in §11.1.2, now with a component vocabulary attached.
+
+### 12.3 What is refused
+
+**Never render fabricated `tikz`.** The survey's advice for hand-drawn figures is to prompt a
+cloud model to *"return only clean executable TikZ"* and run it through TikZJax in the browser.
+That is the single thing this project must not do. Hard constraint #4 forbids it; §5.7.1
+already refused the compile-time version of it; R9 exists to turn invented diagram markup into
+a visible marker. Rendering invented TikZ converts a caught fabrication into a beautiful,
+typeset, **wrong** diagram that the author will accept because it looks finished — 5b's warning
+exactly, with better production values.
+
+The crop verdict is the answer and it is already built: cut the author's real ink as vector,
+place it, flag it. A UI should make that *one click* rather than replace it with generation.
+
+TikZJax may still be useful for previewing `tikz` **the author wrote**. The distinction is
+provenance, and §8.1 is what carries it.
+
+#### 12.3.1 A commented skeleton is not a fabrication — if it guesses nothing
+
+The author's refinement: *for someone who wants `tikz`, a skeleton to uncomment and edit is not
+awful.* Correct, and the reason it is correct is worth stating precisely, because the line is
+narrow.
+
+**What made rendered TikZ dangerous was never the markup. It was that the artifact looked
+finished.** A rendered diagram is accepted at a glance; a beautiful wrong picture is worse than
+an obviously absent one. A commented block inverts every part of that:
+
+- it cannot render, so there is nothing to accept at a glance
+- it cannot compile into the document, so no gate can pass on its account
+- it becomes live only by an explicit act, and uncommenting requires reading it
+
+That is the same shape as `advisory` (§11.0.1b) and as the crop verdict: **inert by default,
+and activation requires attention.** So a skeleton is admissible where a rendering is not.
+
+**But the anchoring risk is real and is the reason for the constraint below.** §11.0 measured
+it on humans: a correction is what the author judged right *after reading our output*, and
+reading it anchors them. A skeleton with three nodes on a page that has four invites the author
+to uncomment, adjust, and never notice the missing one — the plausible-substitution failure,
+relocated into scaffolding.
+
+**The line is the project's own trust boundary, and it already exists.** `Mark.context`,
+`placement` and `count` are measured-trustworthy; `Mark.description` is measured-untrustworthy
+(`recognize/base.py`). So:
+
+| may go into a skeleton | may not |
+|---|---|
+| the environment and preamble — pure boilerplate | node **labels** or arrow **names** |
+| a grid sized from *positions* the inventory reported | anything read out of `description` |
+| a count of marks detected in the region | a guess at what the diagram *says* |
+
+A skeleton built from position is **structure**. A skeleton built from description is a
+fabrication wearing a comment, and the comment is exactly what would stop anyone noticing.
+
+**Three provenances, three treatments** — which is the general rule this makes explicit:
+
+| origin | treatment |
+|---|---|
+| recognizer emitted `tikz` | stripped to a visible marker (R9) — it was told not to, and did |
+| handzoo generated a skeleton | commented, inert, structural only, never from `description` |
+| the author wrote it | left alone; previewable |
+
+Not built. Recorded so that when someone adds it, the constraint arrives with it rather than
+being discovered afterwards. The natural home is beside the crop verdict in `handzoo-review`:
+`c` cuts the real ink, and a sibling key offers scaffolding for an author who would rather
+draw it in `tikz` than paste an image.
+
+**Astryx is unverified.** The survey reports a Meta agent-native React design system released
+2026-06-28. That is after this assistant's knowledge cutoff and could not be checked; the
+citations are plausible and were not confirmed. Treat it as a lead, not a fact, and verify
+before it appears in a dependency list.
+
+### 12.4 The ordering this implies
+
+1. **Round-trip fidelity test** — mechanical, no UI, and it decides the format question.
+2. **Refuse-first framing** — the surface presents findings and gate verdicts; editing serves
+   them.
+3. **Provenance per block** (§8.1) — needed the moment two models can touch one document.
+4. Then the editor, whose framework choice is the *least* consequential decision here.
+
+Nothing above is scoped into a milestone. It is written down so the first UI commit does not
+have to make these calls under deadline.
