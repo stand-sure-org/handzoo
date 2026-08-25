@@ -96,7 +96,7 @@ Environment, verified on this machine:
 | `handzoo/core/recognize/gemini_vlm.py` | **Working**, opt-in. Same port, same prompts, over the wire. Two providers disagreeing is the project's only self-audit-free substitution detector — DESIGN §5.5.6. |
 | Rasterizer, recognizer, gates, emitter, pipeline, CLI | **Working.** The command is `handzoo <pdf>` — see Commands above; there is no `convert` subcommand. |
 | `handzoo/core/assemble.py` | **Working.** Writes `chapter.tex` after a run — pages `\input` in order, failures as visible placeholders. A `--standalone` page cannot be assembled and says so. |
-| `handzoo-review` — the correction loop | **Built** (PLAN Wave 5). Walks gate findings, records a verdict per page, and can **crop** a diagram from the source as vector (`c`) — the fix for 45 of 49 findings on a real run. The M0 exit criterion still needs author-timed runs through it. |
+| `handzoo-review` — the correction loop | **Built** (PLAN Wave 5). Walks gate findings, records a verdict per page, and can **crop** a diagram from the source as vector (`c`) — the fix for 45 of 49 findings on a real run. **The M0 exit criterion has now been run through it** — see below. |
 | Tests | **217**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
 
 Measured state of the Normalizer, on identical raw recognizer output (Naive Math, the hardest
