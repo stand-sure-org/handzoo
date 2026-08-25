@@ -2650,6 +2650,55 @@ place it, flag it. A UI should make that *one click* rather than replace it with
 TikZJax may still be useful for previewing `tikz` **the author wrote**. The distinction is
 provenance, and §8.1 is what carries it.
 
+#### 12.3.1 A commented skeleton is not a fabrication — if it guesses nothing
+
+The author's refinement: *for someone who wants `tikz`, a skeleton to uncomment and edit is not
+awful.* Correct, and the reason it is correct is worth stating precisely, because the line is
+narrow.
+
+**What made rendered TikZ dangerous was never the markup. It was that the artifact looked
+finished.** A rendered diagram is accepted at a glance; a beautiful wrong picture is worse than
+an obviously absent one. A commented block inverts every part of that:
+
+- it cannot render, so there is nothing to accept at a glance
+- it cannot compile into the document, so no gate can pass on its account
+- it becomes live only by an explicit act, and uncommenting requires reading it
+
+That is the same shape as `advisory` (§11.0.1b) and as the crop verdict: **inert by default,
+and activation requires attention.** So a skeleton is admissible where a rendering is not.
+
+**But the anchoring risk is real and is the reason for the constraint below.** §11.0 measured
+it on humans: a correction is what the author judged right *after reading our output*, and
+reading it anchors them. A skeleton with three nodes on a page that has four invites the author
+to uncomment, adjust, and never notice the missing one — the plausible-substitution failure,
+relocated into scaffolding.
+
+**The line is the project's own trust boundary, and it already exists.** `Mark.context`,
+`placement` and `count` are measured-trustworthy; `Mark.description` is measured-untrustworthy
+(`recognize/base.py`). So:
+
+| may go into a skeleton | may not |
+|---|---|
+| the environment and preamble — pure boilerplate | node **labels** or arrow **names** |
+| a grid sized from *positions* the inventory reported | anything read out of `description` |
+| a count of marks detected in the region | a guess at what the diagram *says* |
+
+A skeleton built from position is **structure**. A skeleton built from description is a
+fabrication wearing a comment, and the comment is exactly what would stop anyone noticing.
+
+**Three provenances, three treatments** — which is the general rule this makes explicit:
+
+| origin | treatment |
+|---|---|
+| recognizer emitted `tikz` | stripped to a visible marker (R9) — it was told not to, and did |
+| handzoo generated a skeleton | commented, inert, structural only, never from `description` |
+| the author wrote it | left alone; previewable |
+
+Not built. Recorded so that when someone adds it, the constraint arrives with it rather than
+being discovered afterwards. The natural home is beside the crop verdict in `handzoo-review`:
+`c` cuts the real ink, and a sibling key offers scaffolding for an author who would rather
+draw it in `tikz` than paste an image.
+
 **Astryx is unverified.** The survey reports a Meta agent-native React design system released
 2026-06-28. That is after this assistant's knowledge cutoff and could not be checked; the
 citations are plausible and were not confirmed. Treat it as a lead, not a fact, and verify
