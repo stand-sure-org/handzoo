@@ -2030,6 +2030,76 @@ its own error rate, and the criterion compares two fallible processes rather tha
 truth. And the tool's value is the typing avoided, less the verification added, which is a
 smaller and more honest claim than "faster than transcribing".
 
+### 11.0.1 Measured, 2026-08-25: correction is cheaper, and by how much depends on the baseline
+
+**The author ran both arms.** First real numbers, from `~/handzoo-out/ch18` and `ch19`.
+
+| arm | n | median | pages |
+|---|---|---|---|
+| `--fix` (whole page, seeded with our `.tex`) | 6 | **77.3s** (1.3 min) | ch18 9, 10, 11, 13, 14, 15 |
+| `--transcribe` (whole page, from blank) — ch18 | 2 | **522.7s** (8.7 min) | ch18 2, 12 |
+| `--transcribe` — ch19 | 3 | **196.0s** (3.3 min) | ch19 1, 2, 3 |
+
+Both arms ran the same protocol (§11.1.1), so this is the criterion as designed rather than a
+proxy for it.
+
+**Report the baseline range, not the flattering end.** The control arm spans 2.7x between
+chapters — 146.7s to 595.8s per page — and which chapter is used as the denominator moves the
+answer more than anything the tool does:
+
+| baseline | ratio | |
+|---|---|---|
+| ch18 median, 522.7s | **0.15x** | the generous reading |
+| pooled median, 236.1s | **0.33x** | |
+| ch19 median, 196.0s | **0.39x** | the conservative reading |
+
+**The criterion passes on every one of them.** Correction is between 2.5x and 6.6x cheaper than
+transcription on the median. Quoting the 0.15x alone would be selecting the baseline that
+flatters the tool, which is the failure mode this project is built around.
+
+**It does not pass everywhere.** The slowest `--fix` (ch18 p10, 230.4s) exceeds the fastest
+transcription (ch19 p1, 146.7s). That is worst-case against best-case across different
+chapters, so it is not a counter-result -- but it is the "almost" in the author's own summary,
+and it marks where the margin goes.
+
+**What the number does not license.** The two arms do not measure time-to-the-same-target. A
+transcript is ground truth by construction; a correction is *what the author judged correct
+after reading our output*, and reading it anchors them. Substitution that reads plausibly
+survives correction and would not survive transcription -- §5.5's hole, reappearing inside the
+criterion that was supposed to clear the milestone. §11.0 already found the sharper version of
+this: on ch19 p1 and p3 the human arm was the *less* accurate one.
+
+**Recorded as unmeasurable from this data:** `mode` is empty on every row, so none of these
+timings can be compared against a future `--mode pdf-annotate` or `--mode paper` run (§11.1).
+The comparison the author most wants is the one this sample cannot support.
+
+### 11.0.2 The reporter could never have run
+
+Finding both arms in the log and no comparison printed exposed two defects. Neither was
+visible from a green suite.
+
+**1. The paired report is unreachable.** `_exit_criterion` compares the arms **on the same
+page**. `--transcribe` refuses a page already reviewed; `--fix` refuses a page already
+transcribed. Both guards are right and §11.1.1 argues for them. Together they guarantee that
+**no page ever carries both arms**, so the paired report shows nothing -- on a log holding six
+corrections and five transcriptions. It printed nothing, and nothing reads as *no data* rather
+than *the comparison is unpaired*: §5.7 with the check on the outside.
+
+The suite stayed green because the test built same-page rows straight through the log API,
+which the CLI cannot do. **A test that exercises a path the product cannot reach asserts only
+that the code runs.** That is the §5.7 lineage's newest member and the reason the principle is
+stated as "test the case directly" rather than "have a test".
+
+The fix reports the arms as **distributions** when they cannot be paired, with `n` beside each
+median and the confound named: unpaired means page difficulty is uncontrolled. The paired
+report is kept and still preferred when it can fire, and suppresses the weaker one.
+
+**2. The correction arm was summing the wrong rows.** Everything not `transcribed` counted,
+which swept in the finding-walk -- one keypress on one finding. On the real log that produced a
+correcting median of **0.8s** against 522.7s: a spectacular result and a category error. Only
+whole-page `--fix` rows are the correction arm, and a test now asserts that 40 finding-walk
+rows cannot enter it.
+
 ### 11.1 The unmodelled variable: where the human's attention sits
 
 Correction cost is not one number. It depends on what the author edits *against*, and nothing

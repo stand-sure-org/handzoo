@@ -584,6 +584,7 @@ def _print_summary(log: CorrectionLog, stream) -> int:
           f"{s['unexamined']} record only that a human passed through — "
           "keep-unreviewed and skipped are not verification.", file=stream)
     _print_exit_criterion(s.get("exit_criterion") or {}, stream)
+    _print_unpaired_arms(s.get("exit_criterion") or {}, s.get("unpaired_arms") or {}, stream)
     modes = s.get("modes") or []
     if len(modes) > 1:
         print(f"\n  NOTE: these rows mix modes ({', '.join(modes)}). Correction cost is one\n"
@@ -595,6 +596,30 @@ def _print_summary(log: CorrectionLog, stream) -> int:
         print("\n  mode: not recorded — pass --mode so a timing can be compared to another.",
               file=stream)
     return 0
+
+
+def _print_unpaired_arms(paired: dict, arms: dict, stream) -> None:
+    """The comparison the tool can actually make, when the paired one cannot exist.
+
+    Suppressed when a paired comparison printed: that one controls for page difficulty and
+    should not be second-guessed by a weaker number underneath it.
+    """
+    if paired or not arms:
+        return
+    c, t = arms["correcting"], arms["transcribing"]
+    print("\nEXIT CRITERION — unpaired, because the arms run on different pages by design",
+          file=stream)
+    print(f"  correcting     median {c['median']:>7.1f}s   over {c['n']} page(s), --fix",
+          file=stream)
+    print(f"  transcribing   median {t['median']:>7.1f}s   over {t['n']} page(s)", file=stream)
+    if c["median"] >= t["median"]:
+        print("\n  Correction is not cheaper than transcription here. M0 has negative value\n"
+              "  on this sample, and no amount of green gates changes that.", file=stream)
+    else:
+        print(f"\n  Correcting is cheaper on the median "
+              f"({c['median'] / t['median']:.2f}x transcription).", file=stream)
+    print("\n  Unpaired: the two arms never share a page, so page difficulty is not\n"
+          "  controlled for. A sample, not a result.", file=stream)
 
 
 def _print_exit_criterion(pages: dict, stream) -> None:

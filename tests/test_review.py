@@ -492,6 +492,90 @@ def test_the_exit_criterion_ignores_empty_transcriptions_already_logged(tmp_path
     assert arms["transcribing"] == 146.7, "the abandoned 14.4s attempt must not count"
 
 
+def test_the_arms_the_cli_can_actually_produce_are_still_compared(tmp_path: Path) -> None:
+    """The paired report could never fire on data the product creates.
+
+    `--transcribe` refuses a page already reviewed; `--fix` refuses a page already
+    transcribed. Both guards are correct -- reading the emitted text destroys the
+    transcription measurement, and having typed the page destroys the correction one. But
+    together they guarantee **no page ever carries both arms**, and the paired report shows
+    only pages that do. So it printed nothing on a real run with six corrections and five
+    transcriptions in the log, and the suite stayed green because this test built same-page
+    rows straight through the log API, which the CLI cannot do.
+
+    A reporter that cannot run on real data is DESIGN 5.7 with the check on the outside: the
+    summary said nothing, and nothing read as no-comparison-available rather than as
+    the-comparison-is-unpaired.
+    """
+    from handzoo.core.corrections import FIX_MARKER, Correction, CorrectionLog
+
+    log = CorrectionLog(tmp_path / "corrections.jsonl")
+    for page, seconds in ((9, 42.9), (14, 60.4), (11, 65.2)):
+        log.append(Correction(page=page, verdict="edited", source_image="", before="a",
+                              seconds=seconds, finding=FIX_MARKER))
+    for page, seconds in ((2, 449.6), (12, 595.8)):
+        log.append(Correction(page=page, verdict="transcribed", source_image="", before="",
+                              after="typed text", seconds=seconds))
+
+    arms = log.summary()["unpaired_arms"]
+    assert arms["correcting"]["n"] == 3
+    assert arms["transcribing"]["n"] == 2
+    assert arms["correcting"]["median"] == 60.4
+    assert arms["transcribing"]["median"] == 522.7
+
+
+def test_a_finding_walk_row_is_not_a_correction_arm_measurement(tmp_path: Path) -> None:
+    """The review loop times one keypress on one finding. `--fix` times a whole page.
+
+    Summing the first and calling it the correction arm compares a whole-page task against a
+    pile of keystrokes. Measured on the first real log: 75 finding rows produced a correcting
+    median of **0.8s** against a transcription median of 522.7s, which reads as a spectacular
+    result and is a category error.
+    """
+    from handzoo.core.corrections import FIX_MARKER, Correction, CorrectionLog
+
+    log = CorrectionLog(tmp_path / "corrections.jsonl")
+    for _ in range(40):
+        log.append(Correction(page=25, verdict="keep-reviewed", source_image="", before="x",
+                              seconds=0.8, finding="coverage: a fabricated diagram"))
+    log.append(Correction(page=9, verdict="edited", source_image="", before="a", seconds=42.9,
+                          finding=FIX_MARKER))
+    log.append(Correction(page=2, verdict="transcribed", source_image="", before="",
+                          after="typed", seconds=449.6))
+
+    arms = log.summary()["unpaired_arms"]
+    assert arms["correcting"]["n"] == 1, "40 finding-walk rows must not enter the arm"
+    assert arms["correcting"]["median"] == 42.9
+
+
+def test_an_unpaired_arm_alone_still_reports_nothing(tmp_path: Path) -> None:
+    """One arm answers nothing. That was true of the paired report and stays true here."""
+    from handzoo.core.corrections import Correction, CorrectionLog
+
+    log = CorrectionLog(tmp_path / "corrections.jsonl")
+    log.append(Correction(page=1, verdict="transcribed", source_image="", before="",
+                          after="typed", seconds=100.0))
+    assert log.summary()["unpaired_arms"] == {}
+
+
+def test_an_abandoned_attempt_is_excluded_from_the_unpaired_arms_too(tmp_path: Path) -> None:
+    """The empty-transcript exclusion has to hold on both paths, or the baseline arm is
+    understated -- in the direction that flatters the tool."""
+    from handzoo.core.corrections import FIX_MARKER, Correction, CorrectionLog
+
+    log = CorrectionLog(tmp_path / "corrections.jsonl")
+    log.append(Correction(page=1, verdict="transcribed", source_image="", before="",
+                          after="", seconds=4.9))
+    log.append(Correction(page=2, verdict="transcribed", source_image="", before="",
+                          after="real", seconds=196.0))
+    log.append(Correction(page=9, verdict="edited", source_image="", before="a", seconds=42.9,
+                          finding=FIX_MARKER))
+
+    arms = log.summary()["unpaired_arms"]
+    assert arms["transcribing"]["n"] == 1, "the abandoned attempt must not count"
+    assert arms["transcribing"]["median"] == 196.0
+
+
 def test_a_timing_carries_the_mode_it_was_taken_in(tmp_path: Path, monkeypatch) -> None:
     """Correction cost depends on what the human edits *against* — the ink, the rendered PDF,
     an intermediary format, or a prompt to an agent (DESIGN §11.1). Those are different
