@@ -62,14 +62,17 @@ def _post(base: str, path: str, payload: dict):
 # ------------------------------------------------------------------ the separation
 
 
-def test_the_two_buttons_write_different_verdicts(server) -> None:
+def test_each_button_writes_a_different_verdict(server) -> None:
     """The whole point of the surface. DESIGN §11.3.1.
 
-    Correcting the transcription and revising one's own prose leave the same shape of diff.
-    The mode is chosen *before* typing, so the label is structural rather than recalled.
+    Correcting the transcription and revising one's own prose leave the same shape of diff,
+    so the mode is chosen *before* typing and the label is structural rather than recalled.
+
+    `accept` was missing at first and the omission cost a full run: with nothing to press on
+    a page that was already right, an author who read 35 pages produced an empty log.
     """
     base, run = server
-    assert MODES == {"fix": "edited", "author": "authored"}
+    assert MODES == {"fix": "edited", "author": "authored", "accept": "keep-reviewed"}
 
     r = _post(base, "/api/save", {"page": 1, "mode": "fix", "text": "corrected\n", "seconds": 4})
     assert r["verdict"] == "edited"
@@ -359,3 +362,113 @@ def test_a_diagram_only_page_is_marked_so_a_text_pass_can_skip_it(tmp_path: Path
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_a_page_read_and_accepted_can_be_recorded(server) -> None:
+    r"""The gap that cost a whole run.
+
+    `--fix` asks, on an unchanged document, *"was the output already correct, or did you
+    abandon the attempt?"* and records `keep-reviewed` for the first — DESIGN §11.1.1 calls it
+    "the most valuable datum this project can collect".
+
+    The UI ported only the other half. An unchanged save recorded nothing, so an author who
+    read 35 pages and found them right produced an **empty log**: no verdicts, no timings, no
+    evidence. Reading is the expensive part and it left no trace.
+
+    `keep-reviewed` is GOLD — it is a human saying the output is right, which no gate can say.
+    """
+    base, run = server
+    from handzoo.core.corrections import GOLD
+    assert "keep-reviewed" in GOLD
+
+    same = (run / "page-0001.tex").read_text(encoding="utf-8")
+    r = _post(base, "/api/save", {"page": 1, "mode": "accept", "text": same, "seconds": 61.0})
+
+    assert r["saved"] is True
+    assert r["verdict"] == "keep-reviewed"
+
+    from handzoo.core.corrections import CorrectionLog
+    (row,) = CorrectionLog.for_run(run).read()
+    assert row.is_gold
+    assert row.seconds == 61.0
+
+
+def test_accepting_never_enters_the_correction_arm(server) -> None:
+    """Reading a page and finding it right is not correcting one. Folding the time in would
+    inflate the arm with pages that needed no work."""
+    base, run = server
+    _post(base, "/api/save", {"page": 1, "mode": "accept",
+                              "text": (run / "page-0001.tex").read_text(encoding="utf-8"),
+                              "seconds": 61.0})
+    _post(base, "/api/save", {"page": 2, "mode": "fix", "text": "corrected\n", "seconds": 42.9})
+
+    from handzoo.core.corrections import CorrectionLog
+    rows = CorrectionLog.for_run(run).read()
+    fix_rows = [r for r in rows if r.finding.startswith("exit criterion: correction")]
+    assert len(fix_rows) == 1, "only the actual correction is an arm measurement"
+
+
+def test_accepting_a_changed_page_is_refused(server) -> None:
+    """"Looks right" must mean what it says. If the text was edited, it is a correction."""
+    base, _ = server
+    from urllib.error import HTTPError
+    with pytest.raises(HTTPError) as e:
+        _post(base, "/api/save", {"page": 1, "mode": "accept", "text": "something else\n"})
+    assert e.value.code == 400
+
+
+# ------------------------------------------------------------------ autosave
+
+
+def test_navigating_away_no_longer_loses_an_edit(server) -> None:
+    """Today an edit vanishes if you click another page. Autosave writes the file."""
+    base, run = server
+    _post(base, "/api/autosave", {"page": 1, "text": "half-finished edit\n"})
+    assert (run / "page-0001.tex").read_text(encoding="utf-8") == "half-finished edit\n"
+
+
+def test_autosave_records_no_verdict(server) -> None:
+    """Saving the file and recording a decision are different acts. A half-typed line is not
+    a judgement about the page, and a log full of them would be worse than losing the text."""
+    base, run = server
+    _post(base, "/api/autosave", {"page": 1, "text": "mid-edit\n"})
+    assert not (run / "corrections.jsonl").exists()
+
+
+def test_autosave_does_not_destroy_the_before_text(server) -> None:
+    r"""The trap, and the reason this is done server-side.
+
+    `before` is read from disk when a verdict is recorded. Once autosave has written the
+    file, the on-disk text *is* the edit — so `before` and `after` would be identical, the
+    diff would be empty, and the defect taxonomy (§11.0.1a) built from those diffs would show
+    a correction that changed nothing.
+
+    So the first autosave for a page snapshots the pristine text, and the verdict uses that.
+    """
+    base, run = server
+    pristine = (run / "page-0001.tex").read_text(encoding="utf-8")
+
+    _post(base, "/api/autosave", {"page": 1, "text": "partial\n"})
+    _post(base, "/api/autosave", {"page": 1, "text": "corrected fully\n"})
+    _post(base, "/api/save", {"page": 1, "mode": "fix", "text": "corrected fully\n",
+                              "seconds": 30.0})
+
+    from handzoo.core.corrections import CorrectionLog
+    (row,) = CorrectionLog.for_run(run).read()
+    assert row.before == pristine, "the diff must span the whole edit, not the last keystroke"
+    assert row.after == "corrected fully\n"
+
+
+def test_the_snapshot_is_released_once_a_verdict_lands(server) -> None:
+    """Otherwise the next session's `before` is last session's text, and every later diff is
+    measured from a point the author has forgotten."""
+    base, run = server
+    _post(base, "/api/autosave", {"page": 1, "text": "one\n"})
+    _post(base, "/api/save", {"page": 1, "mode": "fix", "text": "one\n"})
+
+    _post(base, "/api/autosave", {"page": 1, "text": "two\n"})
+    _post(base, "/api/save", {"page": 1, "mode": "fix", "text": "two\n"})
+
+    from handzoo.core.corrections import CorrectionLog
+    rows = CorrectionLog.for_run(run).read()
+    assert rows[-1].before == "one\n", "the second edit starts from where the first ended"

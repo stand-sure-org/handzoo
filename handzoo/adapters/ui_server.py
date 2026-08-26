@@ -37,7 +37,17 @@ HERE = Path(__file__).resolve().parent / "ui"
 
 # What the two buttons write. `edited` feeds the exit criterion and the defect taxonomy;
 # `authored` feeds neither, and is excluded from lexicon mining.
-MODES = {"fix": "edited", "author": "authored"}
+MODES = {"fix": "edited", "author": "authored", "accept": "keep-reviewed"}
+"""What each action writes.
+
+`fix`    — corrected the transcription. Feeds the exit criterion and the defect taxonomy.
+`author` — revised one's own prose. Feeds neither (DESIGN 11.3.1).
+`accept` — read it and it is right. **GOLD**, and the datum the CLI's `--fix` already
+           collected by asking about an unchanged document. Its absence here cost a whole
+           run: an author who read 35 pages and found them correct produced an empty log,
+           because an unchanged save recorded nothing. Reading is the expensive part and it
+           left no trace.
+"""
 
 
 @dataclass
@@ -66,6 +76,19 @@ class Review:
 
     def log(self) -> CorrectionLog:
         return CorrectionLog.for_run(self.out_dir)
+
+    def pristine(self, page: int) -> Path:
+        """Where the pre-edit text is kept while a page is being worked on.
+
+        Autosave overwrites the page file, so by the time a verdict is recorded the on-disk
+        text *is* the edit — `before` and `after` would be identical and the diff empty. The
+        defect taxonomy (DESIGN 11.0.1a) is built from those diffs, so an empty one is not a
+        cosmetic loss.
+
+        On disk rather than in memory so a browser reload, or a restarted server, does not
+        silently reset the baseline mid-edit.
+        """
+        return self.out_dir / ".pristine" / f"p{page:04d}.tex"
 
 
 def _pages(review: Review) -> list[dict]:
@@ -279,11 +302,30 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         url = urlparse(self.path)
-        if url.path != "/api/save":
+        if url.path not in ("/api/save", "/api/autosave"):
             self._json({"error": "not found"}, 404)
             return
 
         payload = json.loads(self.rfile.read(int(self.headers["Content-Length"] or 0)) or b"{}")
+
+        if url.path == "/api/autosave":
+            # Writes the file, records nothing. Losing an edit on navigation is bad; recording
+            # a half-typed line as a judgement about the page is worse, and a log full of them
+            # would drown the verdicts that mean something.
+            page = int(payload["page"])
+            match = [o for o in self.review.outcomes() if o.page == page]
+            if not match or not match[0].output:
+                self._json({"error": "no output on disk for this page"}, 404)
+                return
+            target = Path(match[0].output)
+            snapshot = self.review.pristine(page)
+            if not snapshot.exists():
+                snapshot.parent.mkdir(exist_ok=True)
+                snapshot.write_text(target.read_text(encoding="utf-8"), encoding="utf-8")
+            target.write_text(payload.get("text", ""), encoding="utf-8")
+            self._json({"autosaved": True})
+            return
+
         mode = payload.get("mode")
         if mode not in MODES:
             self._json({"error": f"mode must be one of {sorted(MODES)}"}, 400)
@@ -296,13 +338,40 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         target = Path(match[0].output)
-        before = target.read_text(encoding="utf-8")
+        snapshot = self.review.pristine(page)
+        before = (snapshot.read_text(encoding="utf-8") if snapshot.exists()
+                  else target.read_text(encoding="utf-8"))
         after = payload.get("text", "")
+
+        if mode == "accept":
+            if after != before:
+                self._json({"error": "the text was changed — that is a fix, not an accept"},
+                           400)
+                return
+            img = self.review.image(page)
+            self.review.log().append(Correction(
+                page=page, verdict="keep-reviewed",
+                source_image=str(img) if img else "",
+                before=before, after="",
+                seconds=float(payload.get("seconds", 0.0)),
+                mode=payload.get("ui_mode", "web"),
+                # Deliberately NOT the exit-criterion marker: reading a page and finding it
+                # right is not correcting one, and folding the time into the correction arm
+                # would inflate it with pages that needed no work.
+                finding="read and accepted as correct",
+            ))
+            snapshot.unlink(missing_ok=True)
+            self._json({"saved": True, "verdict": "keep-reviewed"})
+            return
+
         if after == before:
             # Unchanged is not nothing, and it is not a correction either. Same reasoning as
             # `--fix` (DESIGN 11.1.1): it may mean the output was already right, which is the
             # most valuable datum here, or that the editor was opened and closed.
-            self._json({"saved": False, "reason": "unchanged"})
+            self._json({"saved": False, "reason": "unchanged",
+                        "hint": "nothing changed — use \"Looks right\" to record that you "
+                                "read it and it is correct, which is evidence a gate cannot "
+                                "produce"})
             return
 
         target.write_text(after, encoding="utf-8")
@@ -345,6 +414,7 @@ class Handler(BaseHTTPRequestHandler):
             finding=("exit criterion: correction of emitted output" if mode == "fix"
                      else "author revised their own text"),
         ))
+        snapshot.unlink(missing_ok=True)
         self._json({"saved": True, "verdict": MODES[mode],
                     "revalidated": revalidated, "quarantined": quarantined})
 

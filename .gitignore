@@ -19,3 +19,4 @@ fnox.toml
 lexicon.toml
 !examples/lexicon.example.toml
 .typeset/
+.pristine/
