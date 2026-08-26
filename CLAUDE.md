@@ -68,7 +68,7 @@ Environment, verified on this machine:
 
 1. **No per-character recognizer.** Glyph recognition is solved; 2-D structure is the hard part. End-to-end image→markup, never classify-then-assemble.
 2. **No heuristic segmenter** (D4). The VLM recovers reading order for free; a bbox segmenter would have to reconstruct it.
-3. **Five gates, all hard fails:** zero non-ASCII (unless the `--standalone` preamble supports it) · delimiter and environment balance · compiles clean under `pdflatex` · **no silent mark loss** · **no silent colour loss** (read from the vector source; a raster source reports *not checked*, never *clean*).
+3. **Six gates:** zero non-ASCII (unless the `--standalone` preamble supports it) · delimiter and environment balance · compiles clean under `pdflatex` · **no silent mark loss** · **no silent colour loss** (read from the vector source; a raster source reports *not checked*, never *clean*).
 4. **Never fabricate `tikz`.** Diagrams are cropped, referenced, and flagged `% TODO: author diagram`.
 5. **Never silently drop, reword, or renotate a mark.** This is the same principle as (4), applied where the baseline proved it was missing.
 5b. **Never silently *add*.** ch17 p1 lists three divisor pairs and an ellipsis; the emitted
@@ -99,7 +99,7 @@ Environment, verified on this machine:
 | `handzoo/core/assemble.py` | **Working.** Writes `chapter.tex` after a run — pages `\input` in order, failures as visible placeholders. A `--standalone` page cannot be assembled and says so. |
 | `handzoo-ui` — the review surface | **Working.** `handzoo-ui out/` serves a local page: page image and emitted text side by side, page list with gate state. Three panes — **ink | typeset | tex**, each collapsible. Typeset is the differentiator: proofing against the rendered page is faster than against markup, and it is served as a **PNG, not a PDF** (a browser PDF *extension* commonly will not render in an iframe). Compiles are cached on the source hash. **Two save actions** — *Fix transcription* writes `edited`, *Edit my notes* writes `authored`. A corrected `.fail.tex` is **re-gated on save** and released from quarantine only if it now passes; the coverage gate cannot re-run (it needs the run's inventory), so a coverage-only failure stays quarantined rather than being promoted on faith. Bound to 127.0.0.1; page images never leave the machine. |
 | `handzoo-review` — the correction loop | **Built** (PLAN Wave 5). Walks gate findings, records a verdict per page, and can **crop** a diagram from the source as vector (`c`) — the fix for 45 of 49 findings on a real run. **The M0 exit criterion has now been run through it** — see below. |
-| Tests | **261**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
+| Tests | **270**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
 
 Measured state of the Normalizer, on identical raw recognizer output (Naive Math, the hardest
 document): 16/22 → **22/22**. Older Thinking-checkpoint corpora hold at 30/34 as a fixed
@@ -236,6 +236,22 @@ All gates pass, no TODO is emitted.
 a no-op guard; a name wrongly *present* fails silently. **Deleting the name does not fix it** —
 `\ifdefined\div` finds base LaTeX's definition, the guard no-ops, output is still ÷. A fix has
 to check what was *emitted*, not what is *declared*. Not built: no measured instance yet.
+
+## Runaway generation — the third defect class (DESIGN §11.0.1f)
+
+Found by comparison, not design. A second ch18 run produced 28% less prose than the first,
+which looked like dropped content. It was not: the *first* run held a page carrying **23,000
+characters of one repeated sentence**. Five such pages exist across three chapters and **four
+passed every gate** — ASCII-clean, balanced, compiling, coverage satisfied, and 27,118
+characters of *"The diagram is drawn with a pencil, and the text is written with a pen."*
+
+Substitution replaces a mark; omission drops it; this one **invents**, at volume — and unlike
+the other two it is cheap to catch, because degenerate repetition does not resemble writing.
+
+`repetition_gate` is a **hard fail**, and its threshold is measured rather than chosen: across
+86 passing pages the highest legitimate 8-gram repetition is **3**, the degenerate pages begin
+at **122**, and the limit of 20 sits ~40x from either side. It does not claim a passing page is
+free of invention — only free of invention that *repeats*.
 
 ## Polish is not correction (DESIGN §11.3.1)
 

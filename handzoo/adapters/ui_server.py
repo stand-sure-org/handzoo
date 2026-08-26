@@ -30,8 +30,8 @@ from urllib.parse import parse_qs, urlparse
 
 from ..core.corrections import Correction, CorrectionLog
 from ..core.pipeline import MANIFEST, PageOutcome
-from ..core.validate import ascii_gate, colour_gate, compile_gate, delimiter_gate,\
-    reference_gate
+from ..core.validate import (ascii_gate, colour_gate, compile_gate, delimiter_gate,
+                             reference_gate, repetition_gate)
 
 HERE = Path(__file__).resolve().parent / "ui"
 
@@ -178,6 +178,7 @@ def _revalidate(text: str, target: Path) -> tuple[bool, list[dict], str]:
         ascii_gate.check(text, fragment=not standalone),
         delimiter_gate.check(text),
         reference_gate.check(text),
+        repetition_gate.check(text),
         colour_gate.check(text, colours=None),
     ]
     if standalone:
