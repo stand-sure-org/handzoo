@@ -72,6 +72,8 @@
     <button id="t-ink"  aria-pressed="true">ink</button>
     <button id="t-set"  aria-pressed="true">typeset</button>
     <button id="t-tex"  aria-pressed="true">tex</button>
+    <button id="hide-diag" aria-pressed="false" title="hide pages whose only finding is an
+      invented drawing — they need the crop tool, not the editor">hide diagram-only</button>
   </span>
   <span class="msg" id="msg"></span>
 </header>
@@ -117,11 +119,16 @@ async function load() {
     const b = document.createElement("button");
     const mark = p.state === "ok" ? "✓" : p.state === "flag" ? "⚠" : "✗";
     b.innerHTML = `<span class="st ${p.state}">${mark}</span> p${p.page}` +
+                  (p.diagram_only ? ` <span class="done">◨ diagram</span>` : "") +
                   (p.reviewed ? ` <span class="done">seen</span>` : "");
+    if (p.diagram_only) b.dataset.diagram = "1";
     b.onclick = () => select(p.page);
     b.dataset.page = p.page;
     $("nav").appendChild(b);
   }
+  if ($("hide-diag").getAttribute("aria-pressed") === "true")
+    for (const b of $("nav").children)
+      if (b.dataset.diagram === "1") b.style.display = "none";
   if (current !== null) mark(current);
 }
 
@@ -173,6 +180,13 @@ async function save(mode) {
   load();
   loadTypeset(current);
 }
+
+$("hide-diag").onclick = () => {
+  const on = $("hide-diag").getAttribute("aria-pressed") !== "true";
+  $("hide-diag").setAttribute("aria-pressed", String(on));
+  for (const b of $("nav").children)
+    b.style.display = (on && b.dataset.diagram === "1") ? "none" : "";
+};
 
 $("zoomb").onclick = () => $("imgwrap").classList.toggle("zoom");
 $("reset").onclick = () => loadTypeset(current);

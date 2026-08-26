@@ -78,11 +78,19 @@ def _pages(review: Review) -> list[dict]:
     seen = {r.page for r in review.log().read()}
     out = []
     for o in review.outcomes():
-        advisory = any(f.get("gate") == "reference" for f in (o.findings or []))
-        hard = [f for f in (o.findings or []) if f.get("gate") != "reference"]
+        findings = o.findings or []
+        advisory = any(f.get("gate") == "reference" for f in findings)
+        hard = [f for f in findings if f.get("gate") != "reference"]
         state = "fail" if hard else ("flag" if advisory else "ok")
+        # A page whose *only* complaint is an invented drawing needs the crop tool, not the
+        # editor. Marking it lets a text-only pass skip it without opening it -- opening it
+        # would put its content on screen and cost the page as a transcription subject.
+        diagram_only = bool(findings) and all(
+            "fabricated" in f.get("detail", "") or "diagram" in f.get("detail", "").lower()
+            for f in findings)
         out.append({"page": o.page, "state": state, "verdict": o.verdict,
-                    "findings": o.findings or [], "reviewed": o.page in seen,
+                    "findings": findings, "reviewed": o.page in seen,
+                    "diagram_only": diagram_only,
                     "has_image": review.image(o.page) is not None})
     return out
 

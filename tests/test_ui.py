@@ -327,3 +327,35 @@ def test_the_typeset_result_is_cached_on_the_source_hash(server) -> None:
     first = _get(base, "/api/typeset?page=2")[1]
     second = _get(base, "/api/typeset?page=2")[1]
     assert first == second and len(first) > 0
+
+
+def test_a_diagram_only_page_is_marked_so_a_text_pass_can_skip_it(tmp_path: Path) -> None:
+    r"""There is no crop tool in the UI yet, so a page whose only complaint is an invented
+    drawing cannot be finished here. Marking it lets a text-only pass skip it **without
+    opening it** — and not opening it matters, because reading the emitted text is what
+    disqualifies a page as a `--transcribe` subject later (§11.1.1).
+    """
+    (tmp_path / "pages").mkdir()
+    (tmp_path / "page-0001.tex").write_text("a\n", encoding="utf-8")
+    (tmp_path / "page-0002.tex").write_text("b\n", encoding="utf-8")
+    rows = [
+        {"page": 1, "output": str(tmp_path / "page-0001.tex"), "verdict": "fail", "gates": {},
+         "findings": [{"gate": "coverage", "detail": "recognizer fabricated a drawing here"}]},
+        {"page": 2, "output": str(tmp_path / "page-0002.tex"), "verdict": "fail", "gates": {},
+         "findings": [{"gate": "coverage", "detail": "recognizer fabricated a drawing here"},
+                      {"gate": "delimiters", "detail": "math mode never closed"}]},
+    ]
+    (tmp_path / "manifest.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+    Handler.review = Review(tmp_path)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{srv.server_address[1]}"
+        pages = {p["page"]: p for p in json.loads(_get(base, "/api/pages")[1])["pages"]}
+        assert pages[1]["diagram_only"] is True
+        assert pages[2]["diagram_only"] is False, "a page with other work is not skippable"
+    finally:
+        srv.shutdown()
+        srv.server_close()
