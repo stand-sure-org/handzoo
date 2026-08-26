@@ -769,3 +769,59 @@ def test_a_standalone_page_is_typeset_directly_not_through_assembly(tmp_path: Pa
                           text=True, check=False).stdout
     assert "Real content" in text
     assert "not assemblable" not in text
+
+
+# --------------------------------------------------------------- authored
+
+
+def test_authoring_is_not_a_correction(tmp_path: Path) -> None:
+    r"""A page the author *rewrote* is not evidence about what the recognizer did.
+
+    Correcting the transcription and improving one's own prose are different acts that leave
+    the same shape of diff. Recorded together they contaminate three consumers (DESIGN
+    §11.3.1): the exit-criterion timing, the defect taxonomy built from before/after, and —
+    worst — a correction-mined lexicon, which would learn the author's taste as notation and
+    feed it back to the recognizer as a token instruction.
+
+    So `authored` exists, and is excluded from everything that reasons about recognizer
+    quality.
+    """
+    from handzoo.core.corrections import BASELINE, GOLD, Correction, CorrectionLog
+
+    assert "authored" not in GOLD, "authoring says nothing about what the recognizer produced"
+    assert "authored" not in BASELINE, "it is not the control arm either"
+
+    log = CorrectionLog(tmp_path / "corrections.jsonl")
+    log.append(Correction(page=1, verdict="authored", source_image="", before="a", after="b",
+                          seconds=300.0, finding="author revised their own text"))
+    assert log.summary()["gold_pairs"] == 0
+
+
+def test_authoring_never_enters_the_correction_arm(tmp_path: Path) -> None:
+    """It would inflate the arm with time spent on work the tool did not cause."""
+    from handzoo.core.corrections import FIX_MARKER, Correction, CorrectionLog
+
+    log = CorrectionLog(tmp_path / "corrections.jsonl")
+    log.append(Correction(page=9, verdict="edited", source_image="", before="a", seconds=42.9,
+                          finding=FIX_MARKER))
+    log.append(Correction(page=10, verdict="authored", source_image="", before="a",
+                          after="rewritten", seconds=600.0, finding=FIX_MARKER))
+    log.append(Correction(page=2, verdict="transcribed", source_image="", before="",
+                          after="typed", seconds=449.6))
+
+    arms = log.summary()["unpaired_arms"]
+    assert arms["correcting"]["n"] == 1, "the authored row must not enter the arm"
+    assert arms["correcting"]["median"] == 42.9
+
+
+def test_authored_rows_are_reported_separately_not_hidden(tmp_path: Path) -> None:
+    """Excluded from the measurements, still visible. A row that vanishes is a row nobody
+    can audit, and the author did spend that time."""
+    from handzoo.core.corrections import Correction, CorrectionLog
+
+    log = CorrectionLog(tmp_path / "corrections.jsonl")
+    log.append(Correction(page=1, verdict="authored", source_image="", before="a", after="b",
+                          seconds=300.0))
+    s = log.summary()
+    assert s["by_verdict"]["authored"] == 1
+    assert s["rows"] == 1

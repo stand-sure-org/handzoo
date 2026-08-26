@@ -1,0 +1,150 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>HandZoo review</title>
+<style>
+  :root {
+    --bg:#fbfaf7; --panel:#fff; --line:#e2ddd3; --ink:#241f1a; --dim:#7d7468;
+    --ok:#2f7d4f; --flag:#9a6b1e; --fail:#a33; --accent:#3a5a8c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16140f; --panel:#1e1b16; --line:#332e26; --ink:#ece6db; --dim:#9a9184;
+            --ok:#6fbf8c; --flag:#d7a545; --fail:#e07a72; --accent:#8fb0e0; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 ui-sans-serif,-apple-system,Segoe UI,sans-serif;
+         background:var(--bg); color:var(--ink); height:100vh; display:flex; flex-direction:column; }
+  header { padding:.6rem 1rem; border-bottom:1px solid var(--line); display:flex;
+           align-items:center; gap:1rem; }
+  header b { font-weight:650; letter-spacing:.02em; }
+  .dir { color:var(--dim); font-size:12px; font-family:ui-monospace,monospace; }
+  main { flex:1; display:flex; min-height:0; }
+  nav { width:190px; border-right:1px solid var(--line); overflow-y:auto; flex-shrink:0; }
+  nav button { display:block; width:100%; text-align:left; padding:.4rem .7rem; border:0;
+               background:none; color:inherit; font:inherit; cursor:pointer;
+               border-bottom:1px solid var(--line); }
+  nav button:hover { background:var(--panel); }
+  nav button[aria-current="true"] { background:var(--panel); font-weight:650;
+                                    box-shadow:inset 3px 0 var(--accent); }
+  .st { display:inline-block; width:1.1em; }
+  .ok{color:var(--ok)} .flag{color:var(--flag)} .fail{color:var(--fail)}
+  .done { color:var(--dim); font-size:11px; }
+  section { flex:1; display:flex; min-width:0; min-height:0; }
+  .pane { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; }
+  .pane + .pane { border-left:1px solid var(--line); }
+  .imgwrap { flex:1; min-height:0; overflow:auto; background:#fff; display:flex; }
+  .pane img { margin:auto; max-width:100%; max-height:100%; object-fit:contain; padding:.4rem; }
+  .imgwrap.zoom { align-items:flex-start; }
+  .imgwrap.zoom img { max-width:none; max-height:none; width:190%; }
+  textarea { flex:1; border:0; padding:.9rem; font:13px/1.6 ui-monospace,SFMono-Regular,monospace;
+             background:var(--panel); color:var(--ink); resize:none; }
+  textarea:focus { outline:2px solid var(--accent); outline-offset:-2px; }
+  footer { border-top:1px solid var(--line); padding:.55rem 1rem; display:flex; gap:.6rem;
+           align-items:center; flex-wrap:wrap; }
+  button.act { padding:.4rem .8rem; border:1px solid var(--line); border-radius:5px;
+               background:var(--panel); color:inherit; font:inherit; cursor:pointer; }
+  button.act:hover:not(:disabled) { border-color:var(--accent); }
+  button.act:disabled { opacity:.45; cursor:default; }
+  .why { color:var(--dim); font-size:12px; }
+  .findings { padding:.4rem .9rem; border-bottom:1px solid var(--line); font-size:12px;
+              max-height:7em; overflow-y:auto; }
+  .findings div { margin:.15rem 0; }
+  .gate { font-family:ui-monospace,monospace; }
+  .msg { margin-left:auto; font-size:12px; color:var(--dim); }
+</style>
+
+<header>
+  <b>HandZoo</b>
+  <span class="dir" id="dir"></span>
+  <span class="msg" id="msg"></span>
+</header>
+
+<main>
+  <nav id="nav"></nav>
+  <section>
+    <div class="pane"><div class="imgwrap" id="imgwrap" title="click to zoom"><img id="img" alt="page image"></div></div>
+    <div class="pane">
+      <div class="findings" id="findings"></div>
+      <textarea id="tex" spellcheck="false" placeholder="select a page"></textarea>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <button class="act" id="fix" disabled>Fix transcription</button>
+  <button class="act" id="author" disabled>Edit my notes</button>
+  <span class="why">Two acts, two kinds of record. Only <b>fix</b> measures the tool.</span>
+</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+let pages = [], current = null, opened = 0, original = "";
+
+const say = t => { $("msg").textContent = t; };
+
+async function load() {
+  const r = await (await fetch("/api/pages")).json();
+  $("dir").textContent = r.dir;
+  pages = r.pages;
+  $("nav").innerHTML = "";
+  for (const p of pages) {
+    const b = document.createElement("button");
+    const mark = p.state === "ok" ? "✓" : p.state === "flag" ? "⚠" : "✗";
+    b.innerHTML = `<span class="st ${p.state}">${mark}</span> p${p.page}` +
+                  (p.reviewed ? ` <span class="done">seen</span>` : "");
+    b.onclick = () => select(p.page);
+    b.dataset.page = p.page;
+    $("nav").appendChild(b);
+  }
+  if (current !== null) mark(current);
+}
+
+function mark(page) {
+  for (const b of $("nav").children)
+    b.setAttribute("aria-current", String(Number(b.dataset.page) === page));
+}
+
+async function select(page) {
+  const r = await fetch("/api/text?page=" + page);
+  if (!r.ok) { say("no output on disk for page " + page); return; }
+  const d = await r.json();
+  current = page; original = d.text;
+  $("tex").value = d.text;
+  $("img").src = "/api/image?page=" + page;
+  const p = pages.find(x => x.page === page);
+  $("findings").innerHTML = (p.findings || []).length
+    ? p.findings.map(f =>
+        `<div><span class="gate ${f.gate === "reference" ? "flag" : "fail"}">[${f.gate}]</span> ` +
+        `${escapeHtml(f.detail)}${f.line ? ` <span class="done">line ${f.line}</span>` : ""}</div>`
+      ).join("")
+    : `<div class="done">Nothing flagged. The gates cannot see substitution, so this is not a
+       statement that the page is correct.</div>`;
+  $("fix").disabled = $("author").disabled = false;
+  // Timing starts when the page is opened, matching --fix's protocol.
+  opened = performance.now();
+  mark(page);
+  say("");
+}
+
+const escapeHtml = s => s.replace(/[&<>"]/g, c =>
+  ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+
+async function save(mode) {
+  if (current === null) return;
+  const text = $("tex").value;
+  if (text === original) { say("unchanged — nothing recorded"); return; }
+  const seconds = (performance.now() - opened) / 1000;
+  const r = await (await fetch("/api/save", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ page: current, mode, text, seconds, ui_mode: "web-side-by-side" })
+  })).json();
+  if (r.error) { say("error: " + r.error); return; }
+  original = text;
+  say(r.saved ? `saved as ${r.verdict} — ${seconds.toFixed(1)}s` : "unchanged");
+  load();
+}
+
+$("imgwrap").onclick = () => $("imgwrap").classList.toggle("zoom");
+$("fix").onclick = () => save("fix");
+$("author").onclick = () => save("author");
+load();
+</script>

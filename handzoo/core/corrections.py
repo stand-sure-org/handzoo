@@ -33,7 +33,7 @@ from typing import Literal
 LOG_NAME = "corrections.jsonl"
 
 Verdict = Literal["keep-reviewed", "keep-unreviewed", "edited", "cropped", "flagged",
-                  "skipped", "transcribed"]
+                  "skipped", "transcribed", "authored"]
 """What the human did.
 
 `keep-reviewed` — looked at it and accepted it.
@@ -49,7 +49,18 @@ Verdict = Literal["keep-reviewed", "keep-unreviewed", "edited", "cropped", "flag
                    ground truth for the page. Deliberately outside GOLD: folding it in would
                    inflate the count of rows that judge the output with rows that never looked
                    at it, the same conflation `keep-unreviewed` exists to prevent.
+`authored`       — the author changed **what they originally wrote**, not what we transcribed.
+                   A different act with the same shape of diff, and it contaminates three
+                   things if folded in (DESIGN 11.3.1): the exit-criterion timing, the defect
+                   taxonomy built from before/after, and a correction-mined lexicon, which
+                   would learn the author's taste as notation and feed it back to the
+                   recognizer. Outside GOLD and outside the correction arm — but still
+                   reported, because the author did spend that time and a row nobody can see
+                   is a row nobody can audit.
 """
+
+AUTHORING: frozenset[str] = frozenset({"authored"})
+"""Changes to the author's own writing. Never evidence about the recognizer."""
 
 BASELINE: frozenset[str] = frozenset({"transcribed"})
 """The control arm. Timed against the page image with no emitted text in sight."""
@@ -186,6 +197,10 @@ def _arm_seconds(rows: list[Correction]) -> tuple[list[float], list[float]]:
             if not (r.after or "").strip():
                 continue
             transcribing.append(r.seconds)
+        elif r.verdict in AUTHORING:
+            # The author revising their own prose is time the tool did not cause. Counting it
+            # would inflate the correction arm with work that happens in every world.
+            continue
         elif r.finding.startswith(FIX_MARKER):
             correcting.append(r.seconds)
     return correcting, transcribing

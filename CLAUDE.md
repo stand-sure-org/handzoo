@@ -97,8 +97,9 @@ Environment, verified on this machine:
 | `handzoo/core/recognize/gemini_vlm.py` | **Working**, opt-in. Same port, same prompts, over the wire. Two providers disagreeing is the project's only self-audit-free substitution detector — DESIGN §5.5.6. |
 | Rasterizer, recognizer, gates, emitter, pipeline, CLI | **Working.** The command is `handzoo <pdf>` — see Commands above; there is no `convert` subcommand. |
 | `handzoo/core/assemble.py` | **Working.** Writes `chapter.tex` after a run — pages `\input` in order, failures as visible placeholders. A `--standalone` page cannot be assembled and says so. |
+| `handzoo-ui` — the review surface | **Working.** `handzoo-ui out/` serves a local page: page image and emitted text side by side, page list with gate state. **Two save actions** — *Fix transcription* writes `edited`, *Edit my notes* writes `authored`. A corrected `.fail.tex` is **re-gated on save** and released from quarantine only if it now passes; the coverage gate cannot re-run (it needs the run's inventory), so a coverage-only failure stays quarantined rather than being promoted on faith. Bound to 127.0.0.1; page images never leave the machine. |
 | `handzoo-review` — the correction loop | **Built** (PLAN Wave 5). Walks gate findings, records a verdict per page, and can **crop** a diagram from the source as vector (`c`) — the fix for 45 of 49 findings on a real run. **The M0 exit criterion has now been run through it** — see below. |
-| Tests | **242**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
+| Tests | **256**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
 
 Measured state of the Normalizer, on identical raw recognizer output (Naive Math, the hardest
 document): 16/22 → **22/22**. Older Thinking-checkpoint corpora hold at 30/34 as a fixed
@@ -235,6 +236,18 @@ All gates pass, no TODO is emitted.
 a no-op guard; a name wrongly *present* fails silently. **Deleting the name does not fix it** —
 `\ifdefined\div` finds base LaTeX's definition, the guard no-ops, output is still ÷. A fix has
 to check what was *emitted*, not what is *declared*. Not built: no measured instance yet.
+
+## Polish is not correction (DESIGN §11.3.1)
+
+Correcting the transcription and revising one's own prose leave the **same shape of diff**, and
+recording them together contaminates three things: the exit-criterion timing (conservatively),
+the defect taxonomy built from `before`/`after`, and — worst — a correction-mined lexicon, which
+would learn the author's *taste* as notation and feed it back to the recognizer. Constraint #5b
+through a training loop.
+
+So `authored` is a verdict. It is outside `GOLD`, outside the correction arm, and excluded from
+lexicon mining — but still reported, because the author did spend that time. In `handzoo-ui` the
+separation is **structural**: the mode is chosen before typing, so nothing has to be recalled.
 
 ## Known bugs from the mutable-source analysis (DESIGN §11.1.3)
 
