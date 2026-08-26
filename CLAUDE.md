@@ -214,6 +214,24 @@ resolve an unfamiliar string into a familiar one. Whether that contributed to de
 **`mode` was not recorded on any row**, so these timings cannot be compared against a future
 `--mode pdf-annotate` or `--mode paper` run.
 
+## Known bugs from the mutable-source analysis (DESIGN §11.1.3)
+
+The PDF is not immutable — the author keeps writing, inserts, reorders, edits. Three verified
+consequences, none fixed:
+
+1. **Page number is not page identity.** `PageOutcome.page` and `Correction.page` are both
+   ordinals. Insert a page anywhere but the end and the manifest, correction log, crops, and
+   the `--transcribe`/`--fix` guards all silently point at different content.
+2. **A re-run overwrites author corrections.** `pipeline.convert` writes unconditionally;
+   `--fix` writes to the same path. Recoverable by hand from the log's `after` field —
+   *external* edits have no log row, so not even that.
+3. **`--resume` protects a corrected page only by accident.** It keys on "recognized without
+   error", not "carries author work". Nothing in the write path knows a page has GOLD rows,
+   so there is no way to re-recognize one page while keeping a correction on another.
+
+Hashing page content answers four of the five actions; **"edit a page" is the one it cannot**,
+and it is the one most likely to land on a page already corrected.
+
 ## Branding
 
 `HandZoo™` and `"let there be text"™` are trademarks; the SVGs in `assets/brand/` are trademarked assets, not freely-licensed source. Code is Apache-2.0. See `TRADEMARK.md`.
