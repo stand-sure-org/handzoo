@@ -214,6 +214,28 @@ resolve an unfamiliar string into a familiar one. Whether that contributed to de
 **`mode` was not recorded on any row**, so these timings cannot be compared against a future
 `--mode pdf-annotate` or `--mode paper` run.
 
+## `KNOWN` has a collision class (DESIGN §11.0.1e)
+
+`declarations.KNOWN` suppresses declarations for names it lists. Seven of them are **also**
+common domain operator names, and the collision is silent:
+
+| in `KNOWN` | renders as | an author might mean |
+|---|---|---|
+| `div` | ÷ | divergence |
+| `int` | ∫ | interior of a set |
+| `top` | ⊤ | `Top`, the category |
+| `P` | ¶ | a poset, or probability |
+| `S` | § | the symmetric group |
+| `star`, `ast` | ⋆, ∗ | Hodge star; adjoint |
+
+Measured: `$\div \vec{F}$` compiles clean, is ASCII-clean and balanced, and typesets `÷F⃗`.
+All gates pass, no TODO is emitted.
+
+**`KNOWN`'s safety argument is one-directional** and now says so. A name wrongly *absent* costs
+a no-op guard; a name wrongly *present* fails silently. **Deleting the name does not fix it** —
+`\ifdefined\div` finds base LaTeX's definition, the guard no-ops, output is still ÷. A fix has
+to check what was *emitted*, not what is *declared*. Not built: no measured instance yet.
+
 ## Known bugs from the mutable-source analysis (DESIGN §11.1.3)
 
 The PDF is not immutable — the author keeps writing, inserts, reorders, edits. Three verified

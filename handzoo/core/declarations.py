@@ -58,6 +58,28 @@ KNOWN = frozenset(
 # KNOWN exists only to keep the generated block small and readable. It is NOT a
 # correctness mechanism: every emitted declaration is \ifdefined-guarded, so a name
 # wrongly absent from this list costs a redundant no-op guard, never a clobbered command.
+#
+# **That safety argument runs in one direction only, and an earlier version of this comment
+# did not say so.** It covers a name wrongly *absent*. A name wrongly *present* is not
+# covered, and fails silently:
+#
+#     div   ->  \div    renders as  ÷    (an author writing divergence)
+#     int   ->  \int    renders as  ∫    (an author writing the interior of a set)
+#     top   ->  \top    renders as  ⊤    (an author writing Top, the category)
+#     P     ->  \P      renders as  ¶    (an author writing a poset, or probability)
+#     S     ->  \S      renders as  §    (an author writing the symmetric group)
+#     star, ast                            (Hodge star; adjoint or pullback)
+#
+# Each is a short token that is both a standard LaTeX command and a common domain operator
+# name. Because it is in KNOWN, `find_undefined` does not report it, no declaration is
+# generated, and no TODO is emitted. Measured: `$\div \vec{F}$` compiles clean, is
+# ASCII-clean and balanced, and typesets `÷F⃗`. Every gate passes and the meaning is wrong.
+#
+# **Deleting the name from this list does not fix it.** `\ifdefined\div` finds base LaTeX's
+# own definition, so the guard no-ops and the output is still ÷. The `\ifdefined` mechanism
+# is load-bearing everywhere else in this module and this is the one place it works against
+# us. A fix has to be a check on what was *emitted*, not a change to what is declared —
+# DESIGN §11.0.1e.
 
 # Macros the recognizer has been measured to invent, and what it plainly meant.
 REPAIRS = {
