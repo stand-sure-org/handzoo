@@ -18,3 +18,4 @@ fnox.toml
 # examples/ is generic; a real one never enters the repo.
 lexicon.toml
 !examples/lexicon.example.toml
+.typeset/

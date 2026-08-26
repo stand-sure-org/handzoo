@@ -226,3 +226,104 @@ def test_the_manifest_learns_the_new_path_and_verdict(qserver) -> None:
     assert Path(rows[-1]["output"]).name == "page-0001.tex"
     assert rows[-1]["verdict"] != "fail"
     assert not rows[-1]["findings"], "the findings that were fixed must not persist"
+
+
+def test_a_correction_that_breaks_the_build_is_quarantined(server) -> None:
+    r"""Re-gating has to run in both directions, and this was measured in the wild.
+
+    ch18 p13 passed every gate, the author corrected it through `--fix`, and their correction
+    added `\square` — a math-mode command — in text mode. The page stopped compiling and
+    nothing noticed, because re-validation only ran on pages that were *already* quarantined.
+    It sat broken.
+
+    The author is not the recognizer, but they are equally capable of writing LaTeX that does
+    not build, and a page that silently stops compiling is exactly what the compile gate
+    exists to refuse.
+    """
+    base, run = server
+    (run / "page-0002.tex").write_text(
+        "\\documentclass{article}\\usepackage{amsmath,amssymb}\\begin{document}\n"
+        "fine\n\\end{document}\n", encoding="utf-8")
+
+    broken = ("\\documentclass{article}\\usepackage{amsmath,amssymb}\\begin{document}\n"
+              "Since it is unique. \\square\n\\end{document}\n")
+    r = _post(base, "/api/save", {"page": 2, "mode": "fix", "text": broken})
+
+    assert r["saved"] is True
+    assert r["quarantined"] is True, "a correction that breaks the build must be refused"
+    assert (run / "page-0002.fail.tex").exists()
+    assert not (run / "page-0002.tex").exists()
+
+    rows = [json.loads(l) for l in (run / "manifest.jsonl").read_text().splitlines() if l.strip()]
+    row = [x for x in rows if x["page"] == 2][0]
+    assert row["verdict"] == "fail"
+    assert any("Missing $" in f["detail"] for f in row["findings"]), row["findings"]
+
+
+def test_authoring_never_quarantines(server) -> None:
+    """Revising one's own prose is not a claim about the recognizer, and a gate result on it
+    would be a verdict on the author. The file is still written; it is simply not judged."""
+    base, run = server
+    _post(base, "/api/save", {"page": 2, "mode": "author", "text": "my own words\n"})
+    assert (run / "page-0002.tex").exists()
+    assert not (run / "page-0002.fail.tex").exists()
+
+
+# ------------------------------------------------------------------ typeset
+
+
+def test_a_page_that_does_not_typeset_says_why(server) -> None:
+    r"""An empty typeset pane reads as "nothing on this page", which is the §5.7 failure in
+    visual form. A 409 carrying the compile log is the honest answer.
+    """
+    base, run = server
+    (run / "page-0002.tex").write_text(
+        "\\documentclass{article}\\usepackage{amsmath,amssymb}\\begin{document}\n"
+        "Since it is unique. \\square\n\\end{document}\n", encoding="utf-8")
+
+    from urllib.error import HTTPError
+    with pytest.raises(HTTPError) as e:
+        _get(base, "/api/typeset?page=2")
+    assert e.value.code == 409
+    body = e.value.read().decode()
+    assert "Missing $" in body, body[:200]
+
+
+@pytest.mark.skipif(
+    __import__("handzoo.core.validate.compile_gate", fromlist=["x"]).engine_available() is False,
+    reason="pdflatex not installed")
+def test_a_compiling_page_is_served_as_a_picture_not_a_pdf(server) -> None:
+    r"""Whether a browser renders an embedded PDF depends on the viewer it happens to use — a
+    PDF *extension* commonly does not hook iframes, and the pane silently goes white.
+    Measured on the author's Chrome. `pdftoppm` is already a hard dependency, so rasterising
+    server-side removes the variable entirely.
+
+    The PDF is still reachable with `as=pdf`: it is the right artefact to annotate.
+    """
+    base, run = server
+    (run / "page-0002.tex").write_text(
+        "\\documentclass{article}\\begin{document}\nHello $x^2$.\n\\end{document}\n",
+        encoding="utf-8")
+
+    status, body = _get(base, "/api/typeset?page=2")
+    assert status == 200
+    assert body[:8] == b"\x89PNG\r\n\x1a\n", "the proofing pane gets a picture"
+
+    status, body = _get(base, "/api/typeset?page=2&as=pdf")
+    assert status == 200
+    assert body[:5] == b"%PDF-"
+
+
+def test_the_typeset_result_is_cached_on_the_source_hash(server) -> None:
+    r"""`Cache-Control: no-store` makes the browser re-request, so an iframe fired a *second*
+    compile that overwrote the PDF while the first was still being read — the viewer showed a
+    few bytes and gave up. The author saw it flash. Keying on the source hash turns a repeat
+    request into a file read instead of a race, and the bytes are identical.
+    """
+    base, run = server
+    (run / "page-0002.tex").write_text(
+        "\\documentclass{article}\\begin{document}\nstable\n\\end{document}\n",
+        encoding="utf-8")
+    first = _get(base, "/api/typeset?page=2")[1]
+    second = _get(base, "/api/typeset?page=2")[1]
+    assert first == second and len(first) > 0

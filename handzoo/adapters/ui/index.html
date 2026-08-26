@@ -31,6 +31,19 @@
   section { flex:1; display:flex; min-width:0; min-height:0; }
   .pane { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; }
   .pane + .pane { border-left:1px solid var(--line); }
+  .pane.hidden { display:none; }
+  .phead { padding:.3rem .7rem; border-bottom:1px solid var(--line); font-size:11px;
+           letter-spacing:.06em; text-transform:uppercase; color:var(--dim);
+           display:flex; justify-content:space-between; align-items:center; }
+  .phead button { border:0; background:none; color:var(--dim); cursor:pointer; font:inherit; }
+  .phead button:hover { color:var(--ink); }
+  
+  pre.err { flex:1; min-height:0; margin:0; padding:.9rem; overflow:auto; white-space:pre-wrap;
+            font:12px/1.6 ui-monospace,monospace; color:var(--fail); background:var(--panel); }
+  .toggles { display:flex; gap:.35rem; margin-left:.6rem; }
+  .toggles button { padding:.2rem .55rem; font-size:12px; border:1px solid var(--line);
+                    border-radius:4px; background:none; color:var(--dim); cursor:pointer; }
+  .toggles button[aria-pressed="true"] { color:var(--ink); border-color:var(--accent); }
   .imgwrap { flex:1; min-height:0; overflow:auto; background:#fff; display:flex; }
   .pane img { margin:auto; max-width:100%; max-height:100%; object-fit:contain; padding:.4rem; }
   .imgwrap.zoom { align-items:flex-start; }
@@ -55,14 +68,28 @@
 <header>
   <b>HandZoo</b>
   <span class="dir" id="dir"></span>
+  <span class="toggles">
+    <button id="t-ink"  aria-pressed="true">ink</button>
+    <button id="t-set"  aria-pressed="true">typeset</button>
+    <button id="t-tex"  aria-pressed="true">tex</button>
+  </span>
   <span class="msg" id="msg"></span>
 </header>
 
 <main>
   <nav id="nav"></nav>
   <section>
-    <div class="pane"><div class="imgwrap" id="imgwrap" title="click to zoom"><img id="img" alt="page image"></div></div>
-    <div class="pane">
+    <div class="pane" id="pane-ink">
+      <div class="phead"><span>ink</span><button id="zoomb">zoom</button></div>
+      <div class="imgwrap" id="imgwrap"><img id="img" alt="page image"></div>
+    </div>
+    <div class="pane" id="pane-set">
+      <div class="phead"><span>typeset</span><button id="reset">recompile</button></div>
+      <div class="imgwrap" id="setwrap"><img id="pdf" alt="typeset page"></div>
+      <pre class="err" id="err" hidden></pre>
+    </div>
+    <div class="pane" id="pane-tex">
+      <div class="phead"><span>tex</span></div>
       <div class="findings" id="findings"></div>
       <textarea id="tex" spellcheck="false" placeholder="select a page"></textarea>
     </div>
@@ -123,6 +150,7 @@ async function select(page) {
   opened = performance.now();
   mark(page);
   say("");
+  loadTypeset(page);
 }
 
 const escapeHtml = s => s.replace(/[&<>"]/g, c =>
@@ -139,11 +167,41 @@ async function save(mode) {
   })).json();
   if (r.error) { say("error: " + r.error); return; }
   original = text;
-  say(r.saved ? `saved as ${r.verdict} — ${seconds.toFixed(1)}s` : "unchanged");
+  const note = r.quarantined ? " — NOW FAILS A GATE, quarantined"
+             : r.revalidated ? " — re-gated clean, quarantine released" : "";
+  say(r.saved ? `saved as ${r.verdict} — ${seconds.toFixed(1)}s${note}` : "unchanged");
   load();
+  loadTypeset(current);
 }
 
-$("imgwrap").onclick = () => $("imgwrap").classList.toggle("zoom");
+$("zoomb").onclick = () => $("imgwrap").classList.toggle("zoom");
+$("reset").onclick = () => loadTypeset(current);
+
+for (const [btn, pane] of [["t-ink","pane-ink"],["t-set","pane-set"],["t-tex","pane-tex"]]) {
+  $(btn).onclick = () => {
+    const on = $(btn).getAttribute("aria-pressed") !== "true";
+    $(btn).setAttribute("aria-pressed", String(on));
+    $(pane).classList.toggle("hidden", !on);
+  };
+}
+
+async function loadTypeset(page) {
+  if (page === null) return;
+  $("err").hidden = true; $("setwrap").hidden = false;
+  $("pdf").removeAttribute("src");
+  // Ask first, then point the frame at the endpoint itself. A blob: URL is the obvious
+  // move and Chrome will not render a PDF from one inside an iframe — the pane just goes
+  // white, which is the failure mode this whole function exists to avoid.
+  const url = "/api/typeset?page=" + page;
+  const r = await fetch(url);
+  if (r.ok) {
+    $("pdf").src = url;
+  } else {
+    // Never a blank pane: an empty typeset column reads as "nothing on this page".
+    $("setwrap").hidden = true; $("err").hidden = false;
+    $("err").textContent = "does not typeset\n\n" + await r.text();
+  }
+}
 $("fix").onclick = () => save("fix");
 $("author").onclick = () => save("author");
 load();

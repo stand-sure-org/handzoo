@@ -19,7 +19,9 @@ This is an adapter. All logic lives in `handzoo.core`.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import subprocess
 import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -83,6 +85,77 @@ def _pages(review: Review) -> list[dict]:
                     "findings": o.findings or [], "reviewed": o.page in seen,
                     "has_image": review.image(o.page) is not None})
     return out
+
+
+def typeset(out_dir: Path, outcome: PageOutcome) -> tuple[Path | None, str]:
+    r"""Compile one page so the author can proof against the *rendered* result.
+
+    Proofing against typeset output is faster than proofing against source — a dropped
+    subscript is obvious in a rendered formula and easy to miss in a line of markup. It is
+    also the only view that shows what the reader will actually see.
+
+    Reuses `cli_review._typeset` rather than inventing a second path to a document: a
+    one-page master owns the preamble a fragment lacks and keeps crop figures within reach of
+    a relative `\includegraphics` (DESIGN 6.1).
+
+    Returns `(pdf, error)`. A page that does not compile returns `(None, log)` and the log is
+    shown — **"could not typeset" must never render as an empty pane**, which reads as "nothing
+    on this page" (DESIGN 5.7).
+    """
+    from .cli_review import _typeset
+
+    # Content-addressed, and that is not an optimisation. `Cache-Control: no-store` makes the
+    # browser re-request, so an iframe fires a *second* compile that overwrites the PDF while
+    # the first one is still being read -- the viewer renders a few bytes and then gives up.
+    # Measured as "I did see it flash". Keying on the source hash makes a repeat request a
+    # file read instead of a race.
+    source_text = Path(outcome.output).read_text(encoding="utf-8") if outcome.output else ""
+    if not source_text:
+        return None, "no output on disk for this page."
+    digest = hashlib.sha256(source_text.encode("utf-8")).hexdigest()[:16]
+    cached = out_dir / ".typeset" / f"p{outcome.page:04d}-{digest}.pdf"
+    if cached.exists():
+        return cached, ""
+
+    pdf = _typeset(outcome, out_dir)
+    if pdf:
+        cached.parent.mkdir(exist_ok=True)
+        cached.write_bytes(pdf.read_bytes())
+        return cached, ""
+    text = Path(outcome.output).read_text(encoding="utf-8") if outcome.output else ""
+    result = compile_gate.check(text, base_dir=out_dir)
+    detail = "\n".join(f"line {f.line}: {f.detail}" if f.line else f.detail
+                        for f in result.failures) or "pdflatex produced no output."
+    return None, detail
+
+
+def typeset_png(out_dir: Path, outcome: PageOutcome) -> tuple[Path | None, str]:
+    """The typeset page as a PNG.
+
+    **Deliberately not a PDF in an iframe.** Whether a browser renders an embedded PDF depends
+    on the viewer it happens to be using — a PDF *extension* commonly does not hook iframes at
+    all, and the pane silently goes white. Measured on this author's Chrome.
+
+    Rasterising server-side removes the variable: `pdftoppm` is already a hard dependency (it
+    is how page images are made at all), the result is an `<img>` like the ink pane beside it,
+    and nothing about the viewer's configuration can change the answer.
+
+    The PDF endpoint stays — it is the right artefact to annotate or download — but proofing
+    reads a picture.
+    """
+    pdf, err = typeset(out_dir, outcome)
+    if pdf is None:
+        return None, err
+    png = pdf.with_suffix(".png")
+    if png.exists():
+        return png, ""
+    proc = subprocess.run(
+        ["pdftoppm", "-png", "-r", "150", "-f", "1", "-l", "1", "-singlefile",
+         str(pdf), str(pdf.with_suffix(""))],
+        capture_output=True, text=True, check=False)
+    if proc.returncode != 0 or not png.exists():
+        return None, f"typeset, but could not rasterise it:\n{proc.stderr[:400]}"
+    return png, ""
 
 
 def _revalidate(text: str, target: Path) -> tuple[bool, list[dict], str]:
@@ -171,6 +244,21 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._json({"page": page,
                         "text": Path(match[0].output).read_text(encoding="utf-8")})
+        elif url.path == "/api/typeset":
+            page = int(q["page"][0])
+            match = [o for o in self.review.outcomes() if o.page == page]
+            if not match:
+                self._json({"error": "no such page"}, 404)
+                return
+            want_pdf = q.get("as", [""])[0] == "pdf"
+            fn = typeset if want_pdf else typeset_png
+            pdf, err = fn(self.review.out_dir, match[0])
+            if pdf is None:
+                # 200 with the reason, not 404: the pane must say *why* rather than go blank.
+                self._send(err.encode("utf-8"), "text/plain; charset=utf-8", 409)
+                return
+            self._send(pdf.read_bytes(),
+                       "application/pdf" if want_pdf else "image/png")
         elif url.path == "/api/image":
             img = self.review.image(int(q["page"][0]))
             if not img:
@@ -210,18 +298,30 @@ class Handler(BaseHTTPRequestHandler):
 
         target.write_text(after, encoding="utf-8")
 
-        # Only a correction can release a quarantine. Revising one's own prose says nothing
-        # about whether the recognizer's output was refusable.
-        revalidated = False
-        if mode == "fix" and target.name.endswith(".fail.tex"):
+        # Re-gate in **both** directions. Measured in the wild: ch18 p13 passed every gate,
+        # the author's own correction added `\square` -- a math-mode command -- in text mode,
+        # and the page stopped compiling. Nothing noticed, because re-validation ran only on
+        # pages that were already quarantined, and it sat broken. The author is not the
+        # recognizer but is equally able to write LaTeX that does not build.
+        #
+        # `authored` never re-gates: revising one's own prose is not a claim about what the
+        # recognizer produced, and a verdict on it would be a verdict on the author.
+        revalidated = quarantined = False
+        if mode == "fix":
+            was_quarantined = target.name.endswith(".fail.tex")
             clean, findings, gates = _revalidate(after, target)
-            if clean:
+            if clean and was_quarantined:
                 released = target.with_name(target.name.replace(".fail.tex", ".tex"))
                 target.rename(released)
                 _rewrite_manifest(self.review.out_dir, page, output=str(released),
-                                  verdict="pass", findings=findings,
-                                  gates=json.loads(gates))
+                                  verdict="pass", findings=findings, gates=json.loads(gates))
                 target, revalidated = released, True
+            elif not clean and not was_quarantined:
+                held = target.with_name(target.name.replace(".tex", ".fail.tex"))
+                target.rename(held)
+                _rewrite_manifest(self.review.out_dir, page, output=str(held),
+                                  verdict="fail", findings=findings, gates=json.loads(gates))
+                target, quarantined = held, True
             else:
                 _rewrite_manifest(self.review.out_dir, page, findings=findings,
                                   gates=json.loads(gates))
@@ -237,7 +337,7 @@ class Handler(BaseHTTPRequestHandler):
                      else "author revised their own text"),
         ))
         self._json({"saved": True, "verdict": MODES[mode],
-                    "revalidated": revalidated})
+                    "revalidated": revalidated, "quarantined": quarantined})
 
 
 def serve(out_dir: Path, port: int = 8765, *, open_browser: bool = True) -> None:
