@@ -2392,6 +2392,72 @@ protection is therefore not a new concept, only a new consumer of one that exist
 is not. The policy — refuse the page, write alongside as `.new.tex`, or ask — is the author's
 call and is deliberately left open here.
 
+### 11.1.3a Explicit replacement dissolves the hard case rather than solving it
+
+The author's proposal (2026-08-25): *require the user to tell us to replace page 2 with a
+result of a new PDF source, or with page 3 in a modified version of the original.*
+
+This is better than it first sounds, and for a reason beyond convenience. §11.1.3 found that
+hashing page content answers four of the five mutation actions and **cannot answer "edit a
+page"** — the changed page has a new hash, and matching it to the work already done needs a
+similarity threshold nobody can tune from six labelled pages.
+
+**Explicit replacement removes that requirement entirely.** The human asserts the
+correspondence, so HandZoo never has to infer it. The one action that resisted a mechanical
+answer becomes the one action that does not need one.
+
+It also fails better. An explicit instruction *can* be wrong — the author says page 2 and means
+page 3 — but that is a visible error with an inspectable result, not the silent misattachment
+of §11.1.3 bug 1, where work quietly attaches to different content and nothing anywhere says
+so. Trading a silent failure for a loud one is the trade this project makes everywhere else.
+
+**Implication for the identity work:** hashing is still worth having, for the four actions it
+does answer and for detecting *that* a page changed. It stops being the mechanism that decides
+*what a changed page corresponds to*. That is the author's call, by design.
+
+### 11.1.3b A screen-share screenshot as a source — measured, not speculated
+
+The author's second thought: the reMarkable screen-shares, so a surgical change could arrive as
+a screenshot. Run through the pipeline unmodified (2000x1533, a page of category theory in
+magenta on lined paper, inside the reMarkable app window):
+
+| | result |
+|---|---|
+| app chrome transcribed? | **no** — and 42% of the frame was chrome |
+| lexicon token `Consdr comp` | **survived verbatim** |
+| top diagram | **dropped from the transcription with no marker** |
+| lower diagrams | fabricated as `\includegraphics{diagram.png}` |
+| independent inventory pass | **found both diagrams** |
+| coverage gate | **FAIL** — page refused |
+| colour gate | **NOT CHECKED** |
+
+**The chrome result was not expected.** Two backgrounds are present — white for the page,
+`(250,246,241)` cream for the app — along with the reMarkable wordmark, a "Screen Share" title
+and a full toolbar in black, against a page whose ink is entirely magenta. None of it reached
+the output. Auto-cropping to the white region is mechanically trivial if it ever does leak, but
+it is not needed today.
+
+**The safety net held, and held for the designed reason.** The transcription pass silently lost
+the top diagram; the *independent* inventory pass found both. That separation (§3, `Recognition`)
+exists precisely because a self-report from the pass being audited has already decided to drop
+the mark. Coverage then refused the page over the fabricated `\includegraphics`.
+
+**Colour is the real limitation, and it is honest about it.** This page is written entirely in
+magenta and the gate reports **NOT CHECKED**, because colour is read from the vector source and
+a screenshot has none (§8.1). That is the correct answer and it is not a satisfying one: if a
+screenshot is ever the *only* source for a page, colour becomes unverifiable for it. Worth
+saying plainly rather than reaching for pixel classification, which would be a different
+mechanism with a different error profile.
+
+**And a screenshot has no identity at all** — no vector, no device `CreationDate`, no page
+ordinal, nothing to hash against a source. It is therefore *exactly* the case where §11.1.3a's
+explicit replacement is not merely the cleanest option but the **only** one: there is nothing
+to reconcile against. The author's two thoughts are one conclusion.
+
+**Also observed:** `Consdr` (for "Consider") is not on the author's seed sheet. The lexicon will
+always be incomplete, which is an argument for the correction-mined path (§11.0.1c) rather than
+against the file.
+
 ### 11.1.4 `\sps` — the third lexicon mode, and the author solved 5b again
 
 The clearest idea in either note, and the merged lexicon design (§11.0.1c) does not model it:

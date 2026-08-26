@@ -232,6 +232,18 @@ consequences, none fixed:
 Hashing page content answers four of the five actions; **"edit a page" is the one it cannot**,
 and it is the one most likely to land on a page already corrected.
 
+**The author's answer: require an explicit replacement instruction** ("replace page 2 with this").
+That dissolves the hard case rather than solving it — the human asserts the correspondence, so
+nothing has to infer it, and a wrong instruction fails loudly instead of misattaching silently.
+Hashing stays useful for the other four actions and for detecting *that* a page changed.
+
+**A screen-share screenshot works as a source, with one honest gap** (DESIGN §11.1.3b). Measured
+on a real one: app chrome was **not** transcribed (42% of the frame), the lexicon token survived,
+the transcription silently dropped a diagram — and the independent inventory pass caught it, so
+the **coverage gate refused the page**. But colour reports **NOT CHECKED**, correctly: a
+screenshot is raster and colour is read from vector. A screenshot also has no identity of any
+kind, which makes explicit replacement mandatory there rather than merely cleanest.
+
 ## Branding
 
 `HandZoo™` and `"let there be text"™` are trademarks; the SVGs in `assets/brand/` are trademarked assets, not freely-licensed source. Code is Apache-2.0. See `TRADEMARK.md`.
