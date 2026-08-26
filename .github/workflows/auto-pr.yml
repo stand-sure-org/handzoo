@@ -1,0 +1,28 @@
+# Opens a PR for any branch pushed without one.
+#
+# The gap this closes, measured: PR #44 was merged while work continued on the same
+# branch. Six further commits were pushed, no PR existed to attach them to, and no
+# workflow here triggers on a bare push -- so nothing ran and nothing said so. They
+# were found only because a human noticed the PR list was empty.
+#
+# Calls the shared implementation rather than restating it. `wip:` or `draft:` on the
+# head commit opens the PR as a draft.
+name: auto-pr
+
+on:
+  push:
+    branches-ignore:
+      - main
+    tags-ignore:
+      - "*"
+
+jobs:
+  pull_request:
+    if: github.ref != 'refs/heads/main'
+    uses: stand-sure-org/Oui-DELIVER/.github/workflows/auto-pr.yml@main
+    secrets:
+      # contents:read + pull-requests:write. Required.
+      token: ${{ secrets.SEMVER_TOKEN_NO_EXPIRATION }}
+      # Optional: a GitHub App PEM gives the PR a bot identity instead of the token's.
+      # Needs the AUTO_PR_APP_ID *variable* set as well. Falls back to `token` if absent.
+      auto_pr_private_key: ${{ secrets.AUTO_PR_APP_PRIVATE_KEY }}
