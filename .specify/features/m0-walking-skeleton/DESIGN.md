@@ -2238,6 +2238,99 @@ it**, which is a fact about how `handzoo-review` should present them — a descr
 prompt for the author to redraw, never text to be trusted. It is not a gate: the block is
 already flagged, and the author is already going to replace it.
 
+### 11.0.1e A tiered lexicon, and the collision class the author's example exposed
+
+The author's framing (2026-08-25): the lexicon should be **tiered**, and learned from usage. In
+a chemistry or physics document they would write a delta for heat, and *"would probably hack
+grad, div, curl because I only remember them with effort unless I am in the domain for a bit."*
+
+**The rusty-notation observation has a design consequence.** The notation a model most needs
+help with is the notation its author writes *least* confidently — an unfamiliar domain produces
+nonstandard shorthand, which is exactly the unfamiliar-token-resolved-into-a-familiar-one
+mechanism that produced `Sps` → `\Rightarrow` (§11.0.1a). Rusty domains are higher risk, not
+lower.
+
+**And it splits the lexicon into two kinds of entry, which want opposite treatment.** `Sps` is a
+*deliberate* shorthand: preserve it. A hacked `grad` is a *workaround* for notation the author
+could not recall: they would like the standard rendering. Rendering it for them is silent
+improvement — the villain.
+
+**Macro mode (§11.1.4) is the general answer, not a note about `\sps`.** An author who writes
+`grad` and defines `\grad` as `\nabla` gets standard output with the original token intact and
+the translation visible **in their preamble, not ours**. HandZoo never substitutes; the author
+does, reversibly, in one place. That is constraint #5b satisfied a second way, and it is the
+answer to *"I write it wrong because I am rusty"* in general.
+
+#### The collision class in `KNOWN`
+
+The author's own example exposed a defect. `div` is **already in `KNOWN`** — as LaTeX's
+division sign. Measured:
+
+```
+$\div \vec{F} = 0$   ->   compiles clean, ASCII-clean, balanced   ->   typesets  ÷F⃗
+```
+
+Every gate passes. An author writing divergence gets a division sign. And because `div` is in
+`KNOWN`, `find_undefined` does not report it, no declaration is generated, and **no TODO is
+emitted** — the page is silently wrong with nothing anywhere to notice.
+
+It is a class, not an instance. Each is a short token that is both a standard LaTeX command and
+a common domain operator name:
+
+| in `KNOWN` | renders as | an author might mean |
+|---|---|---|
+| `div` | ÷ | divergence |
+| `int` | ∫ | interior of a set |
+| `top` | ⊤ | `Top`, the category of spaces |
+| `P` | ¶ | a poset, or probability |
+| `S` | § | the symmetric group |
+| `star`, `ast` | ⋆, ∗ | Hodge star; adjoint or pullback |
+
+**`KNOWN`'s stated safety argument runs in one direction only**, and did not say so. It covers a
+name wrongly *absent* — that costs a redundant no-op guard. A name wrongly *present* is not
+covered at all.
+
+**Deleting the name from `KNOWN` does not fix it.** `\ifdefined\div` finds base LaTeX's own
+definition, the guard no-ops, and the output is still ÷. The `\ifdefined` mechanism is
+load-bearing everywhere else in `declarations.py` and this is the one place it works against
+us. Any fix has to check what was **emitted**, not change what is **declared**.
+
+**Not built.** A collision check would be the third gate proposed from a single constructed
+example, and §11.0.1c already recorded why that is the wrong order: the reference gate earned
+its place on measured true positives, and a gate built on six labelled pages is built to the
+wrong precision. The author has written no physics through HandZoo. The docstring now carries
+the class so that whoever edits `KNOWN` sees it.
+
+#### Learning from usage: what would have to be true
+
+The correction log already records `before` and `after` per page, so the raw material exists.
+A candidate entry is a **token pair repeated across pages** — the same `before → after`
+substitution seen more than once, since a single instance is indistinguishable from a one-off.
+
+**A threshold, named now so the next batch can be checked against it rather than re-deriving
+the question: three occurrences of the same pair, on three different pages, before proposing an
+entry.** Measured today (§11.0.1c): eight edits across six pages contain **zero** repeats of any
+pair. The mechanism is not nearly-free; it is waiting on an order of magnitude more corrected
+pages.
+
+And the author's own `def^{\underline{n}}` example remains outside it: a **typographic pattern
+rather than a string**, which a token-pair learner cannot represent at any threshold.
+
+#### The tier model is a design guess, and marked as one
+
+| tier | example | ships? |
+|---|---|---|
+| universal | `\sum`, `\forall` — `declarations.KNOWN` today | yes, exists |
+| domain | vector calculus; category theory; thermodynamics | **untested** |
+| author | `Sps`, `Defn`, `Consdr` | yes, gitignored (§11.0.1c) |
+
+Precedence is author over domain over universal, which is the only ordering that lets a private
+convention override a general one.
+
+**Category theory is the only corpus that exists.** Physics tiering is a reasonable guess with
+zero evidence behind it, and is marked as such for the same reason §8.1 marks the scan path:
+a design written against an imagined corpus is a design nobody has tested.
+
 ### 11.0.2 The reporter could never have run
 
 Finding both arms in the log and no comparison printed exposed two defects. Neither was
@@ -2391,6 +2484,72 @@ protection is therefore not a new concept, only a new consumer of one that exist
 **Out of M0 except for bug 2.** The identity rework is architecture; a guard on the write path
 is not. The policy — refuse the page, write alongside as `.new.tex`, or ask — is the author's
 call and is deliberately left open here.
+
+### 11.1.3a Explicit replacement dissolves the hard case rather than solving it
+
+The author's proposal (2026-08-25): *require the user to tell us to replace page 2 with a
+result of a new PDF source, or with page 3 in a modified version of the original.*
+
+This is better than it first sounds, and for a reason beyond convenience. §11.1.3 found that
+hashing page content answers four of the five mutation actions and **cannot answer "edit a
+page"** — the changed page has a new hash, and matching it to the work already done needs a
+similarity threshold nobody can tune from six labelled pages.
+
+**Explicit replacement removes that requirement entirely.** The human asserts the
+correspondence, so HandZoo never has to infer it. The one action that resisted a mechanical
+answer becomes the one action that does not need one.
+
+It also fails better. An explicit instruction *can* be wrong — the author says page 2 and means
+page 3 — but that is a visible error with an inspectable result, not the silent misattachment
+of §11.1.3 bug 1, where work quietly attaches to different content and nothing anywhere says
+so. Trading a silent failure for a loud one is the trade this project makes everywhere else.
+
+**Implication for the identity work:** hashing is still worth having, for the four actions it
+does answer and for detecting *that* a page changed. It stops being the mechanism that decides
+*what a changed page corresponds to*. That is the author's call, by design.
+
+### 11.1.3b A screen-share screenshot as a source — measured, not speculated
+
+The author's second thought: the reMarkable screen-shares, so a surgical change could arrive as
+a screenshot. Run through the pipeline unmodified (2000x1533, a page of category theory in
+magenta on lined paper, inside the reMarkable app window):
+
+| | result |
+|---|---|
+| app chrome transcribed? | **no** — and 42% of the frame was chrome |
+| lexicon token `Consdr comp` | **survived verbatim** |
+| top diagram | **dropped from the transcription with no marker** |
+| lower diagrams | fabricated as `\includegraphics{diagram.png}` |
+| independent inventory pass | **found both diagrams** |
+| coverage gate | **FAIL** — page refused |
+| colour gate | **NOT CHECKED** |
+
+**The chrome result was not expected.** Two backgrounds are present — white for the page,
+`(250,246,241)` cream for the app — along with the reMarkable wordmark, a "Screen Share" title
+and a full toolbar in black, against a page whose ink is entirely magenta. None of it reached
+the output. Auto-cropping to the white region is mechanically trivial if it ever does leak, but
+it is not needed today.
+
+**The safety net held, and held for the designed reason.** The transcription pass silently lost
+the top diagram; the *independent* inventory pass found both. That separation (§3, `Recognition`)
+exists precisely because a self-report from the pass being audited has already decided to drop
+the mark. Coverage then refused the page over the fabricated `\includegraphics`.
+
+**Colour is the real limitation, and it is honest about it.** This page is written entirely in
+magenta and the gate reports **NOT CHECKED**, because colour is read from the vector source and
+a screenshot has none (§8.1). That is the correct answer and it is not a satisfying one: if a
+screenshot is ever the *only* source for a page, colour becomes unverifiable for it. Worth
+saying plainly rather than reaching for pixel classification, which would be a different
+mechanism with a different error profile.
+
+**And a screenshot has no identity at all** — no vector, no device `CreationDate`, no page
+ordinal, nothing to hash against a source. It is therefore *exactly* the case where §11.1.3a's
+explicit replacement is not merely the cleanest option but the **only** one: there is nothing
+to reconcile against. The author's two thoughts are one conclusion.
+
+**Also observed:** `Consdr` (for "Consider") is not on the author's seed sheet. The lexicon will
+always be incomplete, which is an argument for the correction-mined path (§11.0.1c) rather than
+against the file.
 
 ### 11.1.4 `\sps` — the third lexicon mode, and the author solved 5b again
 

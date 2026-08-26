@@ -214,6 +214,28 @@ resolve an unfamiliar string into a familiar one. Whether that contributed to de
 **`mode` was not recorded on any row**, so these timings cannot be compared against a future
 `--mode pdf-annotate` or `--mode paper` run.
 
+## `KNOWN` has a collision class (DESIGN §11.0.1e)
+
+`declarations.KNOWN` suppresses declarations for names it lists. Seven of them are **also**
+common domain operator names, and the collision is silent:
+
+| in `KNOWN` | renders as | an author might mean |
+|---|---|---|
+| `div` | ÷ | divergence |
+| `int` | ∫ | interior of a set |
+| `top` | ⊤ | `Top`, the category |
+| `P` | ¶ | a poset, or probability |
+| `S` | § | the symmetric group |
+| `star`, `ast` | ⋆, ∗ | Hodge star; adjoint |
+
+Measured: `$\div \vec{F}$` compiles clean, is ASCII-clean and balanced, and typesets `÷F⃗`.
+All gates pass, no TODO is emitted.
+
+**`KNOWN`'s safety argument is one-directional** and now says so. A name wrongly *absent* costs
+a no-op guard; a name wrongly *present* fails silently. **Deleting the name does not fix it** —
+`\ifdefined\div` finds base LaTeX's definition, the guard no-ops, output is still ÷. A fix has
+to check what was *emitted*, not what is *declared*. Not built: no measured instance yet.
+
 ## Known bugs from the mutable-source analysis (DESIGN §11.1.3)
 
 The PDF is not immutable — the author keeps writing, inserts, reorders, edits. Three verified
@@ -231,6 +253,18 @@ consequences, none fixed:
 
 Hashing page content answers four of the five actions; **"edit a page" is the one it cannot**,
 and it is the one most likely to land on a page already corrected.
+
+**The author's answer: require an explicit replacement instruction** ("replace page 2 with this").
+That dissolves the hard case rather than solving it — the human asserts the correspondence, so
+nothing has to infer it, and a wrong instruction fails loudly instead of misattaching silently.
+Hashing stays useful for the other four actions and for detecting *that* a page changed.
+
+**A screen-share screenshot works as a source, with one honest gap** (DESIGN §11.1.3b). Measured
+on a real one: app chrome was **not** transcribed (42% of the frame), the lexicon token survived,
+the transcription silently dropped a diagram — and the independent inventory pass caught it, so
+the **coverage gate refused the page**. But colour reports **NOT CHECKED**, correctly: a
+screenshot is raster and colour is read from vector. A screenshot also has no identity of any
+kind, which makes explicit replacement mandatory there rather than merely cleanest.
 
 ## Branding
 
