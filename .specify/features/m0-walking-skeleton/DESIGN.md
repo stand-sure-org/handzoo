@@ -2357,30 +2357,51 @@ than letting it compile.
 reliably. Recorded as a positive because the corpus records failures far more readily than
 successes, and a design that only remembers what went wrong will over-correct.
 
-**4. Open letters became calligraphy — and the cause is not what it appears.**
+**4. Open letters became calligraphy — a real defect, and an earlier reading here was wrong.**
 
-The author's seed sheet distinguishes **three** hand letterforms: *open letters*, *math bb*
-(drawn by tracing the letter twice), and *calligraphy*. The emitted output collapsed the first
-into the third.
+An earlier version of this section argued the collapse *might be legitimate*, on the grounds
+that `\mathbb` is itself an outline font so "open letters" and "drawn twice" plausibly map to
+one printed form. **That reasoning asked the wrong question.** It asked whether *print*
+distinguishes the forms. What matters is whether the *author's page* does, and it plainly does.
 
-Measured, rather than assumed: base LaTeX plus `amssymb` supplies **two** script-ish alphabets,
-`\mathcal` and `\mathbb` — and **`\mathbb` is itself an outline font**. Rendered side by
-side, `\mathbb{ABCD}` is hollow-stroked. So "open letters" is very likely `\mathbb` in print,
-and the author's *open* and *drawn-twice* forms plausibly collapse to one typeset form
-**legitimately**, because the printed convention does not distinguish them.
+Measured on ch22: **109 `\mathcal` uses against 2 `\mathbb`.** On p11 the author writes an
+open, doubled 𝕀 and a curly script 𝒞 — two visibly different letters — and the output emitted
+`\mathcal{I}` ×8 and `\mathcal{C}` ×8. On p24 the author writes a doubled ℂ and a doubled 𝟙,
+and the output emitted `\mathcal{C}` ×8 and nothing for the 𝟙.
 
-A third alphabet does exist: `\mathscr` via `mathrsfs`, which is installed here and renders
-visibly distinct from `\mathcal`. It is **not** in the preamble and should not be added yet.
+**The mechanism is §5.5 again.** `\mathcal{C}` is overwhelmingly the commoner way to name a
+category in the literature, so an unfamiliar convention is resolved into a familiar one — the
+same production that gave `Sps` → `\Rightarrow`. The author's own book (Cheng) prints
+categories in blackboard bold *and* uses calligraphic letters separately, so both forms carry
+meaning and collapsing them destroys a distinction the source makes deliberately.
 
-**Why not.** The author reports that *Cheng varies the usage without explaining the
-convention*, and their own guess is that it tracks size. If the source's own distinction is
-unexplained and possibly not semantic, then adding a third target would let the recognizer
-express a difference nobody has established exists — inventing a convention to preserve. That
-is the §5.7 error pointed forwards: **acting on a distinction whose meaning is unknown is not
-more faithful than collapsing it, it is only more confident.**
+**A third alphabet is not the answer, and `mathrsfs` stays out of the preamble.** The two
+alphabets `amssymb` already provides are sufficient; the failure is the recognizer defaulting
+everything to one of them.
 
-If the distinction is later shown to carry meaning, the mechanism is one `\usepackage` away
-and this note is where to start.
+#### The prompt fix is unproven, and is not shipped
+
+A hint naming the two letterforms looked promising and then did not survive contact with a
+second page:
+
+| page | truth | no hint | hint v1 | hint v2 |
+|---|---|---|---|---|
+| p11 | doubled I, script C | `\mathcal{I}` ✗ | **`\mathbb{I}` ✓** | **`\mathbb{I}` ✓** |
+| p10 | doubled I, script C | `\mathbb{I}` ✓ | `\mathbb{I}` ✓ | **`\mathcal{I}` ✗ regressed** |
+| p24 | doubled C, doubled 1 | C ✗, no 1 | C ✗, **`\mathbb{1}` ✓** | C ✗, 1 misread |
+
+Neither version recovers the **rounded** case. The author named exactly why: a blackboard-bold
+C is doubled *only on its left edge* — one short extra stroke — where I, 1 and N double a full
+vertical. Naming that explicitly in v2 did not fix C and **regressed p10**, which v1 had right.
+
+**So it is recorded and not wired in.** The lexicon (§11.0.1c) earned its place on four paired
+runs producing a clean 0/4 → 4/4; this is one run per condition with results that contradict
+each other, which is indistinguishable from noise. Shipping a prompt change on that evidence
+would be the mistake §11.0.1a already made once — building to a frequency the data does not
+support.
+
+**What would settle it:** several paired runs across pages carrying each letterform, scored per
+letter rather than per count, since a matching total can still be the wrong assignment.
 
 ### 11.0.1h A review run that recorded nothing, and why
 
