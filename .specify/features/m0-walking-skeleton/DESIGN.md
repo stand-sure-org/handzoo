@@ -2625,6 +2625,61 @@ into a timed run the number stops measuring the tool and starts measuring the au
 So: the **product** is polish, the **measurement** is correction to what the page says, and the
 prompt keeps them apart.
 
+### 11.3.1 Yes — concurrent authorial editing contaminates `before`/`after`, in three ways
+
+The author's question (2026-08-25): if a user corrects the transcription *and* edits what they
+originally wrote, does `before`/`after` break?
+
+**It does, and §11.3's answer is not sufficient.** That section already saw the risk and
+resolved it by *prompt wording* — "the product is polish, the measurement is correction to what
+the page says, and the prompt keeps them apart". A prompt is an instruction, not a separation.
+Nothing in the data records which act produced a given change.
+
+Three consumers of `before`/`after`, in increasing severity:
+
+**1. The exit-criterion timing — contaminated, but conservatively.** Authorial improvement
+inflates the correction arm, which makes the criterion *harder* to pass. A pass under
+contamination is still a valid pass, so §11.0.1's verdict survives. It does break run-to-run
+comparison, and it breaks any future `--mode` comparison, which was already unavailable for a
+different reason.
+
+**2. The defect taxonomy — genuinely broken.** §11.0.1a was built *entirely* from before/after
+diffs. An authorial improvement sitting in `after` reads as a recognizer defect.
+
+There is an instance in the corpus. ch18 p13's *"Also prove for B×A / What is the unique
+isomorphism with A×B?"* was recorded as **lost sentence boundary**. Checking the page image
+confirms the line break is really there, so the classification holds — **but it took opening
+the image to know**, and the tool cannot do that. One of the eight edits in the published
+taxonomy required human adjudication to classify, and nothing in the log says which ones need
+it.
+
+**3. The learned lexicon — the serious one.** §11.0.1e proposes mining repeated before→after
+pairs for lexicon entries. If `after` carries stylistic preference, that mechanism learns the
+author's *taste* as if it were notation, then feeds it to the recognizer as a token instruction.
+That is constraint #5b arriving through a training loop: the model would begin making changes
+the author never asked it to make, having been taught them by changes the author made for
+unrelated reasons. **Any correction-mined lexicon must draw only from rows known to be
+correction-only.**
+
+#### The fix is to record the act, not to forbid it
+
+Polishing is what the author wants the product to do (§11.3), so the answer cannot be to
+prevent it. It has to be **labelled**, and the label has to come from the human because nothing
+else can supply it.
+
+The cheapest form: one question at save time in `--fix` — *did this include changes to what you
+originally wrote, as opposed to what we transcribed?* There is precedent, since `--fix` already
+asks about an unchanged document (§11.1.1) rather than assuming. A row answering yes is
+**excluded from the taxonomy and from lexicon mining**, and flagged in the timing.
+
+In a UI the separation can be structural rather than a question: correcting the transcription
+and editing the notes are two actions, and two actions can write two kinds of row.
+
+**Retrospective note on the existing data.** The six labelled pages were collected before this
+distinction existed, so none of their rows carry it. They were spot-checked against the page
+images while building §11.0.1a and the classifications held — but that is adjudication after
+the fact by someone who was not the author, and it does not generalise to the next batch.
+
 ### 11.4 Converter or workspace — the question this raises (author, 2026-08-21)
 
 The author's framing: if the flow is *tablet → handzoo → some LaTeX application*, HandZoo is
