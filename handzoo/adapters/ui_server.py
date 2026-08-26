@@ -28,6 +28,8 @@ from urllib.parse import parse_qs, urlparse
 
 from ..core.corrections import Correction, CorrectionLog
 from ..core.pipeline import MANIFEST, PageOutcome
+from ..core.validate import ascii_gate, colour_gate, compile_gate, delimiter_gate,\
+    reference_gate
 
 HERE = Path(__file__).resolve().parent / "ui"
 
@@ -81,6 +83,54 @@ def _pages(review: Review) -> list[dict]:
                     "findings": o.findings or [], "reviewed": o.page in seen,
                     "has_image": review.image(o.page) is not None})
     return out
+
+
+def _revalidate(text: str, target: Path) -> tuple[bool, list[dict], str]:
+    """Re-run the gates on what the author actually saved.
+
+    A `.fail.tex` name is one a build cannot pick up by accident. Once the defect is fixed,
+    keeping that name is a lie in the other direction: the page is good, the filename says
+    otherwise, and `chapter.tex` still carries a placeholder where real content now sits.
+
+    **The gate decides, not the act of saving.** A half-fix keeps its quarantine.
+
+    The coverage gate is not re-run: it needs the inventory from the recognition pass, which
+    exists only during a run (see `PageOutcome.findings`). So a page quarantined *solely* for
+    coverage cannot be released here — which is the honest outcome, since nothing available
+    at this point can confirm the marks are accounted for. It is reported as still failing
+    rather than promoted on faith (DESIGN §5.7).
+    """
+    standalone = "\\begin{document}" in text
+    gates = [
+        ascii_gate.check(text, fragment=not standalone),
+        delimiter_gate.check(text),
+        reference_gate.check(text),
+        colour_gate.check(text, colours=None),
+    ]
+    if standalone:
+        gates.append(compile_gate.check(text, base_dir=target.parent))
+
+    findings = [{"gate": g.gate, "detail": f.detail, "line": f.line, "excerpt": f.excerpt}
+                for g in gates if g.checked and not g.advisory
+                for f in g.failures]
+    advisory = [{"gate": g.gate, "detail": f.detail, "line": f.line, "excerpt": f.excerpt}
+                for g in gates if g.checked and g.advisory
+                for f in g.failures]
+    state = {g.gate: ("pass" if g.passed else "skipped" if not g.checked else "fail")
+             for g in gates}
+    return (not findings), findings + advisory, json.dumps(state)
+
+
+def _rewrite_manifest(out_dir: Path, page: int, **fields) -> None:
+    """Update one page's row in place. Every reader — `handzoo-review`, `assemble`, this UI —
+    goes through the manifest, so a rename it does not know about points them all at a file
+    that is gone."""
+    path = out_dir / MANIFEST
+    rows = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    for r in rows:
+        if r.get("page") == page:
+            r.update(fields)
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -159,6 +209,23 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         target.write_text(after, encoding="utf-8")
+
+        # Only a correction can release a quarantine. Revising one's own prose says nothing
+        # about whether the recognizer's output was refusable.
+        revalidated = False
+        if mode == "fix" and target.name.endswith(".fail.tex"):
+            clean, findings, gates = _revalidate(after, target)
+            if clean:
+                released = target.with_name(target.name.replace(".fail.tex", ".tex"))
+                target.rename(released)
+                _rewrite_manifest(self.review.out_dir, page, output=str(released),
+                                  verdict="pass", findings=findings,
+                                  gates=json.loads(gates))
+                target, revalidated = released, True
+            else:
+                _rewrite_manifest(self.review.out_dir, page, findings=findings,
+                                  gates=json.loads(gates))
+
         img = self.review.image(page)
         self.review.log().append(Correction(
             page=page, verdict=MODES[mode],  # type: ignore[arg-type]
@@ -169,7 +236,8 @@ class Handler(BaseHTTPRequestHandler):
             finding=("exit criterion: correction of emitted output" if mode == "fix"
                      else "author revised their own text"),
         ))
-        self._json({"saved": True, "verdict": MODES[mode]})
+        self._json({"saved": True, "verdict": MODES[mode],
+                    "revalidated": revalidated})
 
 
 def serve(out_dir: Path, port: int = 8765, *, open_browser: bool = True) -> None:
