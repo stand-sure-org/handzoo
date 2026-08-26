@@ -237,6 +237,24 @@ a no-op guard; a name wrongly *present* fails silently. **Deleting the name does
 `\ifdefined\div` finds base LaTeX's definition, the guard no-ops, output is still ÷. A fix has
 to check what was *emitted*, not what is *declared*. Not built: no measured instance yet.
 
+## Letterforms: three by hand, two in print (DESIGN §11.0.1g)
+
+The author's seed sheet distinguishes **open letters**, **math bb** (letter traced twice), and
+**calligraphy**. Base LaTeX + `amssymb` supplies two script-ish alphabets — and **`\mathbb` is
+itself an outline font**, so "open letters" is probably `\mathbb` in print and the collapse may
+be legitimate.
+
+A third alphabet (`\mathscr`, via `mathrsfs`, installed) exists and is **deliberately not in
+the preamble**. Cheng varies the usage without explaining the convention, so adding a third
+target would let the recognizer express a distinction nobody has established is semantic —
+§5.7 pointed forwards: *acting on a distinction whose meaning is unknown is not more faithful
+than collapsing it, only more confident.*
+
+Also observed on that read-through: `\therefore` emitted as **"so"** — a substitution the
+author judged *more* correct. No gate (their call), but it is the same mechanism that produced
+`Sps` → `\Rightarrow`, and #5b's warning applies: an improvement the author welcomes is one
+they stop checking for.
+
 ## Runaway generation — the third defect class (DESIGN §11.0.1f)
 
 Found by comparison, not design. A second ch18 run produced 28% less prose than the first,

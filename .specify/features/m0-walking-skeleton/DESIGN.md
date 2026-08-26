@@ -2331,6 +2331,80 @@ convention override a general one.
 zero evidence behind it, and is marked as such for the same reason §8.1 marks the scan path:
 a design written against an imagined corpus is a design nobody has tested.
 
+### 11.0.1g The ch22 read-through — author's findings, no log behind them
+
+**These are recollections, not recorded verdicts.** The run produced an empty log (§11.0.1h),
+so nothing here is countable. Recorded because the observations are real and the next run can
+test them.
+
+Overall: *"it did pretty well on comprehension."*
+
+**1. `\therefore` emitted as "so".** A substitution — and by the author's judgement *more*
+correct than the symbol. Their call is that it does not warrant a gate, and that stands.
+
+It is worth naming what class it belongs to anyway, because this is exactly the shape
+constraint #5b warns about: **an improvement the author welcomes is one they stop checking
+for.** The mechanism that produced it is the same one that produced `Sps` → `\Rightarrow`
+(§11.0.1a) — a token resolved into something more familiar. There the result inverted a proof;
+here it reads better. Nothing distinguishes the two at the point of production. Not a gate, but
+not a different phenomenon either.
+
+**2. Commutative diagrams are still attempted.** Expected, and survivable: the crop-and-insert
+mechanism (§7.2) is the answer, and R9 (§5.7.1) already refuses the fabricated markup rather
+than letting it compile.
+
+**3. Calligraphy detection worked well.** The recognizer distinguished `\mathcal` letterforms
+reliably. Recorded as a positive because the corpus records failures far more readily than
+successes, and a design that only remembers what went wrong will over-correct.
+
+**4. Open letters became calligraphy — and the cause is not what it appears.**
+
+The author's seed sheet distinguishes **three** hand letterforms: *open letters*, *math bb*
+(drawn by tracing the letter twice), and *calligraphy*. The emitted output collapsed the first
+into the third.
+
+Measured, rather than assumed: base LaTeX plus `amssymb` supplies **two** script-ish alphabets,
+`\mathcal` and `\mathbb` — and **`\mathbb` is itself an outline font**. Rendered side by
+side, `\mathbb{ABCD}` is hollow-stroked. So "open letters" is very likely `\mathbb` in print,
+and the author's *open* and *drawn-twice* forms plausibly collapse to one typeset form
+**legitimately**, because the printed convention does not distinguish them.
+
+A third alphabet does exist: `\mathscr` via `mathrsfs`, which is installed here and renders
+visibly distinct from `\mathcal`. It is **not** in the preamble and should not be added yet.
+
+**Why not.** The author reports that *Cheng varies the usage without explaining the
+convention*, and their own guess is that it tracks size. If the source's own distinction is
+unexplained and possibly not semantic, then adding a third target would let the recognizer
+express a difference nobody has established exists — inventing a convention to preserve. That
+is the §5.7 error pointed forwards: **acting on a distinction whose meaning is unknown is not
+more faithful than collapsing it, it is only more confident.**
+
+If the distinction is later shown to carry meaning, the mechanism is one `\usepackage` away
+and this note is where to start.
+
+### 11.0.1h A review run that recorded nothing, and why
+
+The author read 35 pages of ch22 and the correction log came back **empty**. Their diagnosis:
+*"it's because you want me to click fix."*
+
+`--fix` in the CLI asks, on an unchanged document, whether the output was already correct or
+the attempt was abandoned, and records `keep-reviewed` for the first — §11.1.1 calls it the
+most valuable datum this project can collect. **The UI ported only the branch that records
+nothing.** With no action matching the outcome that actually occurred, the expensive part —
+reading — left no trace.
+
+`keep-reviewed` is now a UI action. Two design points came with it:
+
+- It does **not** carry the exit-criterion marker. Reading a page and finding it right is not
+  correcting one, and folding the time into the correction arm would inflate it with pages that
+  needed no work.
+- Accepting a page whose text was changed is refused. *"Looks right"* has to mean what it says.
+
+**The general lesson is about interaction, not about this button.** A measurement surface has
+to offer an action for every outcome the work can have, or the outcomes it omits are silently
+absent from the data — and absent for the most confusing reason possible, which is that
+everything went well.
+
 ### 11.0.2 The reporter could never have run
 
 Finding both arms in the log and no comparison printed exposed two defects. Neither was
