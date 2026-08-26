@@ -2316,6 +2316,115 @@ output was already correct — the most valuable datum this project can collect 
 editor was opened and closed. Those are opposites. It asks, and records `keep-reviewed` for the
 first and nothing at all for the second.
 
+### 11.1.3 The source is not immutable — three bugs now, one architecture later
+
+The author's *"Real world things"* and *"User experience"* notes (2026-08-25) both rest on one
+premise the code does not hold: **the PDF keeps changing.** The author writes more, inserts a
+page, reorders, edits a page already converted. Every action in that first note is an edit to a
+sequence HandZoo has already recorded work against.
+
+#### Verified now, and in M0
+
+**1. Page number is not page identity.** `PageOutcome.page` and `Correction.page` are both the
+ordinal `page.number`. Insert a page anywhere but the end and every later page shifts, so the
+manifest, the correction log, the crops, and the `--transcribe`/`--fix` contamination guards
+all silently point at different content than they were written about. Silent misattachment of
+author work, which is the most expensive artefact in the system.
+
+**2. A re-run overwrites author corrections.** `pipeline.convert` does
+`target.write_text(emission.text)` with no guard. `--fix` writes the corrected page back to
+that same path, so re-running without `--resume` destroys it. The text survives in the
+correction log's `after` field and can be recovered by hand from JSON — and the *external*
+text edits the author describes have no log row at all, so for those not even that applies.
+
+**3. `--resume` protects a corrected page only by accident.** `completed_pages()` keys on
+*"recognized without error"*, not *"carries author work"*. Nothing in the write path knows a
+page has GOLD rows against it — which is also why there is no way to re-recognize page 5 while
+keeping the correction on page 10. Those should be independent and are not.
+
+#### The FSM question, answered in two halves
+
+*Does a finite-state machine work here?* **For the page lifecycle, yes** — and it already
+exists implicitly: recognized → gated → reviewed → corrected, with `verdict` and the correction
+verdicts as its states. Making it explicit would be a tidying, not a discovery.
+
+**For document mutation, no.** An FSM models a system with states and transitions; this is
+edits to a *sequence*, and what it needs is stable identity plus reconciliation — *"which pages
+in this new export do I already have work for?"* That is a diff problem wearing a state
+machine's clothes.
+
+#### Hashing answers four of the five actions, and the fifth is the dangerous one
+
+| action | page content | recoverable by hash? |
+|---|---|---|
+| add page(s) at end | unchanged | yes |
+| add page(s) anywhere | unchanged | yes |
+| delete a page | unchanged | yes |
+| reorder pages | unchanged | yes |
+| **edit a page** | **changed** | **no** |
+
+Four leave content untouched, so a per-page content hash recognizes work wherever it moved.
+**"Edit a page" breaks it, and it is the action most likely to land on a page already
+corrected** — the author adds a stroke to page 7 on the device after correcting page 7 here,
+the hash changes, and the work is orphaned. That case needs a similarity threshold or explicit
+author confirmation; it cannot be resolved by lookup. *That* is the answer to "which do we need
+to model": the fifth one, in a way the other four do not require.
+
+#### Naming: the author's instinct is right
+
+From the UX note: *"I don't foresee a way to avoid a name upfront unless we map names to work
+directories."*
+
+Content-hashing the source **does not** rescue this, and it is worth saying so before someone
+builds on it. The premise of the first note is that the PDF changes every time the author
+writes more — so the source hash is different on every export, and matching a new export to an
+existing project is the reconciliation problem again rather than a lookup. A name upfront is
+probably correct. Filename as a *suggestion*, as the note proposes, is the right shape.
+
+#### Page-level read-only protection is not a nicety
+
+The UX note asks whether to offer it. It is the mechanism that protects the most expensive
+artefact HandZoo produces — measured author time, 77.3s median per corrected page (§11.0.1),
+against 4s of recognition. `GOLD` already identifies which pages carry that work. The
+protection is therefore not a new concept, only a new consumer of one that exists.
+
+**Out of M0 except for bug 2.** The identity rework is architecture; a guard on the write path
+is not. The policy — refuse the page, write alongside as `.new.tex`, or ask — is the author's
+call and is deliberately left open here.
+
+### 11.1.4 `\sps` — the third lexicon mode, and the author solved 5b again
+
+The clearest idea in either note, and the merged lexicon design (§11.0.1c) does not model it:
+
+> *definitions (e.g. my "Sps", define `\sps` to streamline replacement and styling in one go)*
+
+§11.0.1c has two modes — emit the token **literally**, or expand it (**forbidden**, constraint
+#5b). This is a third: emit it as a **macro**.
+
+**And it is safe exactly where expansion is not.** `\sps` preserves token identity — still
+greppable, still restylable in one place — while asserting *nothing about meaning* in the
+document text. The author gets the styling and replacement they want without HandZoo ever
+writing a word they did not. That is constraint #5b satisfied rather than dodged, and the
+author arrived at it unprompted — the same pattern as inventing the crop verdict before using
+it (§11.1.2).
+
+**The machinery already exists and was verified end to end.** Emitting `\sps` puts it through
+`declarations.py` unchanged:
+
+```
+find_undefined(r"\sps \exists a morphism") -> ['sps']
+-> \ifdefined\sps\else\DeclareMathOperator{\sps}{sps}\fi  % TODO: confirm operator name
+```
+
+The `\ifdefined` guard means the author's own definition in their master preamble wins and
+ours becomes a no-op — which is precisely "one go". The generated fallback is
+`\DeclareMathOperator`, wrong for a text token, and it arrives carrying its own TODO; that is
+the design working, not a defect.
+
+So a lexicon entry needs a per-token **mode** (`literal` or `macro`), and the `macro` path is
+the one the author actually asked for. Not built: it changes the lexicon file format, and the
+format should change once.
+
 ### 11.1.2 The four-pane sketch — recorded, not scoped
 
 The author's sketch (2026-08-21, explicitly "not prescriptive"): **image** and **typeset**
