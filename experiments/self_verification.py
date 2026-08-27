@@ -5,7 +5,7 @@ The value of a checker is its DISCRIMINATION, not its agreement rate. A checker 
 cohort includes a page the author confirmed correct, the same page with an error injected on
 purpose, and a page known to have dropped content.
 """
-import base64, json, re, sys, urllib.request
+import base64, json, sys, urllib.request
 from pathlib import Path
 
 VERIFY = (
