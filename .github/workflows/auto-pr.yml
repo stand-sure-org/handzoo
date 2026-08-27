@@ -16,6 +16,13 @@ on:
     tags-ignore:
       - "*"
 
+# Declared rather than inherited. The repo default is read-only today and this workflow
+# needs nothing from the ambient token -- it acts through a purpose-scoped secret instead,
+# so that who may open PRs is controlled by who may set that secret rather than by who may
+# merge a change to this file. Stating it here means a change to the repo default cannot
+# silently grant write to the one workflow whose purpose is mutation.
+permissions: {}
+
 jobs:
   pull_request:
     if: github.ref != 'refs/heads/main'
