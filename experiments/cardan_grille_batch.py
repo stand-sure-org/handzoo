@@ -7,7 +7,7 @@ Fabrication proxy: LaTeX constructs that render 2-D structure. A page whose draw
 transcribed honestly should not need them; a page where the model invented a diagram will.
 This is a proxy, not ground truth, and pages are kept on disk so a claim can be checked by eye.
 """
-import csv, json, re, subprocess, sys, time
+import csv, re, subprocess, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from grille import ask, boxes, mask, TRANSCRIBE

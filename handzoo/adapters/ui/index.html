@@ -31,10 +31,29 @@
   section { flex:1; display:flex; min-width:0; min-height:0; }
   .pane { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; }
   .pane + .pane { border-left:1px solid var(--line); }
+  .pane.hidden { display:none; }
+  .phead { padding:.3rem .7rem; border-bottom:1px solid var(--line); font-size:11px;
+           letter-spacing:.06em; text-transform:uppercase; color:var(--dim);
+           display:flex; justify-content:space-between; align-items:center; }
+  .phead button { border:0; background:none; color:var(--dim); cursor:pointer; font:inherit; }
+  .phead button:hover { color:var(--ink); }
+  
+  pre.err { flex:1; min-height:0; margin:0; padding:.9rem; overflow:auto; white-space:pre-wrap;
+            font:12px/1.6 ui-monospace,monospace; color:var(--fail); background:var(--panel); }
+  .toggles { display:flex; gap:.35rem; margin-left:.6rem; }
+  .toggles button { padding:.2rem .55rem; font-size:12px; border:1px solid var(--line);
+                    border-radius:4px; background:none; color:var(--dim); cursor:pointer; }
+  .toggles button[aria-pressed="true"] { color:var(--ink); border-color:var(--accent); }
   .imgwrap { flex:1; min-height:0; overflow:auto; background:#fff; display:flex; }
   .pane img { margin:auto; max-width:100%; max-height:100%; object-fit:contain; padding:.4rem; }
   .imgwrap.zoom { align-items:flex-start; }
-  .imgwrap.zoom img { max-width:none; max-height:none; width:190%; }
+  .imgwrap img { width:calc(100% * var(--scale, 1)); }
+  .imgwrap.zoom img { max-width:none; max-height:none; }
+  .sizer { display:flex; gap:.2rem; align-items:center; }
+  .sizer button { border:0; background:none; color:var(--dim); cursor:pointer; font:inherit;
+                  padding:0 .25rem; line-height:1; }
+  .sizer button:hover { color:var(--ink); }
+  .sizer span { font-size:10px; min-width:2.6em; text-align:center; }
   textarea { flex:1; border:0; padding:.9rem; font:13px/1.6 ui-monospace,SFMono-Regular,monospace;
              background:var(--panel); color:var(--ink); resize:none; }
   textarea:focus { outline:2px solid var(--accent); outline-offset:-2px; }
@@ -55,14 +74,39 @@
 <header>
   <b>HandZoo</b>
   <span class="dir" id="dir"></span>
+  <span class="toggles">
+    <button id="t-ink"  aria-pressed="true">ink</button>
+    <button id="t-set"  aria-pressed="true">typeset</button>
+    <button id="t-tex"  aria-pressed="true">tex</button>
+    <button id="hide-diag" aria-pressed="false" title="hide pages whose only finding is an
+      invented drawing — they need the crop tool, not the editor">hide diagram-only</button>
+  </span>
   <span class="msg" id="msg"></span>
+  <span class="done" id="saveState" style="margin-left:.7rem"></span>
 </header>
 
 <main>
   <nav id="nav"></nav>
   <section>
-    <div class="pane"><div class="imgwrap" id="imgwrap" title="click to zoom"><img id="img" alt="page image"></div></div>
-    <div class="pane">
+    <div class="pane" id="pane-ink">
+      <div class="phead"><span>ink</span>
+        <span class="sizer"><button data-scale="ink" data-d="-1">−</button>
+        <span id="s-ink">100%</span><button data-scale="ink" data-d="1">+</button>
+        <button id="zoomb">fit</button></span></div>
+      <div class="imgwrap" id="imgwrap"><img id="img" alt="page image"></div>
+    </div>
+    <div class="pane" id="pane-set">
+      <div class="phead"><span>typeset</span>
+        <span class="sizer"><button data-scale="set" data-d="-1">−</button>
+        <span id="s-set">100%</span><button data-scale="set" data-d="1">+</button>
+        <button id="reset">recompile</button></span></div>
+      <div class="imgwrap" id="setwrap"><img id="pdf" alt="typeset page"></div>
+      <pre class="err" id="err" hidden></pre>
+    </div>
+    <div class="pane" id="pane-tex">
+      <div class="phead"><span>tex</span>
+        <span class="sizer"><button data-scale="tex" data-d="-1">−</button>
+        <span id="s-tex">100%</span><button data-scale="tex" data-d="1">+</button></span></div>
       <div class="findings" id="findings"></div>
       <textarea id="tex" spellcheck="false" placeholder="select a page"></textarea>
     </div>
@@ -70,9 +114,11 @@
 </main>
 
 <footer>
+  <button class="act" id="accept" disabled>Looks right</button>
   <button class="act" id="fix" disabled>Fix transcription</button>
   <button class="act" id="author" disabled>Edit my notes</button>
-  <span class="why">Two acts, two kinds of record. Only <b>fix</b> measures the tool.</span>
+  <span class="why"><b>Looks right</b> records that you read it and it is correct — evidence no
+  gate can produce. Only <b>fix</b> measures the tool.</span>
 </footer>
 
 <script>
@@ -90,11 +136,16 @@ async function load() {
     const b = document.createElement("button");
     const mark = p.state === "ok" ? "✓" : p.state === "flag" ? "⚠" : "✗";
     b.innerHTML = `<span class="st ${p.state}">${mark}</span> p${p.page}` +
+                  (p.diagram_only ? ` <span class="done">◨ diagram</span>` : "") +
                   (p.reviewed ? ` <span class="done">seen</span>` : "");
+    if (p.diagram_only) b.dataset.diagram = "1";
     b.onclick = () => select(p.page);
     b.dataset.page = p.page;
     $("nav").appendChild(b);
   }
+  if ($("hide-diag").getAttribute("aria-pressed") === "true")
+    for (const b of $("nav").children)
+      if (b.dataset.diagram === "1") b.style.display = "none";
   if (current !== null) mark(current);
 }
 
@@ -104,6 +155,7 @@ function mark(page) {
 }
 
 async function select(page) {
+  await flush();               // never carry an unsaved edit onto the next page
   const r = await fetch("/api/text?page=" + page);
   if (!r.ok) { say("no output on disk for page " + page); return; }
   const d = await r.json();
@@ -118,11 +170,13 @@ async function select(page) {
       ).join("")
     : `<div class="done">Nothing flagged. The gates cannot see substitution, so this is not a
        statement that the page is correct.</div>`;
-  $("fix").disabled = $("author").disabled = false;
+  $("fix").disabled = $("author").disabled = $("accept").disabled = false;
   // Timing starts when the page is opened, matching --fix's protocol.
   opened = performance.now();
+  dirty = false; $("saveState").textContent = "";
   mark(page);
   say("");
+  loadTypeset(page);
 }
 
 const escapeHtml = s => s.replace(/[&<>"]/g, c =>
@@ -131,19 +185,103 @@ const escapeHtml = s => s.replace(/[&<>"]/g, c =>
 async function save(mode) {
   if (current === null) return;
   const text = $("tex").value;
-  if (text === original) { say("unchanged — nothing recorded"); return; }
+  if (text === original && mode !== "accept") {
+    say('nothing changed — use "Looks right" if it is correct');
+    return;
+  }
   const seconds = (performance.now() - opened) / 1000;
   const r = await (await fetch("/api/save", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ page: current, mode, text, seconds, ui_mode: "web-side-by-side" })
   })).json();
   if (r.error) { say("error: " + r.error); return; }
-  original = text;
-  say(r.saved ? `saved as ${r.verdict} — ${seconds.toFixed(1)}s` : "unchanged");
+  original = text; dirty = false; $("saveState").textContent = "";
+  const note = r.quarantined ? " — NOW FAILS A GATE, quarantined"
+             : r.revalidated ? " — re-gated clean, quarantine released" : "";
+  say(r.saved ? `saved as ${r.verdict} — ${seconds.toFixed(1)}s${note}` : "unchanged");
   load();
+  loadTypeset(current);
 }
 
-$("imgwrap").onclick = () => $("imgwrap").classList.toggle("zoom");
+// Pane sizing. Persisted per pane: a comfortable size on one screen is not comfortable on
+// the next, and re-setting it every session is the kind of friction that stops a review run.
+const scales = JSON.parse(localStorage.getItem("hz-scales") || '{"ink":1,"set":1,"tex":1}');
+function applyScale(k) {
+  const v = scales[k];
+  $("s-" + k).textContent = Math.round(v * 100) + "%";
+  if (k === "tex") $("tex").style.fontSize = (13 * v) + "px";
+  else document.querySelector("#pane-" + k + " .imgwrap").style.setProperty("--scale", v);
+  try { localStorage.setItem("hz-scales", JSON.stringify(scales)); } catch (e) {}
+}
+for (const b of document.querySelectorAll(".sizer button[data-scale]")) {
+  b.onclick = () => {
+    const k = b.dataset.scale;
+    scales[k] = Math.min(4, Math.max(0.5, scales[k] + Number(b.dataset.d) * 0.15));
+    applyScale(k);
+  };
+}
+["ink","set","tex"].forEach(applyScale);
+
+$("hide-diag").onclick = () => {
+  const on = $("hide-diag").getAttribute("aria-pressed") !== "true";
+  $("hide-diag").setAttribute("aria-pressed", String(on));
+  for (const b of $("nav").children)
+    b.style.display = (on && b.dataset.diagram === "1") ? "none" : "";
+};
+
+$("zoomb").onclick = () => $("imgwrap").classList.toggle("zoom");
+$("reset").onclick = () => loadTypeset(current);
+
+for (const [btn, pane] of [["t-ink","pane-ink"],["t-set","pane-set"],["t-tex","pane-tex"]]) {
+  $(btn).onclick = () => {
+    const on = $(btn).getAttribute("aria-pressed") !== "true";
+    $(btn).setAttribute("aria-pressed", String(on));
+    $(pane).classList.toggle("hidden", !on);
+  };
+}
+
+async function loadTypeset(page) {
+  if (page === null) return;
+  $("err").hidden = true; $("setwrap").hidden = false;
+  $("pdf").removeAttribute("src");
+  // Ask first, then point the frame at the endpoint itself. A blob: URL is the obvious
+  // move and Chrome will not render a PDF from one inside an iframe — the pane just goes
+  // white, which is the failure mode this whole function exists to avoid.
+  const url = "/api/typeset?page=" + page;
+  const r = await fetch(url);
+  if (r.ok) {
+    $("pdf").src = url;
+  } else {
+    // Never a blank pane: an empty typeset column reads as "nothing on this page".
+    $("setwrap").hidden = true; $("err").hidden = false;
+    $("err").textContent = "does not typeset\n\n" + await r.text();
+  }
+}
+// Autosave: writes the file so navigating away cannot lose an edit. It records no verdict —
+// the buttons still do that. Debounced, and flushed before leaving a page.
+let pending = null, dirty = false;
+async function flush() {
+  if (!dirty || current === null) return;
+  clearTimeout(pending); pending = null; dirty = false;
+  await fetch("/api/autosave", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ page: current, text: $("tex").value })
+  });
+}
+$("tex").addEventListener("input", () => {
+  dirty = true;
+  $("saveState").textContent = "unsaved";
+  clearTimeout(pending);
+  pending = setTimeout(async () => { await flush(); $("saveState").textContent = "autosaved"; },
+                       1500);
+});
+window.addEventListener("beforeunload", () => {
+  if (dirty) navigator.sendBeacon("/api/autosave",
+    new Blob([JSON.stringify({ page: current, text: $("tex").value })],
+             { type: "application/json" }));
+});
+
+$("accept").onclick = () => save("accept");
 $("fix").onclick = () => save("fix");
 $("author").onclick = () => save("author");
 load();

@@ -15,7 +15,8 @@ PROMPT = (
 
 
 def recognize(png_path, model="qwen3-vl:8b", attempts=3):
-    img = base64.b64encode(open(png_path, "rb").read()).decode()
+    with open(png_path, "rb") as fh:
+        img = base64.b64encode(fh.read()).decode()
     body = {
         "model": model,
         "messages": [{"role": "user", "content": PROMPT, "images": [img]}],
@@ -49,5 +50,6 @@ def recognize(png_path, model="qwen3-vl:8b", attempts=3):
 
 if __name__ == "__main__":
     out = recognize(sys.argv[1])
-    open(sys.argv[2], "w").write(out + "\n")
+    with open(sys.argv[2], "w") as fh:
+        fh.write(out + "\n")
     print(f"wrote {sys.argv[2]} ({len(out)} chars)", file=sys.stderr)

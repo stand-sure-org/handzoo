@@ -2331,6 +2331,101 @@ convention override a general one.
 zero evidence behind it, and is marked as such for the same reason §8.1 marks the scan path:
 a design written against an imagined corpus is a design nobody has tested.
 
+### 11.0.1g The ch22 read-through — author's findings, no log behind them
+
+**These are recollections, not recorded verdicts.** The run produced an empty log (§11.0.1h),
+so nothing here is countable. Recorded because the observations are real and the next run can
+test them.
+
+Overall: *"it did pretty well on comprehension."*
+
+**1. `\therefore` emitted as "so".** A substitution — and by the author's judgement *more*
+correct than the symbol. Their call is that it does not warrant a gate, and that stands.
+
+It is worth naming what class it belongs to anyway, because this is exactly the shape
+constraint #5b warns about: **an improvement the author welcomes is one they stop checking
+for.** The mechanism that produced it is the same one that produced `Sps` → `\Rightarrow`
+(§11.0.1a) — a token resolved into something more familiar. There the result inverted a proof;
+here it reads better. Nothing distinguishes the two at the point of production. Not a gate, but
+not a different phenomenon either.
+
+**2. Commutative diagrams are still attempted.** Expected, and survivable: the crop-and-insert
+mechanism (§7.2) is the answer, and R9 (§5.7.1) already refuses the fabricated markup rather
+than letting it compile.
+
+**3. Calligraphy detection worked well.** The recognizer distinguished `\mathcal` letterforms
+reliably. Recorded as a positive because the corpus records failures far more readily than
+successes, and a design that only remembers what went wrong will over-correct.
+
+**4. Open letters became calligraphy — a real defect, and an earlier reading here was wrong.**
+
+An earlier version of this section argued the collapse *might be legitimate*, on the grounds
+that `\mathbb` is itself an outline font so "open letters" and "drawn twice" plausibly map to
+one printed form. **That reasoning asked the wrong question.** It asked whether *print*
+distinguishes the forms. What matters is whether the *author's page* does, and it plainly does.
+
+Measured on ch22: **109 `\mathcal` uses against 2 `\mathbb`.** On p11 the author writes an
+open, doubled 𝕀 and a curly script 𝒞 — two visibly different letters — and the output emitted
+`\mathcal{I}` ×8 and `\mathcal{C}` ×8. On p24 the author writes a doubled ℂ and a doubled 𝟙,
+and the output emitted `\mathcal{C}` ×8 and nothing for the 𝟙.
+
+**The mechanism is §5.5 again.** `\mathcal{C}` is overwhelmingly the commoner way to name a
+category in the literature, so an unfamiliar convention is resolved into a familiar one — the
+same production that gave `Sps` → `\Rightarrow`. The author's own book (Cheng) prints
+categories in blackboard bold *and* uses calligraphic letters separately, so both forms carry
+meaning and collapsing them destroys a distinction the source makes deliberately.
+
+**A third alphabet is not the answer, and `mathrsfs` stays out of the preamble.** The two
+alphabets `amssymb` already provides are sufficient; the failure is the recognizer defaulting
+everything to one of them.
+
+#### The prompt fix is unproven, and is not shipped
+
+A hint naming the two letterforms looked promising and then did not survive contact with a
+second page:
+
+| page | truth | no hint | hint v1 | hint v2 |
+|---|---|---|---|---|
+| p11 | doubled I, script C | `\mathcal{I}` ✗ | **`\mathbb{I}` ✓** | **`\mathbb{I}` ✓** |
+| p10 | doubled I, script C | `\mathbb{I}` ✓ | `\mathbb{I}` ✓ | **`\mathcal{I}` ✗ regressed** |
+| p24 | doubled C, doubled 1 | C ✗, no 1 | C ✗, **`\mathbb{1}` ✓** | C ✗, 1 misread |
+
+Neither version recovers the **rounded** case. The author named exactly why: a blackboard-bold
+C is doubled *only on its left edge* — one short extra stroke — where I, 1 and N double a full
+vertical. Naming that explicitly in v2 did not fix C and **regressed p10**, which v1 had right.
+
+**So it is recorded and not wired in.** The lexicon (§11.0.1c) earned its place on four paired
+runs producing a clean 0/4 → 4/4; this is one run per condition with results that contradict
+each other, which is indistinguishable from noise. Shipping a prompt change on that evidence
+would be the mistake §11.0.1a already made once — building to a frequency the data does not
+support.
+
+**What would settle it:** several paired runs across pages carrying each letterform, scored per
+letter rather than per count, since a matching total can still be the wrong assignment.
+
+### 11.0.1h A review run that recorded nothing, and why
+
+The author read 35 pages of ch22 and the correction log came back **empty**. Their diagnosis:
+*"it's because you want me to click fix."*
+
+`--fix` in the CLI asks, on an unchanged document, whether the output was already correct or
+the attempt was abandoned, and records `keep-reviewed` for the first — §11.1.1 calls it the
+most valuable datum this project can collect. **The UI ported only the branch that records
+nothing.** With no action matching the outcome that actually occurred, the expensive part —
+reading — left no trace.
+
+`keep-reviewed` is now a UI action. Two design points came with it:
+
+- It does **not** carry the exit-criterion marker. Reading a page and finding it right is not
+  correcting one, and folding the time into the correction arm would inflate it with pages that
+  needed no work.
+- Accepting a page whose text was changed is refused. *"Looks right"* has to mean what it says.
+
+**The general lesson is about interaction, not about this button.** A measurement surface has
+to offer an action for every outcome the work can have, or the outcomes it omits are silently
+absent from the data — and absent for the most confusing reason possible, which is that
+everything went well.
+
 ### 11.0.2 The reporter could never have run
 
 Finding both arms in the log and no comparison printed exposed two defects. Neither was

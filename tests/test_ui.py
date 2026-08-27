@@ -62,14 +62,17 @@ def _post(base: str, path: str, payload: dict):
 # ------------------------------------------------------------------ the separation
 
 
-def test_the_two_buttons_write_different_verdicts(server) -> None:
+def test_each_button_writes_a_different_verdict(server) -> None:
     """The whole point of the surface. DESIGN §11.3.1.
 
-    Correcting the transcription and revising one's own prose leave the same shape of diff.
-    The mode is chosen *before* typing, so the label is structural rather than recalled.
+    Correcting the transcription and revising one's own prose leave the same shape of diff,
+    so the mode is chosen *before* typing and the label is structural rather than recalled.
+
+    `accept` was missing at first and the omission cost a full run: with nothing to press on
+    a page that was already right, an author who read 35 pages produced an empty log.
     """
     base, run = server
-    assert MODES == {"fix": "edited", "author": "authored"}
+    assert MODES == {"fix": "edited", "author": "authored", "accept": "keep-reviewed"}
 
     r = _post(base, "/api/save", {"page": 1, "mode": "fix", "text": "corrected\n", "seconds": 4})
     assert r["verdict"] == "edited"
@@ -226,3 +229,246 @@ def test_the_manifest_learns_the_new_path_and_verdict(qserver) -> None:
     assert Path(rows[-1]["output"]).name == "page-0001.tex"
     assert rows[-1]["verdict"] != "fail"
     assert not rows[-1]["findings"], "the findings that were fixed must not persist"
+
+
+def test_a_correction_that_breaks_the_build_is_quarantined(server) -> None:
+    r"""Re-gating has to run in both directions, and this was measured in the wild.
+
+    ch18 p13 passed every gate, the author corrected it through `--fix`, and their correction
+    added `\square` — a math-mode command — in text mode. The page stopped compiling and
+    nothing noticed, because re-validation only ran on pages that were *already* quarantined.
+    It sat broken.
+
+    The author is not the recognizer, but they are equally capable of writing LaTeX that does
+    not build, and a page that silently stops compiling is exactly what the compile gate
+    exists to refuse.
+    """
+    base, run = server
+    (run / "page-0002.tex").write_text(
+        "\\documentclass{article}\\usepackage{amsmath,amssymb}\\begin{document}\n"
+        "fine\n\\end{document}\n", encoding="utf-8")
+
+    broken = ("\\documentclass{article}\\usepackage{amsmath,amssymb}\\begin{document}\n"
+              "Since it is unique. \\square\n\\end{document}\n")
+    r = _post(base, "/api/save", {"page": 2, "mode": "fix", "text": broken})
+
+    assert r["saved"] is True
+    assert r["quarantined"] is True, "a correction that breaks the build must be refused"
+    assert (run / "page-0002.fail.tex").exists()
+    assert not (run / "page-0002.tex").exists()
+
+    rows = [json.loads(l) for l in (run / "manifest.jsonl").read_text().splitlines() if l.strip()]
+    row = [x for x in rows if x["page"] == 2][0]
+    assert row["verdict"] == "fail"
+    assert any("Missing $" in f["detail"] for f in row["findings"]), row["findings"]
+
+
+def test_authoring_never_quarantines(server) -> None:
+    """Revising one's own prose is not a claim about the recognizer, and a gate result on it
+    would be a verdict on the author. The file is still written; it is simply not judged."""
+    base, run = server
+    _post(base, "/api/save", {"page": 2, "mode": "author", "text": "my own words\n"})
+    assert (run / "page-0002.tex").exists()
+    assert not (run / "page-0002.fail.tex").exists()
+
+
+# ------------------------------------------------------------------ typeset
+
+
+def test_a_page_that_does_not_typeset_says_why(server) -> None:
+    r"""An empty typeset pane reads as "nothing on this page", which is the §5.7 failure in
+    visual form. A 409 carrying the compile log is the honest answer.
+    """
+    base, run = server
+    (run / "page-0002.tex").write_text(
+        "\\documentclass{article}\\usepackage{amsmath,amssymb}\\begin{document}\n"
+        "Since it is unique. \\square\n\\end{document}\n", encoding="utf-8")
+
+    from urllib.error import HTTPError
+    with pytest.raises(HTTPError) as e:
+        _get(base, "/api/typeset?page=2")
+    assert e.value.code == 409
+    body = e.value.read().decode()
+    assert "Missing $" in body, body[:200]
+
+
+@pytest.mark.skipif(
+    __import__("handzoo.core.validate.compile_gate", fromlist=["x"]).engine_available() is False,
+    reason="pdflatex not installed")
+def test_a_compiling_page_is_served_as_a_picture_not_a_pdf(server) -> None:
+    r"""Whether a browser renders an embedded PDF depends on the viewer it happens to use — a
+    PDF *extension* commonly does not hook iframes, and the pane silently goes white.
+    Measured on the author's Chrome. `pdftoppm` is already a hard dependency, so rasterising
+    server-side removes the variable entirely.
+
+    The PDF is still reachable with `as=pdf`: it is the right artefact to annotate.
+    """
+    base, run = server
+    (run / "page-0002.tex").write_text(
+        "\\documentclass{article}\\begin{document}\nHello $x^2$.\n\\end{document}\n",
+        encoding="utf-8")
+
+    status, body = _get(base, "/api/typeset?page=2")
+    assert status == 200
+    assert body[:8] == b"\x89PNG\r\n\x1a\n", "the proofing pane gets a picture"
+
+    status, body = _get(base, "/api/typeset?page=2&as=pdf")
+    assert status == 200
+    assert body[:5] == b"%PDF-"
+
+
+def test_the_typeset_result_is_cached_on_the_source_hash(server) -> None:
+    r"""`Cache-Control: no-store` makes the browser re-request, so an iframe fired a *second*
+    compile that overwrote the PDF while the first was still being read — the viewer showed a
+    few bytes and gave up. The author saw it flash. Keying on the source hash turns a repeat
+    request into a file read instead of a race, and the bytes are identical.
+    """
+    base, run = server
+    (run / "page-0002.tex").write_text(
+        "\\documentclass{article}\\begin{document}\nstable\n\\end{document}\n",
+        encoding="utf-8")
+    first = _get(base, "/api/typeset?page=2")[1]
+    second = _get(base, "/api/typeset?page=2")[1]
+    assert first == second and len(first) > 0
+
+
+def test_a_diagram_only_page_is_marked_so_a_text_pass_can_skip_it(tmp_path: Path) -> None:
+    r"""There is no crop tool in the UI yet, so a page whose only complaint is an invented
+    drawing cannot be finished here. Marking it lets a text-only pass skip it **without
+    opening it** — and not opening it matters, because reading the emitted text is what
+    disqualifies a page as a `--transcribe` subject later (§11.1.1).
+    """
+    (tmp_path / "pages").mkdir()
+    (tmp_path / "page-0001.tex").write_text("a\n", encoding="utf-8")
+    (tmp_path / "page-0002.tex").write_text("b\n", encoding="utf-8")
+    rows = [
+        {"page": 1, "output": str(tmp_path / "page-0001.tex"), "verdict": "fail", "gates": {},
+         "findings": [{"gate": "coverage", "detail": "recognizer fabricated a drawing here"}]},
+        {"page": 2, "output": str(tmp_path / "page-0002.tex"), "verdict": "fail", "gates": {},
+         "findings": [{"gate": "coverage", "detail": "recognizer fabricated a drawing here"},
+                      {"gate": "delimiters", "detail": "math mode never closed"}]},
+    ]
+    (tmp_path / "manifest.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+    Handler.review = Review(tmp_path)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{srv.server_address[1]}"
+        pages = {p["page"]: p for p in json.loads(_get(base, "/api/pages")[1])["pages"]}
+        assert pages[1]["diagram_only"] is True
+        assert pages[2]["diagram_only"] is False, "a page with other work is not skippable"
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_a_page_read_and_accepted_can_be_recorded(server) -> None:
+    r"""The gap that cost a whole run.
+
+    `--fix` asks, on an unchanged document, *"was the output already correct, or did you
+    abandon the attempt?"* and records `keep-reviewed` for the first — DESIGN §11.1.1 calls it
+    "the most valuable datum this project can collect".
+
+    The UI ported only the other half. An unchanged save recorded nothing, so an author who
+    read 35 pages and found them right produced an **empty log**: no verdicts, no timings, no
+    evidence. Reading is the expensive part and it left no trace.
+
+    `keep-reviewed` is GOLD — it is a human saying the output is right, which no gate can say.
+    """
+    base, run = server
+    from handzoo.core.corrections import GOLD
+    assert "keep-reviewed" in GOLD
+
+    same = (run / "page-0001.tex").read_text(encoding="utf-8")
+    r = _post(base, "/api/save", {"page": 1, "mode": "accept", "text": same, "seconds": 61.0})
+
+    assert r["saved"] is True
+    assert r["verdict"] == "keep-reviewed"
+
+    from handzoo.core.corrections import CorrectionLog
+    (row,) = CorrectionLog.for_run(run).read()
+    assert row.is_gold
+    assert row.seconds == 61.0
+
+
+def test_accepting_never_enters_the_correction_arm(server) -> None:
+    """Reading a page and finding it right is not correcting one. Folding the time in would
+    inflate the arm with pages that needed no work."""
+    base, run = server
+    _post(base, "/api/save", {"page": 1, "mode": "accept",
+                              "text": (run / "page-0001.tex").read_text(encoding="utf-8"),
+                              "seconds": 61.0})
+    _post(base, "/api/save", {"page": 2, "mode": "fix", "text": "corrected\n", "seconds": 42.9})
+
+    from handzoo.core.corrections import CorrectionLog
+    rows = CorrectionLog.for_run(run).read()
+    fix_rows = [r for r in rows if r.finding.startswith("exit criterion: correction")]
+    assert len(fix_rows) == 1, "only the actual correction is an arm measurement"
+
+
+def test_accepting_a_changed_page_is_refused(server) -> None:
+    """"Looks right" must mean what it says. If the text was edited, it is a correction."""
+    base, _ = server
+    from urllib.error import HTTPError
+    with pytest.raises(HTTPError) as e:
+        _post(base, "/api/save", {"page": 1, "mode": "accept", "text": "something else\n"})
+    assert e.value.code == 400
+
+
+# ------------------------------------------------------------------ autosave
+
+
+def test_navigating_away_no_longer_loses_an_edit(server) -> None:
+    """Today an edit vanishes if you click another page. Autosave writes the file."""
+    base, run = server
+    _post(base, "/api/autosave", {"page": 1, "text": "half-finished edit\n"})
+    assert (run / "page-0001.tex").read_text(encoding="utf-8") == "half-finished edit\n"
+
+
+def test_autosave_records_no_verdict(server) -> None:
+    """Saving the file and recording a decision are different acts. A half-typed line is not
+    a judgement about the page, and a log full of them would be worse than losing the text."""
+    base, run = server
+    _post(base, "/api/autosave", {"page": 1, "text": "mid-edit\n"})
+    assert not (run / "corrections.jsonl").exists()
+
+
+def test_autosave_does_not_destroy_the_before_text(server) -> None:
+    r"""The trap, and the reason this is done server-side.
+
+    `before` is read from disk when a verdict is recorded. Once autosave has written the
+    file, the on-disk text *is* the edit — so `before` and `after` would be identical, the
+    diff would be empty, and the defect taxonomy (§11.0.1a) built from those diffs would show
+    a correction that changed nothing.
+
+    So the first autosave for a page snapshots the pristine text, and the verdict uses that.
+    """
+    base, run = server
+    pristine = (run / "page-0001.tex").read_text(encoding="utf-8")
+
+    _post(base, "/api/autosave", {"page": 1, "text": "partial\n"})
+    _post(base, "/api/autosave", {"page": 1, "text": "corrected fully\n"})
+    _post(base, "/api/save", {"page": 1, "mode": "fix", "text": "corrected fully\n",
+                              "seconds": 30.0})
+
+    from handzoo.core.corrections import CorrectionLog
+    (row,) = CorrectionLog.for_run(run).read()
+    assert row.before == pristine, "the diff must span the whole edit, not the last keystroke"
+    assert row.after == "corrected fully\n"
+
+
+def test_the_snapshot_is_released_once_a_verdict_lands(server) -> None:
+    """Otherwise the next session's `before` is last session's text, and every later diff is
+    measured from a point the author has forgotten."""
+    base, run = server
+    _post(base, "/api/autosave", {"page": 1, "text": "one\n"})
+    _post(base, "/api/save", {"page": 1, "mode": "fix", "text": "one\n"})
+
+    _post(base, "/api/autosave", {"page": 1, "text": "two\n"})
+    _post(base, "/api/save", {"page": 1, "mode": "fix", "text": "two\n"})
+
+    from handzoo.core.corrections import CorrectionLog
+    rows = CorrectionLog.for_run(run).read()
+    assert rows[-1].before == "one\n", "the second edit starts from where the first ended"
