@@ -67,6 +67,16 @@ def assemble(out_dir: Path, outcomes: list[PageOutcome], *, name: str = MASTER) 
     included: list[str] = []
     usable = 0
     for outcome in sorted(outcomes, key=lambda o: o.page):
+        if outcome.verdict == "excluded":
+            # Visible, and *not* worded as a failure. A cut page is a decision; a failed page
+            # is a defect. Calling one the other sends the author hunting for a problem that
+            # is not there -- while omitting it entirely would leave the hole `_placeholder`
+            # exists to prevent.
+            body.append(
+                f"% page {outcome.page} was excluded by the author and never transcribed.\n"
+                f"\\begin{{center}}\\fbox{{\\texttt{{[PAGE {outcome.page}: excluded by the "
+                f"author --- not transcribed]}}}}\\end{{center}}\n")
+            continue
         if outcome.verdict == "fail" or not outcome.output:
             body.append(_placeholder(outcome))
             continue
@@ -82,9 +92,18 @@ def assemble(out_dir: Path, outcomes: list[PageOutcome], *, name: str = MASTER) 
         usable += 1
 
     if not usable:
-        body.append("% no page passed its gates, so this document has no content.\n"
-                    "\\begin{center}\\texttt{[no page passed --- nothing to assemble]}"
-                    "\\end{center}\n")
+        # "no page passed its gates" is wrong when nothing was refused and the author simply
+        # cut everything. Reporting a failure over a decision sends them looking for a defect
+        # that does not exist -- the same distinction the excluded marker draws above.
+        excluded = [o for o in outcomes if o.verdict == "excluded"]
+        if excluded and len(excluded) == len(outcomes):
+            body.append("% every page was excluded by the author, so there is nothing to "
+                        "assemble.\n\\begin{center}\\texttt{[all pages excluded --- nothing "
+                        "to assemble]}\\end{center}\n")
+        else:
+            body.append("% no page passed its gates, so this document has no content.\n"
+                        "\\begin{center}\\texttt{[no page passed --- nothing to assemble]}"
+                        "\\end{center}\n")
 
     # Characters `pylatexenc` cannot map -- checkmarks, ballot crosses, circled digits -- have
     # no remedy inside a fragment, because `\\DeclareUnicodeCharacter` only works in a preamble.

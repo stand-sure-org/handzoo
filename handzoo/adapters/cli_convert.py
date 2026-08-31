@@ -37,7 +37,13 @@ def _format(outcome: PageOutcome) -> str:
     if not outcome.done:
         return f"page {outcome.page:>4}  ERROR  {outcome.error}"
     marks = "  ".join(f"{name}={state}" for name, state in outcome.gates.items())
-    label = {"pass": "ok  ", "unverified": "?   ", "fail": "FAIL"}[outcome.verdict]
+    # `.get` with an explicit fallback rather than `[...]`: a new verdict added elsewhere
+    # should not crash a run three hours in. `excluded` is spelled out because it is a
+    # decision, not a defect, and the line a reader scans should say which.
+    label = {"pass": "ok  ", "unverified": "?   ", "fail": "FAIL",
+             "excluded": "CUT "}.get(outcome.verdict, "????")
+    if outcome.verdict == "excluded":
+        return f"page {outcome.page:>4}  {label}  excluded by request — not transcribed"
     return f"page {outcome.page:>4}  {label}  {marks}"
 
 
@@ -53,6 +59,11 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
                         dest="mode", default="fragment",
                         help="emit a complete document; the default is a fragment for "
                              "assembly with \\input")
+    parser.add_argument("--exclude", metavar="PAGES",
+                        help="pages to cut entirely, as 1,4 or 1-3,7. They are never sent to "
+                             "a recognizer and never transcribed — use this for pages that "
+                             "are not yours to reproduce. They still appear in chapter.tex "
+                             "as a visible marker.")
     parser.add_argument("--resume", action="store_true",
                         help="skip pages already recorded in the manifest")
     parser.add_argument("--provider", choices=("ollama", "gemini", "anthropic"),
@@ -99,14 +110,27 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
         print(f"error: {exc}", file=stream)
         return 2
 
-    failed = unverified = errored = 0
+    try:
+        excluded = pipeline.parse_excluded(args.exclude)
+    except ValueError as exc:
+        print(f"error: {exc}", file=stream)
+        return 2
+    if excluded:
+        print(f"excluding {len(excluded)} page(s): they will not be sent to a recognizer.",
+              file=stream)
+
+    failed = unverified = errored = excluded_seen = 0
     done: list[pipeline.PageOutcome] = []
-    for outcome in pipeline.convert(args.pdf, args.out, recognizer, first=first, last=last,
+    for outcome in pipeline.convert(args.pdf, args.out, recognizer,
+                                    first=first, last=last, exclude=excluded,
                                     mode=args.mode, resume=args.resume, dpi=args.dpi):
         print(_format(outcome), file=stream, flush=True)
         done.append(outcome)
         errored += not outcome.done
         if outcome.done:
+            if outcome.verdict == "excluded":
+                excluded_seen = excluded_seen + 1
+                continue
             failed += outcome.verdict == "fail"
             unverified += outcome.verdict == "unverified"
 
