@@ -2646,6 +2646,129 @@ to reconcile against. The author's two thoughts are one conclusion.
 always be incomplete, which is an argument for the correction-mined path (§11.0.1c) rather than
 against the file.
 
+### 11.2.4 Mixed printed and handwritten pages — it works, and it captures the wrong half
+
+First corpus with both: Leinster's *Basic Category Theory*, the author's exercise answers
+interleaved with photographed pages of the book. 16 pages, of which **2 are printed A4 and 14
+are reMarkable**, and the printed ones carry handwritten annotation on top.
+
+**The author expected no issue. There is one, and it is not a failure to read the page.**
+
+Run on p1 (printed, annotated), the transcription came back as a clean rendering of
+**Leinster's printed paragraphs** — *"and continuous maps, as follows"*, *"The diagram means
+that given Y, f and g..."* — and the author's purple bracket and underline are **absent**. The
+tool captured the publisher's half and dropped the reader's.
+
+That is backwards from where the value is. On an annotated page the printed text is already
+typeset, already correct, and already owned by someone else; the annotation is the only part
+that exists nowhere else.
+
+**It also means the emitted `.tex` is a verbatim reproduction of published text.** That is the
+author's own business for private study notes, and it is not something the tool should do
+*silently*, and certainly not *instead of* the thing they wanted.
+
+**The discriminator already exists and already fired.** The colour gate refused the page:
+
+> 2 distinct ink colours on the page (`rgb(0, 0, 0)`, `rgb(192, 127, 210)`)
+
+Black is print, purple is the author. Colour was built because R/G/B houses on the Naive Math
+fixtures made it semantic (§6); on a mixed page it separates whose ink is whose, which is a
+use nobody designed it for and it happens to be exactly right.
+
+**What follows, unbuilt.** A mixed page wants a different mode: transcribe only the
+non-black ink, and reference the printed page rather than reproducing it. The reference gate
+firing on *"Example 0.5"* and *"Example 0.6"* is the same confusion from the other side — those
+are Leinster's numbers, not the author's claims, and the gate has no way to know.
+
+**Page geometry varies far more here**: 685 to **2105 pt** within one file, against ch22's
+685–1238. Whatever reads a dimension must read it per page (§11.2.3's bug, in a corpus that
+would have made it unmissable).
+
+### 11.2.5 Where does an attempt begin? The author already marks it
+
+The author's question, ahead of wiring in verification: they rework answers, so how would a
+checker know where one attempt ends and the next starts?
+
+**Observed on p7** — 2105 pt, the longest page in the corpus — the structure is already
+delimited by hand:
+
+- a **horizontal rule** before each restart, twice on that page
+- `•` and `◦` bullets opening sub-sections (*Homomorphism Check*, *Uniqueness*)
+- part labels `a)` and `b)`, with `b)` appearing once in the restated exercise and again where
+  its work begins
+
+So the boundary is not missing information the checker must infer — it is **ink on the page**,
+and the inventory pass already reports marks by position. A rule spanning the width between
+two blocks of prose is as detectable as a diagram.
+
+**What is not yet known** is whether those rules mean *"attempt two"* or merely *"new
+section"*. On p7 both readings fit, and only the author can say. That matters because a
+verifier told to check the page against the emitted text would otherwise flag abandoned work
+as missing content — the failure being **absence of evidence about intent**, not about ink.
+
+**Recorded as the question to settle before verification is wired**: does a rule delimit a
+retry or a section, and does the author want abandoned attempts transcribed, marked, or
+dropped? Dropping them silently would be a D6 violation; keeping them unmarked would make the
+document disagree with itself. Neither is decidable from the page.
+
+### 11.2.2 Click the typeset, land in the tex — mostly already there
+
+The author's ask: clicking a spot in the rendered page should put the cursor at the
+corresponding place in the `.tex`, so the human does not have to find it by eye.
+
+**The hard part is done and running.** `_typeset` already passes `-synctex=1`, and
+`~/handzoo-out/ch22/` currently holds a `.synctex.gz` beside every page the typeset pane has
+compiled. `synctex edit -o "page:x:y:file.pdf"` returns the input file and line.
+
+What remains is a coordinate hop and one caveat:
+
+- The pane serves a **PNG**, not a PDF (§11.2, a browser PDF extension will not render in an
+  iframe). So a click is pixels → points at the 150 dpi render scale → `synctex edit`. One
+  fixed ratio, the same conversion the crop overlay already does in reverse.
+- SyncTeX resolves to the **master** `review-pNNNN.tex`, which for a standalone page is a
+  verbatim copy of the page file, so line numbers correspond. For an assembled master they
+  will not, and the answer has to be mapped back through the `\input` rather than trusted.
+
+Worth building when the review loop is the bottleneck rather than the crop. It removes
+searching, which is the part of correction that carries no thought and all the friction.
+
+### 11.2.3 Reflow: it already works, and `--standalone` is what stops it
+
+The author's ask: reMarkable page breaks are an artefact of the device, not of the document,
+so the assembled output should reflow rather than preserve them.
+
+**No page in any corpus contains a `\clearpage`, `\newpage` or `\pagebreak`**, and
+`assemble` simply `\input`s each page in order. So fragments already flow — the device's
+boundaries survive only as the point where one `\input` ends and the next begins, which
+LaTeX does not treat as a break at all.
+
+**What actually blocks it is a run-time choice, and it is one this design forced.** ch22 was
+converted with `--standalone` so the compile gate could run per page. Every page therefore
+carries its own `\documentclass` and cannot be `\input`, so its `chapter.tex` is 35
+placeholders and nothing else. Reflow is not unimplemented; it was made unavailable at
+conversion time.
+
+**That trade is avoidable, and the code to avoid it already exists.** `_typeset` compiles a
+*fragment* by wrapping it in a one-page master through `assemble`. The compile gate could do
+the same, which would let a fragment run be gated per page **and** assembled — removing the
+reason `--standalone` exists for anything but a deliberate single-page artefact.
+
+Recorded as the change worth making before the next conversion: **gate fragments by wrapping,
+rather than requiring the author to choose between a compile check and a chapter.**
+
+#### Font size has no answer in the source
+
+The author is right to have no initial thought about the mechanism, because there is not one
+to find. Handwriting height on a device canvas is not a type size: the canvas width is
+arbitrary, the pen is fixed (§DECISION, stroke width is constant at 1.903 regardless of zoom),
+and the number of characters the author fits per line is a property of the device rather than
+a decision they made.
+
+So any mapping is a **convention, not a derivation**, and the honest move is to make it
+explicit and adjustable rather than compute a figure that looks principled. The one measurable
+input — characters per line in the source — is itself the device artefact being discarded, so
+leaning on it would preserve exactly what reflow exists to remove.
+
 ### 11.2.1 Crop: what the author asked for next, and what each costs
 
 From using it on ch22 (2026-08-31).
