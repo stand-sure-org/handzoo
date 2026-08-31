@@ -149,13 +149,15 @@ def _fabrications_cleared(findings: list[dict], text: str) -> bool:
     unre-checkable at this point, and releasing it would claim a check that never ran
     (DESIGN 5.7).
     """
-    from ..core.validate import coverage_gate
-
     if not findings:
         return False
     if not all("fabricated" in f.get("detail", "") for f in findings):
         return False
-    return not coverage_gate.fabrications(text)
+    # `_MARKER` rather than `coverage_gate.fabrications`: both currently match the emitted
+    # form, but `_MARKER` is the pattern `_replace_marker` actually consumes. Asking the same
+    # question with the same pattern means "a marker remains" and "there is one left to
+    # replace" cannot drift apart if either pattern is later changed.
+    return not _MARKER.search(text)
 
 
 def _replace_marker(text: str, figure_name: str) -> str:
@@ -170,6 +172,24 @@ def _replace_marker(text: str, figure_name: str) -> str:
     """
     figure = f"\\includegraphics[width={CROP_WIDTH}]{{{figure_name}}}"
     return _MARKER.sub(lambda _m: figure, text, count=1)
+
+
+def _insert_at(text: str, figure_name: str, at: int) -> str:
+    """Place a figure at a position the author chose.
+
+    The marker path replaces something the gates objected to. This one exists because not
+    every drawing the author wants is one the recognizer flagged — and with nothing to
+    replace, the position has to come from the author. Guessing it would be a placement we
+    invented, which is the same objection that makes the marker path replace rather than
+    append.
+
+    Clamped rather than raising: a cursor offset can be stale by the time it arrives, and
+    landing at the end of the document is recoverable where an error is just lost work.
+    """
+    figure = (f"\n\\begin{{center}}\n    "
+              f"\\includegraphics[width={CROP_WIDTH}]{{{figure_name}}}\n\\end{{center}}\n")
+    at = max(0, min(int(at), len(text)))
+    return text[:at] + figure + text[at:]
 
 
 def typeset(out_dir: Path, outcome: PageOutcome) -> tuple[Path | None, str]:
@@ -364,7 +384,7 @@ class Handler(BaseHTTPRequestHandler):
             pdf = Path(outcome.source)
             try:
                 blocks = rasterize.page_blocks(pdf, page)
-                pw, ph = rasterize.page_size(pdf)
+                pw, ph = rasterize.page_size(pdf, page)
             except rasterize.RasterizeError as exc:
                 self._send(str(exc).encode(), "text/plain; charset=utf-8", 409)
                 return
@@ -418,11 +438,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(b"no source PDF recorded for this page", "text/plain", 409)
                 return
             text = target.read_text(encoding="utf-8")
-            if not _MARKER.search(text):
-                # The crop replaces a marker. With none there is nothing to replace, and
-                # inserting the figure at a guessed position would put content somewhere the
-                # author did not choose -- a placement we invented.
-                self._send(b"no diagram marker on this page to replace", "text/plain", 409)
+            if not _MARKER.search(text) and payload.get("at") is None:
+                # Nothing to replace and no chosen position. Inserting at a guessed point
+                # would be a placement we invented, which is the objection the marker path
+                # exists to avoid -- so the author picks, by putting the cursor where it goes.
+                self._send(b"no diagram marker on this page. Put the cursor in the tex pane "
+                           b"where the figure belongs, then cut.", "text/plain", 409)
                 return
 
             r = payload["region"]
@@ -453,7 +474,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             target = Path(match[0].output)
             before = target.read_text(encoding="utf-8")
+            at = payload.get("at")
             after = _replace_marker(before, name)
+            if after == before and at is not None:
+                after = _insert_at(before, name, at)
             if after == before:
                 self._send(b"no marker was replaced", "text/plain", 409)
                 return

@@ -164,7 +164,7 @@ def crop(outcome: PageOutcome, out_dir: Path, text: str, *, stream, read_line,
     pdf = Path(outcome.source)
     try:
         blocks = rasterize.page_blocks(pdf, outcome.page)
-        width, height = rasterize.page_size(pdf)
+        width, height = rasterize.page_size(pdf, outcome.page)
         print(f"  page is {width:.0f} x {height:.0f} pt", file=stream)
     except rasterize.RasterizeError as exc:
         print(f"  cannot read the source: {exc}", file=stream)

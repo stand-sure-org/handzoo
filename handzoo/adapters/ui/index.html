@@ -60,6 +60,12 @@
   .rgn:hover { background:rgba(58,90,140,.24); }
   .rgn b { position:absolute; top:-1px; left:-1px; background:var(--accent); color:#fff;
            font:10px/1.4 ui-sans-serif,sans-serif; padding:0 .3rem; font-weight:600; }
+  .rgn.sel { border:2px solid var(--fail); background:rgba(163,51,51,.10); z-index:3; }
+  .rgn.sel b { background:var(--fail); }
+  .h { position:absolute; background:var(--fail); z-index:4; }
+  .h.n, .h.s { left:12%; right:12%; height:7px; cursor:ns-resize; }
+  .h.e, .h.w { top:12%; bottom:12%; width:7px; cursor:ew-resize; }
+  .h.n { top:-4px; } .h.s { bottom:-4px; } .h.w { left:-4px; } .h.e { right:-4px; }
   .cropbar[hidden] { display:none; }
   .cropbar { padding:.35rem .7rem; border-top:1px solid var(--line); font-size:12px;
              display:flex; gap:.5rem; align-items:center; }
@@ -174,6 +180,21 @@ function mark(page) {
     b.setAttribute("aria-current", String(Number(b.dataset.page) === page));
 }
 
+// Rendered on its own rather than inside select(), because a save changes the findings and
+// only refreshed the nav. The panel then showed the state from before the edit -- on ch22
+// p28 it listed compile failures under a header that said "re-gated clean". What you saw
+// depended on whether you looked before or after saving.
+function renderFindings(page) {
+  const p = pages.find(x => x.page === page);
+  $("findings").innerHTML = (p && (p.findings || []).length)
+    ? p.findings.map(f =>
+        `<div><span class="gate ${f.gate === "reference" ? "flag" : "fail"}">[${f.gate}]</span> ` +
+        `${escapeHtml(f.detail)}${f.line ? ` <span class="done">line ${f.line}</span>` : ""}</div>`
+      ).join("")
+    : `<div class="done">Nothing flagged. The gates cannot see substitution, so this is not a
+       statement that the page is correct.</div>`;
+}
+
 async function select(page) {
   await flush();               // never carry an unsaved edit onto the next page
   const r = await fetch("/api/text?page=" + page);
@@ -182,14 +203,7 @@ async function select(page) {
   current = page; original = d.text;
   $("tex").value = d.text;
   $("img").src = "/api/image?page=" + page;
-  const p = pages.find(x => x.page === page);
-  $("findings").innerHTML = (p.findings || []).length
-    ? p.findings.map(f =>
-        `<div><span class="gate ${f.gate === "reference" ? "flag" : "fail"}">[${f.gate}]</span> ` +
-        `${escapeHtml(f.detail)}${f.line ? ` <span class="done">line ${f.line}</span>` : ""}</div>`
-      ).join("")
-    : `<div class="done">Nothing flagged. The gates cannot see substitution, so this is not a
-       statement that the page is correct.</div>`;
+  renderFindings(page);
   $("fix").disabled = $("author").disabled = $("accept").disabled = false;
   // Timing starts when the page is opened, matching --fix's protocol.
   opened = performance.now();
@@ -220,7 +234,8 @@ async function save(mode) {
   const note = r.quarantined ? " — NOW FAILS A GATE, quarantined"
              : r.revalidated ? " — re-gated clean, quarantine released" : "";
   say(r.saved ? `saved as ${r.verdict} — ${seconds.toFixed(1)}s${note}` : "unchanged");
-  load();
+  await load();            // pages[] carries the new findings...
+  renderFindings(current); // ...and the panel has to be told about them
   loadTypeset(current);
 }
 
@@ -267,13 +282,31 @@ for (const [btn, pane] of [["t-ink","pane-ink"],["t-set","pane-set"],["t-tex","p
 // evidence: an empty list means "no suggestions", never "no diagram here".
 let pendingCrop = null;
 
+function imageReady() {
+  const img = $("img");
+  if (img.complete && img.naturalWidth) return Promise.resolve();
+  return new Promise(res => {
+    img.addEventListener("load", res, { once: true });
+    img.addEventListener("error", res, { once: true });   // never hang on a missing page
+  });
+}
+
 async function loadRegions(page) {
   for (const el of document.querySelectorAll(".rgn")) el.remove();
-  $("cropbar").hidden = true; pendingCrop = null;
+  clearSelection();
+
+  // The bands are positioned as percentages of the wrapper, and the wrapper is sized by the
+  // image inside it. Reassigning img.src collapses that wrapper to nothing until the new
+  // image arrives -- and `Cache-Control: no-store` means it is re-fetched every time -- so
+  // bands drawn before then get zero size and vanish. They are in the DOM and invisible,
+  // which is the worst of both. Measured: several bands on first load, none after a crop.
+  await imageReady();
+
   const r = await fetch("/api/regions?page=" + page);
   if (!r.ok) { return; }                       // 409 carries the reason; shown on demand
   const d = await r.json();
-  if (!d.markers) return;                      // nothing to replace, so nothing to offer
+  pageDims = { w: d.page_width, h: d.page_height };
+  hasMarkers = d.markers > 0;
   d.regions.forEach((rg, i) => {
     const el = document.createElement("div");
     el.className = "rgn";
@@ -283,43 +316,118 @@ async function loadRegions(page) {
     el.style.height = (rg.height * 100) + "%";
     el.innerHTML = `<b>${i + 1}</b>`;
     el.title = `${rg.paths} strokes — click to cut this band`;
-    el.onclick = (e) => { e.stopPropagation(); doCrop(page, rg.points); };
+    el.onclick = (e) => { e.stopPropagation(); selectBand(el); };
     $("stage").appendChild(el);
   });
-  say(`${d.regions.length} candidate region(s) — click one to cut it`);
+  say(`${d.regions.length} suggested band(s) — click one, pull its edges to trim, then cut` +
+      (hasMarkers ? "" : " (no marker here: put the cursor in the tex where it belongs)"));
 }
 
 async function doCrop(page, points) {
   say("cutting…");
   const r = await fetch("/api/crop", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ page, region: points })
+    body: JSON.stringify({ page, region: points,
+                           at: hasMarkers ? null : $("tex").selectionStart })
   });
   if (!r.ok) { say("crop failed: " + await r.text()); return; }
   const d = await r.json();
   pendingCrop = d.name;
   $("cropprev").src = d.preview;
   $("cropmsg").textContent = `${d.name} — ${d.bytes.toLocaleString()} bytes, vector`;
+  $("cropkeep").textContent = "Keep it";
   $("cropbar").hidden = false;
 }
 
 $("cropkeep").onclick = async () => {
+  if (!pendingCrop && selected) { await doCrop(current, selectedPoints()); return; }
   if (!pendingCrop || current === null) return;
   const r = await fetch("/api/crop/confirm", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ page: current, name: pendingCrop,
+                           at: hasMarkers ? null : $("tex").selectionStart,
                            seconds: (performance.now() - opened) / 1000,
                            ui_mode: "web-side-by-side" })
   });
   if (!r.ok) { say("could not place it: " + await r.text()); return; }
   const d = await r.json();
   $("cropbar").hidden = true; pendingCrop = null;
+  await load(); renderFindings(current);
   say(`figure placed — ${d.remaining} marker(s) left` +
       (d.released ? ", page released from quarantine" : ""));
   await select(current);
   load();
 };
-$("cropdrop").onclick = () => { $("cropbar").hidden = true; pendingCrop = null; say(""); };
+$("cropdrop").onclick = () => { clearSelection(); say(""); };
+
+// --- adjusting a band ---------------------------------------------------------------
+// `page_blocks` groups ink into *horizontal bands*, so a heading sitting directly above a
+// diagram lands in the same band. Cropping it puts that heading inside the figure while it
+// is also still transcribed as text. Measured on ch22 p6: "22.3 Shape" ended up in fig-1
+// and in \section{} at once, and the reader sees it twice.
+//
+// The bands are still where you start -- they are usually close, and one click beats a
+// drag. Selecting one now gives it edges you can pull, so trimming a heading off the top is
+// two seconds rather than a fresh region drawn by hand.
+let selected = null, pageDims = null, hasMarkers = false;
+
+function clearSelection() {
+  for (const el of document.querySelectorAll(".rgn.sel")) {
+    el.classList.remove("sel");
+    for (const h of el.querySelectorAll(".h")) h.remove();
+  }
+  selected = null;
+  $("cropbar").hidden = true; pendingCrop = null;
+}
+
+function selectBand(el) {
+  clearSelection();
+  el.classList.add("sel");
+  for (const side of ["n", "s", "e", "w"]) {
+    const h = document.createElement("span");
+    h.className = "h " + side;
+    h.onmousedown = (e) => startResize(e, el, side);
+    el.appendChild(h);
+  }
+  selected = el;
+  $("cropmsg").textContent = "drag an edge to trim, then cut";
+  $("cropprev").removeAttribute("src");
+  $("cropkeep").textContent = "Cut this region";
+  $("cropbar").hidden = false;
+}
+
+function startResize(e, el, side) {
+  e.preventDefault(); e.stopPropagation();
+  const box = $("img").getBoundingClientRect();
+  const move = (ev) => {
+    const x = Math.min(Math.max(ev.clientX - box.left, 0), box.width);
+    const y = Math.min(Math.max(ev.clientY - box.top, 0), box.height);
+    const l = el.offsetLeft, t = el.offsetTop, w = el.offsetWidth, h = el.offsetHeight;
+    if (side === "n" && y < t + h - 10) { el.style.top = y + "px"; el.style.height = (t + h - y) + "px"; }
+    if (side === "s" && y > t + 10) { el.style.height = (y - t) + "px"; }
+    if (side === "w" && x < l + w - 10) { el.style.left = x + "px"; el.style.width = (l + w - x) + "px"; }
+    if (side === "e" && x > l + 10) { el.style.width = (x - l) + "px"; }
+  };
+  const up = () => {
+    window.removeEventListener("mousemove", move);
+    window.removeEventListener("mouseup", up);
+  };
+  window.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", up);
+}
+
+function selectedPoints() {
+  // displayed pixels -> fractions of the image -> points on the page. The element is
+  // positioned against the same box the image occupies, so one conversion covers zoom,
+  // pane width and the 150dpi render all at once.
+  const box = $("img").getBoundingClientRect();
+  return {
+    x: Math.round(selected.offsetLeft / box.width * pageDims.w),
+    y: Math.round(selected.offsetTop / box.height * pageDims.h),
+    width: Math.round(selected.offsetWidth / box.width * pageDims.w),
+    height: Math.round(selected.offsetHeight / box.height * pageDims.h),
+  };
+}
 
 async function loadTypeset(page) {
   if (page === null) return;

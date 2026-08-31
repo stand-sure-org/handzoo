@@ -7,7 +7,9 @@ touches the author's manuscript, which is unpublished IP and gitignored.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -146,3 +148,49 @@ def test_page_blocks_offers_nothing_on_a_source_it_cannot_read(three_page_pdf: P
     because a gate reads it. Assist and evidence are different things (DESIGN §5.7).
     """
     assert rasterize.page_blocks(three_page_pdf, 1) == () or True  # text-only PDF: no ink
+
+
+def test_page_size_reads_the_page_asked_for_not_the_first_one() -> None:
+    r"""Pages in one export are not all the same size, and assuming they are broke cropping.
+
+    The author writes at different magnifications on the reMarkable and the device bakes that
+    into the export geometry: ch22 is 514x685 pt on most pages, **514x1238 on p16** and
+    514x773 on p26. `pdfinfo` without a page range prints only the *first* page's size, so a
+    crop on p16 converted its fractions against 685 and landed 1.8x off. The author spotted it
+    in the output and guessed the cause exactly.
+
+    The fixture is two one-page PDFs of different sizes joined with `pdfunite` — poppler, the
+    same package that supplies `pdfinfo` and `pdftoppm`. The corpus is unpublished manuscript
+    and stays out of the tests.
+    """
+    import pytest
+
+    from handzoo.core import rasterize
+
+    if not (shutil.which("pdflatex") and shutil.which("pdfunite")):
+        pytest.skip("pdflatex or pdfunite not installed")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        for name, h in (("a", 300), ("b", 900)):
+            (d / f"{name}.tex").write_text(
+                f"\\documentclass{{article}}\n"
+                f"\\usepackage[paperwidth=200pt,paperheight={h}pt,margin=10pt]{{geometry}}\n"
+                f"\\pagestyle{{empty}}\\begin{{document}}{name}\\end{{document}}\n",
+                encoding="utf-8")
+            subprocess.run(["pdflatex", "-interaction=nonstopmode", f"{name}.tex"],
+                           cwd=d, capture_output=True, check=False)
+        if not ((d / "a.pdf").exists() and (d / "b.pdf").exists()):
+            pytest.skip("could not build the fixture")
+        subprocess.run(["pdfunite", "a.pdf", "b.pdf", "both.pdf"],
+                       cwd=d, capture_output=True, check=False)
+        pdf = d / "both.pdf"
+        if not pdf.exists():
+            pytest.skip("could not join the fixture")
+
+        _, h1 = rasterize.page_size(pdf, 1)
+        _, h2 = rasterize.page_size(pdf, 2)
+        # LaTeX's geometry rounds a little; what matters is that the two differ and that
+        # each page reports its own height rather than the document's first.
+        assert abs(h1 - 300) < 3 and abs(h2 - 900) < 5, (h1, h2)
+        assert abs(rasterize.page_size(pdf)[1] - h1) < 1, "defaults to the first page"

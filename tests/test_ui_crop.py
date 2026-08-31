@@ -152,3 +152,52 @@ def test_a_fully_cropped_page_is_released_from_quarantine(tmp_path: Path) -> Non
     assert _fabrications_cleared(fab, dirty) is False, "a marker still stands"
     assert _fabrications_cleared(mixed, clean) is False, "the other finding cannot be rechecked"
     assert _fabrications_cleared([], clean) is False, "nothing was quarantined for fabrication"
+
+
+def test_release_uses_the_same_pattern_the_replacement_consumes() -> None:
+    r"""Release asks "is a marker left?"; the crop asks "is there one to replace?". Those must
+    be the same question, so both go through `_MARKER`.
+
+    `coverage_gate.fabrications` matches the emitted form today as well, so this is not a live
+    bug — it is a guard against the two drifting apart, since they are written against
+    different stages of the pipeline (`fabrications` also reads the pre-normalization
+    `[[FABRICATED: ...]]` form, which never reaches an emitted page).
+    """
+    from handzoo.adapters.ui_server import _fabrications_cleared
+
+    fab = [{"gate": "coverage", "detail": "recognizer fabricated a drawing here"}]
+    one_left = ("\\includegraphics{fig-p0006-1.pdf}\n"
+                "\\texttt{[TODO fabricated: a second invented drawing]}\n")
+    none_left = "\\includegraphics{fig-p0006-1.pdf}\n\\includegraphics{fig-p0006-2.pdf}\n"
+
+    assert _fabrications_cleared(fab, one_left) is False, "one still stands"
+    assert _fabrications_cleared(fab, none_left) is True
+
+
+def test_a_region_can_be_placed_where_there_is_no_marker(cropserver) -> None:
+    r"""Not every drawing the author wants is one the recognizer flagged.
+
+    The marker path replaces something the gates objected to. This one inserts at a position
+    the author chose, because there is nothing to replace — and the position has to come from
+    the author for the same reason the marker path exists: putting it somewhere we guessed
+    would be a placement we invented.
+    """
+    from handzoo.adapters.ui_server import _insert_at
+
+    text = "First line.\nSecond line.\nThird line.\n"
+    at = text.index("Second")
+    out = _insert_at(text, "fig-p0001-1.pdf", at)
+
+    assert out.startswith("First line.\n")
+    assert "\\includegraphics" in out
+    assert out.index("includegraphics") < out.index("Second line.")
+    assert "Third line." in out
+
+
+def test_an_insert_point_past_the_end_lands_at_the_end(cropserver) -> None:
+    """A stale cursor offset must not raise or truncate."""
+    from handzoo.adapters.ui_server import _insert_at
+
+    out = _insert_at("short\n", "f.pdf", 9999)
+    assert out.startswith("short\n")
+    assert "\\includegraphics" in out
