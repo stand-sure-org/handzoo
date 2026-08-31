@@ -134,11 +134,24 @@ def _tighten(pdf: Path) -> None:
         tmp.unlink()
 
 
-def page_size(pdf: Path) -> tuple[float, float]:
-    """Page dimensions in points, from the PDF itself."""
+def page_size(pdf: Path, page: int = 1) -> tuple[float, float]:
+    """Dimensions of one page, in points, from the PDF itself.
+
+    **Pages in one export are not all the same size.** The author writes at different
+    magnifications on the reMarkable and the device bakes that into the export geometry:
+    ch22 is 514x685 pt on most pages, 514x1238 on p16 and 514x773 on p26.
+
+    `pdfinfo` without a page range reports only the *first* page, and an earlier version of
+    this took no page argument at all — so a crop on p16 converted its fractions against 685
+    and landed 1.8x off. The author noticed it in the output and guessed the cause exactly.
+    """
     _require(RASTERIZER)
-    proc = subprocess.run(["pdfinfo", str(pdf)], capture_output=True, text=True, check=False)
-    m = re.search(r"Page size:\s+([0-9.]+) x ([0-9.]+)", proc.stdout)
+    proc = subprocess.run(["pdfinfo", "-f", str(page), "-l", str(page), str(pdf)],
+                          capture_output=True, text=True, check=False)
+    # `-f/-l` prints "Page N size: W x H pts"; the plain "Page size:" line is the document
+    # default and is what made this wrong in the first place, so it is only the fallback.
+    m = (re.search(rf"Page\s+{page}\s+size:\s+([0-9.]+) x ([0-9.]+)", proc.stdout)
+         or re.search(r"Page size:\s+([0-9.]+) x ([0-9.]+)", proc.stdout))
     if not m:
         raise RasterizeError(f"could not read a page size from {pdf}")
     return float(m.group(1)), float(m.group(2))

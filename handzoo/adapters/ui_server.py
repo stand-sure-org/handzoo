@@ -384,7 +384,7 @@ class Handler(BaseHTTPRequestHandler):
             pdf = Path(outcome.source)
             try:
                 blocks = rasterize.page_blocks(pdf, page)
-                pw, ph = rasterize.page_size(pdf)
+                pw, ph = rasterize.page_size(pdf, page)
             except rasterize.RasterizeError as exc:
                 self._send(str(exc).encode(), "text/plain; charset=utf-8", 409)
                 return

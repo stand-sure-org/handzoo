@@ -335,7 +335,7 @@ def test_crop_replaces_the_marker_with_the_drawing(tmp_path: Path, monkeypatch) 
     monkeypatch.setattr(cli_review.rasterize, "crop_vector", fake_crop)
     monkeypatch.setattr(cli_review.rasterize, "page_blocks",
                         lambda *a, **k: (cli_review.rasterize.Block(10, 20, 100, 80, 5),))
-    monkeypatch.setattr(cli_review.rasterize, "page_size", lambda p: (514.0, 685.0))
+    monkeypatch.setattr(cli_review.rasterize, "page_size", lambda p, page=1: (514.0, 685.0))
 
     cli_review.main([str(out)], stream=io.StringIO(), read_line=_keys("c", "1", "y"),
                     open_file=lambda p: None)
@@ -362,7 +362,7 @@ def test_a_rejected_crop_leaves_the_document_untouched(tmp_path: Path, monkeypat
                         lambda pdf, page, target, **r: (target.write_bytes(b"x"), target)[1])
     monkeypatch.setattr(cli_review.rasterize, "page_blocks",
                         lambda *a, **k: (cli_review.rasterize.Block(10, 20, 100, 80, 5),))
-    monkeypatch.setattr(cli_review.rasterize, "page_size", lambda p: (514.0, 685.0))
+    monkeypatch.setattr(cli_review.rasterize, "page_size", lambda p, page=1: (514.0, 685.0))
 
     cli_review.main([str(out)], stream=io.StringIO(), read_line=_keys("c", "1", "n", "q"),
                     open_file=lambda p: None)
