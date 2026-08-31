@@ -2646,6 +2646,71 @@ to reconcile against. The author's two thoughts are one conclusion.
 always be incomplete, which is an argument for the correction-mined path (§11.0.1c) rather than
 against the file.
 
+### 11.2.4 Mixed printed and handwritten pages — it works, and it captures the wrong half
+
+First corpus with both: Leinster's *Basic Category Theory*, the author's exercise answers
+interleaved with photographed pages of the book. 16 pages, of which **2 are printed A4 and 14
+are reMarkable**, and the printed ones carry handwritten annotation on top.
+
+**The author expected no issue. There is one, and it is not a failure to read the page.**
+
+Run on p1 (printed, annotated), the transcription came back as a clean rendering of
+**Leinster's printed paragraphs** — *"and continuous maps, as follows"*, *"The diagram means
+that given Y, f and g..."* — and the author's purple bracket and underline are **absent**. The
+tool captured the publisher's half and dropped the reader's.
+
+That is backwards from where the value is. On an annotated page the printed text is already
+typeset, already correct, and already owned by someone else; the annotation is the only part
+that exists nowhere else.
+
+**It also means the emitted `.tex` is a verbatim reproduction of published text.** That is the
+author's own business for private study notes, and it is not something the tool should do
+*silently*, and certainly not *instead of* the thing they wanted.
+
+**The discriminator already exists and already fired.** The colour gate refused the page:
+
+> 2 distinct ink colours on the page (`rgb(0, 0, 0)`, `rgb(192, 127, 210)`)
+
+Black is print, purple is the author. Colour was built because R/G/B houses on the Naive Math
+fixtures made it semantic (§6); on a mixed page it separates whose ink is whose, which is a
+use nobody designed it for and it happens to be exactly right.
+
+**What follows, unbuilt.** A mixed page wants a different mode: transcribe only the
+non-black ink, and reference the printed page rather than reproducing it. The reference gate
+firing on *"Example 0.5"* and *"Example 0.6"* is the same confusion from the other side — those
+are Leinster's numbers, not the author's claims, and the gate has no way to know.
+
+**Page geometry varies far more here**: 685 to **2105 pt** within one file, against ch22's
+685–1238. Whatever reads a dimension must read it per page (§11.2.3's bug, in a corpus that
+would have made it unmissable).
+
+### 11.2.5 Where does an attempt begin? The author already marks it
+
+The author's question, ahead of wiring in verification: they rework answers, so how would a
+checker know where one attempt ends and the next starts?
+
+**Observed on p7** — 2105 pt, the longest page in the corpus — the structure is already
+delimited by hand:
+
+- a **horizontal rule** before each restart, twice on that page
+- `•` and `◦` bullets opening sub-sections (*Homomorphism Check*, *Uniqueness*)
+- part labels `a)` and `b)`, with `b)` appearing once in the restated exercise and again where
+  its work begins
+
+So the boundary is not missing information the checker must infer — it is **ink on the page**,
+and the inventory pass already reports marks by position. A rule spanning the width between
+two blocks of prose is as detectable as a diagram.
+
+**What is not yet known** is whether those rules mean *"attempt two"* or merely *"new
+section"*. On p7 both readings fit, and only the author can say. That matters because a
+verifier told to check the page against the emitted text would otherwise flag abandoned work
+as missing content — the failure being **absence of evidence about intent**, not about ink.
+
+**Recorded as the question to settle before verification is wired**: does a rule delimit a
+retry or a section, and does the author want abandoned attempts transcribed, marked, or
+dropped? Dropping them silently would be a D6 violation; keeping them unmarked would make the
+document disagree with itself. Neither is decidable from the page.
+
 ### 11.2.2 Click the typeset, land in the tex — mostly already there
 
 The author's ask: clicking a spot in the rendered page should put the cursor at the
