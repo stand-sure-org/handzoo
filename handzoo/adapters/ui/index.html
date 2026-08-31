@@ -180,6 +180,21 @@ function mark(page) {
     b.setAttribute("aria-current", String(Number(b.dataset.page) === page));
 }
 
+// Rendered on its own rather than inside select(), because a save changes the findings and
+// only refreshed the nav. The panel then showed the state from before the edit -- on ch22
+// p28 it listed compile failures under a header that said "re-gated clean". What you saw
+// depended on whether you looked before or after saving.
+function renderFindings(page) {
+  const p = pages.find(x => x.page === page);
+  $("findings").innerHTML = (p && (p.findings || []).length)
+    ? p.findings.map(f =>
+        `<div><span class="gate ${f.gate === "reference" ? "flag" : "fail"}">[${f.gate}]</span> ` +
+        `${escapeHtml(f.detail)}${f.line ? ` <span class="done">line ${f.line}</span>` : ""}</div>`
+      ).join("")
+    : `<div class="done">Nothing flagged. The gates cannot see substitution, so this is not a
+       statement that the page is correct.</div>`;
+}
+
 async function select(page) {
   await flush();               // never carry an unsaved edit onto the next page
   const r = await fetch("/api/text?page=" + page);
@@ -188,14 +203,7 @@ async function select(page) {
   current = page; original = d.text;
   $("tex").value = d.text;
   $("img").src = "/api/image?page=" + page;
-  const p = pages.find(x => x.page === page);
-  $("findings").innerHTML = (p.findings || []).length
-    ? p.findings.map(f =>
-        `<div><span class="gate ${f.gate === "reference" ? "flag" : "fail"}">[${f.gate}]</span> ` +
-        `${escapeHtml(f.detail)}${f.line ? ` <span class="done">line ${f.line}</span>` : ""}</div>`
-      ).join("")
-    : `<div class="done">Nothing flagged. The gates cannot see substitution, so this is not a
-       statement that the page is correct.</div>`;
+  renderFindings(page);
   $("fix").disabled = $("author").disabled = $("accept").disabled = false;
   // Timing starts when the page is opened, matching --fix's protocol.
   opened = performance.now();
@@ -226,7 +234,8 @@ async function save(mode) {
   const note = r.quarantined ? " — NOW FAILS A GATE, quarantined"
              : r.revalidated ? " — re-gated clean, quarantine released" : "";
   say(r.saved ? `saved as ${r.verdict} — ${seconds.toFixed(1)}s${note}` : "unchanged");
-  load();
+  await load();            // pages[] carries the new findings...
+  renderFindings(current); // ...and the panel has to be told about them
   loadTypeset(current);
 }
 
@@ -297,7 +306,7 @@ async function loadRegions(page) {
   if (!r.ok) { return; }                       // 409 carries the reason; shown on demand
   const d = await r.json();
   pageDims = { w: d.page_width, h: d.page_height };
-  if (!d.markers) return;                      // nothing to replace, so nothing to offer
+  hasMarkers = d.markers > 0;
   d.regions.forEach((rg, i) => {
     const el = document.createElement("div");
     el.className = "rgn";
@@ -310,14 +319,16 @@ async function loadRegions(page) {
     el.onclick = (e) => { e.stopPropagation(); selectBand(el); };
     $("stage").appendChild(el);
   });
-  say(`${d.regions.length} suggested band(s) — click one, pull its edges to trim, then cut`);
+  say(`${d.regions.length} suggested band(s) — click one, pull its edges to trim, then cut` +
+      (hasMarkers ? "" : " (no marker here: put the cursor in the tex where it belongs)"));
 }
 
 async function doCrop(page, points) {
   say("cutting…");
   const r = await fetch("/api/crop", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ page, region: points })
+    body: JSON.stringify({ page, region: points,
+                           at: hasMarkers ? null : $("tex").selectionStart })
   });
   if (!r.ok) { say("crop failed: " + await r.text()); return; }
   const d = await r.json();
@@ -334,12 +345,14 @@ $("cropkeep").onclick = async () => {
   const r = await fetch("/api/crop/confirm", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ page: current, name: pendingCrop,
+                           at: hasMarkers ? null : $("tex").selectionStart,
                            seconds: (performance.now() - opened) / 1000,
                            ui_mode: "web-side-by-side" })
   });
   if (!r.ok) { say("could not place it: " + await r.text()); return; }
   const d = await r.json();
   $("cropbar").hidden = true; pendingCrop = null;
+  await load(); renderFindings(current);
   say(`figure placed — ${d.remaining} marker(s) left` +
       (d.released ? ", page released from quarantine" : ""));
   await select(current);
@@ -356,7 +369,7 @@ $("cropdrop").onclick = () => { clearSelection(); say(""); };
 // The bands are still where you start -- they are usually close, and one click beats a
 // drag. Selecting one now gives it edges you can pull, so trimming a heading off the top is
 // two seconds rather than a fresh region drawn by hand.
-let selected = null, pageDims = null;
+let selected = null, pageDims = null, hasMarkers = false;
 
 function clearSelection() {
   for (const el of document.querySelectorAll(".rgn.sel")) {

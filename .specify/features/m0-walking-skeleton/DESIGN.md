@@ -2646,6 +2646,45 @@ to reconcile against. The author's two thoughts are one conclusion.
 always be incomplete, which is an argument for the correction-mined path (§11.0.1c) rather than
 against the file.
 
+### 11.2.1 Crop: what the author asked for next, and what each costs
+
+From using it on ch22 (2026-08-31).
+
+**1. Place a region where nothing was flagged — built.** Not every drawing the author wants is
+one the recognizer objected to. The marker path *replaces*; this one *inserts*, at the cursor
+position in the tex pane. The position comes from the author for the same reason the marker
+path exists at all: choosing it ourselves would be a placement we invented.
+
+**2. Removing ink that bled into a crop — not built, and the cheap version is not the obvious
+one.** The author's case is descenders: a `g`, `p`, `q` or `y` from the line above dips into
+the band, and the crop takes it. Trimming the top edge does not help, because the descender
+overlaps the diagram vertically rather than sitting above it.
+
+Three ways, and they are not close in cost:
+
+| approach | what it takes | honest cost |
+|---|---|---|
+| lasso-erase the raster | composite white over the PNG | cheap, and **wrong** — the artefact is vector, so this would either discard that or produce a picture that disagrees with the PDF |
+| mask rectangles in the PDF | draw white filled rects over the crop | moderate; hides rather than removes, and anything hidden is still in the file |
+| **select paths, not a rectangle** | emit only the strokes the author chose | most work, and the only one that is *true* |
+
+The third is the one that fits: `rasterize.page_blocks` already parses the source SVG into
+paths with bounding boxes, so "which strokes are in this lasso" is answerable with machinery
+that exists. It replaces rectangular cropping with path selection, which is a different
+primitive rather than an option on the current one. **Recorded, not scoped.**
+
+**3. Generating `tikz` on request — recorded, with the boundary that makes it safe.**
+Some authors will want a real `tikz` diagram rather than a cropped picture. Constraint #4
+forbids *fabricating* tikz, and this is not that — the distinction is who asked and who
+checks.
+
+The rule that keeps them apart: **the author requests it, sees it, and accepts it before it
+lands.** A crop is evidence; generated tikz is a proposal. Applied automatically it becomes
+constraint #4 with extra steps, and worse than the recognizer's version because the author
+asked for it and so scrutinises it less — 5b's warning, again. If built: offered per-diagram,
+never on by default, shown beside the ink before acceptance, and recorded as its own verdict
+so a corpus can tell a drawn figure from a generated one.
+
 ### 11.1.4 `\sps` — the third lexicon mode, and the author solved 5b again
 
 The clearest idea in either note, and the merged lexicon design (§11.0.1c) does not model it:
