@@ -28,6 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from ..core import rasterize
 from ..core.corrections import Correction, CorrectionLog
 from ..core.pipeline import MANIFEST, PageOutcome
 from ..core.validate import (ascii_gate, colour_gate, compile_gate, delimiter_gate,
@@ -116,6 +117,59 @@ def _pages(review: Review) -> list[dict]:
                     "diagram_only": diagram_only,
                     "has_image": review.image(o.page) is not None})
     return out
+
+
+# Shared with the CLI rather than restated: the two paths must agree about what a marker is,
+# or a crop made in one tool is invisible to the other.
+from .cli_review import CROP_WIDTH, _MARKER  # noqa: E402
+
+
+def _region_fractions(region: dict, *, page_width: float, page_height: float) -> dict:
+    """A candidate region as fractions of the page.
+
+    Three coordinate spaces are in play: `page_blocks` returns points at 72 dpi, the page
+    image is rendered at 150, and the browser scales that image to fit its pane. Fractions
+    survive all three, so the overlay lines up without the client knowing any of them.
+    """
+    return {"left": region["x"] / page_width,
+            "top": region["y"] / page_height,
+            "width": region["width"] / page_width,
+            "height": region["height"] / page_height}
+
+
+def _fabrications_cleared(findings: list[dict], text: str) -> bool:
+    """Were *all* this page's complaints invented drawings, and are they now gone?
+
+    The coverage gate cannot re-run here — it needs the mark inventory from the recognition
+    pass. But fabrication findings are recorded as markers in the text, and
+    `coverage_gate.fabrications()` reads them from the text alone, so the exact check that
+    failed can be re-run.
+
+    A page carrying any other coverage finding stays quarantined. That one is genuinely
+    unre-checkable at this point, and releasing it would claim a check that never ran
+    (DESIGN 5.7).
+    """
+    from ..core.validate import coverage_gate
+
+    if not findings:
+        return False
+    if not all("fabricated" in f.get("detail", "") for f in findings):
+        return False
+    return not coverage_gate.fabrications(text)
+
+
+def _replace_marker(text: str, figure_name: str) -> str:
+    r"""Put the figure where the marker was — **one** marker, the first.
+
+    A function replacement, not a string: `re.sub` treats backslashes in a replacement string
+    as escapes and `\i` of `\includegraphics` is not a valid one, so the figure would blow up
+    the substitution rather than the document. The CLI hit this; the same shape is used here.
+
+    One at a time because a page can carry several invented drawings and they are different
+    regions. Replacing them all with one crop would be a fabrication of our own.
+    """
+    figure = f"\\includegraphics[width={CROP_WIDTH}]{{{figure_name}}}"
+    return _MARKER.sub(lambda _m: figure, text, count=1)
 
 
 def typeset(out_dir: Path, outcome: PageOutcome) -> tuple[Path | None, str]:
@@ -291,6 +345,49 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(pdf.read_bytes(),
                        "application/pdf" if want_pdf else "image/png")
+        elif url.path == "/api/regions":
+            page = int(q["page"][0])
+            match = [o for o in self.review.outcomes() if o.page == page]
+            if not match:
+                self._json({"error": "no such page"}, 404)
+                return
+            outcome = match[0]
+            if not outcome.source or not Path(outcome.source).exists():
+                # An empty list would read as "no diagram here" — the DESIGN 5.7 failure. The
+                # reason has to reach the surface, because the fix is a re-run of `handzoo`
+                # and nobody can guess that from silence.
+                self._send(b"no source PDF recorded for this page, so there is nothing to "
+                           b"crop from. Manifests written before `source` existed have none "
+                           b"-- re-run `handzoo` on the PDF.",
+                           "text/plain; charset=utf-8", 409)
+                return
+            pdf = Path(outcome.source)
+            try:
+                blocks = rasterize.page_blocks(pdf, page)
+                pw, ph = rasterize.page_size(pdf)
+            except rasterize.RasterizeError as exc:
+                self._send(str(exc).encode(), "text/plain; charset=utf-8", 409)
+                return
+            self._json({
+                "page": page, "page_width": pw, "page_height": ph,
+                "markers": len(_MARKER.findall(
+                    Path(outcome.output).read_text(encoding="utf-8"))) if outcome.output else 0,
+                "regions": [{"points": b.region, "paths": b.paths,
+                             **_region_fractions(b.region, page_width=pw, page_height=ph)}
+                            for b in blocks],
+            })
+        elif url.path == "/api/figure":
+            fig = self.review.out_dir / Path(q["name"][0]).name
+            if not fig.exists() or fig.suffix != ".pdf":
+                self._json({"error": "no such figure"}, 404)
+                return
+            png = fig.with_suffix(".png")
+            if not png.exists():
+                subprocess.run(["pdftoppm", "-png", "-r", "150", "-singlefile",
+                                str(fig), str(fig.with_suffix(""))],
+                               capture_output=True, check=False)
+            self._send(png.read_bytes() if png.exists() else fig.read_bytes(),
+                       "image/png" if png.exists() else "application/pdf")
         elif url.path == "/api/image":
             img = self.review.image(int(q["page"][0]))
             if not img:
@@ -302,11 +399,94 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         url = urlparse(self.path)
-        if url.path not in ("/api/save", "/api/autosave"):
+        if url.path not in ("/api/save", "/api/autosave", "/api/crop",
+                            "/api/crop/confirm"):
             self._json({"error": "not found"}, 404)
             return
 
         payload = json.loads(self.rfile.read(int(self.headers["Content-Length"] or 0)) or b"{}")
+
+        if url.path == "/api/crop":
+            page = int(payload["page"])
+            match = [o for o in self.review.outcomes() if o.page == page]
+            if not match or not match[0].output:
+                self._json({"error": "no output on disk for this page"}, 404)
+                return
+            outcome = match[0]
+            target = Path(outcome.output)
+            if not outcome.source or not Path(outcome.source).exists():
+                self._send(b"no source PDF recorded for this page", "text/plain", 409)
+                return
+            text = target.read_text(encoding="utf-8")
+            if not _MARKER.search(text):
+                # The crop replaces a marker. With none there is nothing to replace, and
+                # inserting the figure at a guessed position would put content somewhere the
+                # author did not choose -- a placement we invented.
+                self._send(b"no diagram marker on this page to replace", "text/plain", 409)
+                return
+
+            r = payload["region"]
+            existing = len(list(self.review.out_dir.glob(f"fig-p{page:04d}-*.pdf")))
+            name = f"fig-p{page:04d}-{existing + 1}.pdf"
+            try:
+                figure = rasterize.crop_vector(
+                    Path(outcome.source), page, self.review.out_dir / name,
+                    x=int(r["x"]), y=int(r["y"]),
+                    width=int(r.get("w", r.get("width"))),
+                    height=int(r.get("h", r.get("height"))))
+            except rasterize.RasterizeError as exc:
+                self._send(str(exc).encode(), "text/plain; charset=utf-8", 409)
+                return
+            # Cut but not committed: the author sees it before the marker is replaced. A
+            # crop that turns out to hold the wrong band is one keystroke from being retried.
+            self._json({"cropped": True, "name": name,
+                        "bytes": figure.stat().st_size,
+                        "preview": f"/api/figure?name={name}"})
+            return
+
+        if url.path == "/api/crop/confirm":
+            page = int(payload["page"])
+            name = Path(payload["name"]).name
+            match = [o for o in self.review.outcomes() if o.page == page]
+            if not match or not match[0].output:
+                self._json({"error": "no output on disk for this page"}, 404)
+                return
+            target = Path(match[0].output)
+            before = target.read_text(encoding="utf-8")
+            after = _replace_marker(before, name)
+            if after == before:
+                self._send(b"no marker was replaced", "text/plain", 409)
+                return
+            target.write_text(after, encoding="utf-8")
+
+            img = self.review.image(page)
+            self.review.log().append(Correction(
+                page=page, verdict="cropped",
+                source_image=str(img) if img else "",
+                before=before, after=name,
+                seconds=float(payload.get("seconds", 0.0)),
+                mode=payload.get("ui_mode", "web"),
+                # `cropped` is GOLD and counted separately: diagrams are 45 of 49 findings on
+                # a real run, so seconds-per-crop is most of the exit criterion rather than a
+                # footnote in it. It is not the correction arm's marker -- supplying a drawing
+                # the tool refused to invent is a different act from fixing transcribed text.
+                finding="supplied a cropped figure for an invented drawing",
+            ))
+            released = False
+            if target.name.endswith(".fail.tex") and _fabrications_cleared(
+                    match[0].findings or [], after):
+                clean, findings, gates = _revalidate(after, target)
+                if clean:
+                    freed = target.with_name(target.name.replace(".fail.tex", ".tex"))
+                    target.rename(freed)
+                    _rewrite_manifest(self.review.out_dir, page, output=str(freed),
+                                      verdict="pass", findings=findings,
+                                      gates=json.loads(gates))
+                    released = True
+
+            self._json({"saved": True, "verdict": "cropped", "released": released,
+                        "remaining": len(_MARKER.findall(after))})
+            return
 
         if url.path == "/api/autosave":
             # Writes the file, records nothing. Losing an edit on navigation is bad; recording
