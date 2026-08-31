@@ -152,3 +152,23 @@ def test_a_fully_cropped_page_is_released_from_quarantine(tmp_path: Path) -> Non
     assert _fabrications_cleared(fab, dirty) is False, "a marker still stands"
     assert _fabrications_cleared(mixed, clean) is False, "the other finding cannot be rechecked"
     assert _fabrications_cleared([], clean) is False, "nothing was quarantined for fabrication"
+
+
+def test_release_uses_the_same_pattern_the_replacement_consumes() -> None:
+    r"""Release asks "is a marker left?"; the crop asks "is there one to replace?". Those must
+    be the same question, so both go through `_MARKER`.
+
+    `coverage_gate.fabrications` matches the emitted form today as well, so this is not a live
+    bug — it is a guard against the two drifting apart, since they are written against
+    different stages of the pipeline (`fabrications` also reads the pre-normalization
+    `[[FABRICATED: ...]]` form, which never reaches an emitted page).
+    """
+    from handzoo.adapters.ui_server import _fabrications_cleared
+
+    fab = [{"gate": "coverage", "detail": "recognizer fabricated a drawing here"}]
+    one_left = ("\\includegraphics{fig-p0006-1.pdf}\n"
+                "\\texttt{[TODO fabricated: a second invented drawing]}\n")
+    none_left = "\\includegraphics{fig-p0006-1.pdf}\n\\includegraphics{fig-p0006-2.pdf}\n"
+
+    assert _fabrications_cleared(fab, one_left) is False, "one still stands"
+    assert _fabrications_cleared(fab, none_left) is True

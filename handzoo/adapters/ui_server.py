@@ -149,13 +149,15 @@ def _fabrications_cleared(findings: list[dict], text: str) -> bool:
     unre-checkable at this point, and releasing it would claim a check that never ran
     (DESIGN 5.7).
     """
-    from ..core.validate import coverage_gate
-
     if not findings:
         return False
     if not all("fabricated" in f.get("detail", "") for f in findings):
         return False
-    return not coverage_gate.fabrications(text)
+    # `_MARKER` rather than `coverage_gate.fabrications`: both currently match the emitted
+    # form, but `_MARKER` is the pattern `_replace_marker` actually consumes. Asking the same
+    # question with the same pattern means "a marker remains" and "there is one left to
+    # replace" cannot drift apart if either pattern is later changed.
+    return not _MARKER.search(text)
 
 
 def _replace_marker(text: str, figure_name: str) -> str:

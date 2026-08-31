@@ -267,9 +267,26 @@ for (const [btn, pane] of [["t-ink","pane-ink"],["t-set","pane-set"],["t-tex","p
 // evidence: an empty list means "no suggestions", never "no diagram here".
 let pendingCrop = null;
 
+function imageReady() {
+  const img = $("img");
+  if (img.complete && img.naturalWidth) return Promise.resolve();
+  return new Promise(res => {
+    img.addEventListener("load", res, { once: true });
+    img.addEventListener("error", res, { once: true });   // never hang on a missing page
+  });
+}
+
 async function loadRegions(page) {
   for (const el of document.querySelectorAll(".rgn")) el.remove();
   $("cropbar").hidden = true; pendingCrop = null;
+
+  // The bands are positioned as percentages of the wrapper, and the wrapper is sized by the
+  // image inside it. Reassigning img.src collapses that wrapper to nothing until the new
+  // image arrives -- and `Cache-Control: no-store` means it is re-fetched every time -- so
+  // bands drawn before then get zero size and vanish. They are in the DOM and invisible,
+  // which is the worst of both. Measured: several bands on first load, none after a crop.
+  await imageReady();
+
   const r = await fetch("/api/regions?page=" + page);
   if (!r.ok) { return; }                       // 409 carries the reason; shown on demand
   const d = await r.json();
