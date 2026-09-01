@@ -24,6 +24,16 @@ on:
 permissions: {}
 
 jobs:
+  key_shape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Key shape
+        env:
+          KEY: ${{ secrets.AUTO_PR_PRIVATE_KEY }}
+        run: |
+          printf '%s' "$KEY" | wc -c
+          printf '%s' "$KEY" | wc -l
+          printf '%s\n' "$KEY" | head -1
   pull_request:
     if: github.ref != 'refs/heads/main'
     uses: stand-sure-org/Oui-DELIVER/.github/workflows/auto-pr.yml@main
