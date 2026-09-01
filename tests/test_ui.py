@@ -472,3 +472,72 @@ def test_the_snapshot_is_released_once_a_verdict_lands(server) -> None:
     from handzoo.core.corrections import CorrectionLog
     rows = CorrectionLog.for_run(run).read()
     assert rows[-1].before == "one\n", "the second edit starts from where the first ended"
+
+
+def test_a_resumed_page_uses_its_latest_row_not_its_first(tmp_path: Path) -> None:
+    r"""The manifest is append-only, so `--resume` leaves two rows for a retried page.
+
+    Measured: a run interrupted by an Ollama restart recorded 18 pages as errored with
+    `output: None`; resuming appended a good row after each. Every reader took `match[0]` —
+    the *first* — so the surface served the stale failure and accepting the page did nothing.
+
+    Append-only is right: the log records what happened. The interpretation has to prefer the
+    newest, which is the same reasoning that makes an abandoned transcription attempt stay in
+    the log and out of the arms (§11.0.2).
+    """
+    (tmp_path / "pages").mkdir()
+    good = tmp_path / "page-0003.tex"
+    good.write_text("the retry succeeded\n", encoding="utf-8")
+    rows = [
+        {"page": 3, "output": None, "verdict": "fail", "gates": {},
+         "error": "produced nothing after 3 attempts", "findings": []},
+        {"page": 3, "output": str(good), "verdict": "pass", "gates": {}, "findings": []},
+    ]
+    (tmp_path / "manifest.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+    review = Review(tmp_path)
+    outcomes = review.outcomes()
+    assert len(outcomes) == 1, "one page, one row — the newest"
+    assert outcomes[0].verdict == "pass"
+    assert outcomes[0].output == str(good)
+
+
+def test_the_page_list_shows_a_resumed_page_once(tmp_path: Path) -> None:
+    """Two rows for one page listed the page twice in the nav."""
+    (tmp_path / "pages").mkdir()
+    f = tmp_path / "page-0003.tex"
+    f.write_text("x\n", encoding="utf-8")
+    rows = [{"page": 3, "output": None, "verdict": "fail", "gates": {}, "error": "e",
+             "findings": []},
+            {"page": 3, "output": str(f), "verdict": "pass", "gates": {}, "findings": []}]
+    (tmp_path / "manifest.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+    Handler.review = Review(tmp_path)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{srv.server_address[1]}"
+        pages = json.loads(_get(base, "/api/pages")[1])["pages"]
+        assert [p["page"] for p in pages] == [3]
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_the_page_list_says_what_the_human_did_not_just_that_they_looked(server) -> None:
+    r"""One word over every outcome flattened opposite claims.
+
+    "seen" read the same on a page the author accepted as correct and one they skipped — and
+    those are exactly the two the corpus must never conflate (`keep-unreviewed` exists to keep
+    them apart). The list now carries the verdict.
+    """
+    base, run = server
+    same = (run / "page-0001.tex").read_text(encoding="utf-8")
+    _post(base, "/api/save", {"page": 1, "mode": "accept", "text": same})
+    _post(base, "/api/save", {"page": 2, "mode": "fix", "text": "corrected\n"})
+
+    pages = {p["page"]: p for p in json.loads(_get(base, "/api/pages")[1])["pages"]}
+    assert pages[1]["did"] == "accepted"
+    assert pages[2]["did"] == "edited"

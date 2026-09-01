@@ -65,11 +65,17 @@ class Review:
         path = self.out_dir / MANIFEST
         if not path.exists():
             return []
-        rows = []
+        # The manifest is append-only, so `--resume` leaves two rows for a retried page: the
+        # original failure and the successful retry after it. The log is right to keep both —
+        # it records what happened — but a reader must prefer the newest, or the surface
+        # serves a stale failure and every action on that page silently does nothing.
+        # Measured after an Ollama restart mid-run left 18 pages errored and then retried.
+        latest: dict[int, PageOutcome] = {}
         for line in path.read_text(encoding="utf-8").splitlines():
             if line.strip():
-                rows.append(PageOutcome(**json.loads(line)))
-        return rows
+                row = PageOutcome(**json.loads(line))
+                latest[row.page] = row
+        return [latest[k] for k in sorted(latest)]
 
     def image(self, page: int) -> Path | None:
         hits = sorted((self.out_dir / "pages").glob(f"p-{page:04d}*.png"))
@@ -99,7 +105,17 @@ def _pages(review: Review) -> list[dict]:
     convention for a human to look at and does not refuse the page (DESIGN 11.0.1b). Collapsing
     the two would train the reader to ignore both.
     """
-    seen = {r.page for r in review.log().read()}
+    # What the human did, not merely that they passed through. "seen" said the same word over
+    # an accepted page and a skipped one, which are opposite claims about the corpus — the
+    # distinction `keep-unreviewed` exists to protect. The latest verdict per page is both
+    # shorter to read and honest about which it was.
+    done: dict[int, str] = {}
+    for r in review.log().read():
+        done[r.page] = {"keep-reviewed": "accepted", "edited": "edited",
+                        "cropped": "cropped", "authored": "rewritten",
+                        "flagged": "flagged", "skipped": "skipped",
+                        "transcribed": "typed", "keep-unreviewed": "passed over",
+                        }.get(r.verdict, r.verdict)
     out = []
     for o in review.outcomes():
         findings = o.findings or []
@@ -113,7 +129,8 @@ def _pages(review: Review) -> list[dict]:
             "fabricated" in f.get("detail", "") or "diagram" in f.get("detail", "").lower()
             for f in findings)
         out.append({"page": o.page, "state": state, "verdict": o.verdict,
-                    "findings": findings, "reviewed": o.page in seen,
+                    "findings": findings, "reviewed": o.page in done,
+                    "did": done.get(o.page, ""),
                     "diagram_only": diagram_only,
                     "has_image": review.image(o.page) is not None})
     return out

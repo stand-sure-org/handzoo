@@ -163,7 +163,7 @@ async function load() {
     const mark = p.state === "ok" ? "✓" : p.state === "flag" ? "⚠" : "✗";
     b.innerHTML = `<span class="st ${p.state}">${mark}</span> p${p.page}` +
                   (p.diagram_only ? ` <span class="done">◨ diagram</span>` : "") +
-                  (p.reviewed ? ` <span class="done">seen</span>` : "");
+                  (p.did ? ` <span class="done">${p.did}</span>` : "");
     if (p.diagram_only) b.dataset.diagram = "1";
     b.onclick = () => select(p.page);
     b.dataset.page = p.page;
