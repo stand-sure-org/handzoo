@@ -2646,6 +2646,58 @@ to reconcile against. The author's two thoughts are one conclusion.
 always be incomplete, which is an argument for the correction-mined path (§11.0.1c) rather than
 against the file.
 
+### 11.2.6 Pasted rasters: a third structure, and the quietest failure so far
+
+Leinster 1.1 is the third distinct shape a corpus has taken, and each defeats a different
+mechanism:
+
+| corpus | typeset content is | what sees it |
+|---|---|---|
+| ch18, ch22 | none — vector handwriting only | n/a |
+| Leinster intro | the PDF **background**: black vector text | the **colour gate** — black print against a purple pen |
+| **Leinster 1.1** | **pasted raster screenshots** (pp. 14, 15, 17, 18) | **nothing, until now** |
+
+**Page 14 passed every gate** — ASCII, delimiters, compile, coverage, colour, reference,
+repetition — and emitted Leinster's exercise text verbatim.
+
+Each existing mechanism is blind for its own reason, and the reasons are worth separating
+because they are not one oversight:
+
+- `ink_colours` reads **stroke** colour and a raster has none, so the discriminator that
+  worked one corpus ago reports a single colour here and passes.
+- `page_blocks` groups **vector paths**, so no band is offered over the pasted region — the
+  crop tool cannot reach it even if the author wanted to.
+- there is **no text layer** (`pdftotext` returns nothing), so nothing downstream knows the
+  pixels are words.
+
+**And the author's own label was dropped.** They wrote an underlined `1.1.12` above their
+answer; the emitted page has Leinster's exercise, the three answers, and no label — so the
+answers float with nothing saying what they answer.
+
+**The reference gate could not catch that, and the reason generalises.** It flags a numbered
+claim carrying *no marking*. A claim that is **absent entirely** is not a claim it can see.
+The gate detects *unmarked*, never *missing* — which is the §5.7 shape once more: what did
+not arrive leaves no trace to check.
+
+#### `pasted_gate`
+
+`pdfimages -list` answers it directly: on this corpus exactly pp. 14, 15, 17, 18, no false
+positives. It is the cheapest check in the project and the only one that sees this case.
+
+**Advisory rather than a refusal.** An author may legitimately paste their own figure, and
+nothing here can tell whose picture it is. What it can say is *there is content on this page
+that did not come from your pen* — which is the moment to decide between transcribing it,
+cropping it, and cutting the page with `--exclude`.
+
+**Counted per image, not per smask.** `pdfimages` lists a transparency channel as its own row
+beneath the image it belongs to; counting those would report every figure twice.
+
+#### An aside worth keeping
+
+The pasted screenshots include the **mouse cursor**. The recognizer ignored it, and there is
+no reason to assume it always will — a UI artefact in the source is a mark on the page as far
+as any inventory pass is concerned.
+
 ### 11.2.4 Mixed printed and handwritten pages — it works, and it captures the wrong half
 
 First corpus with both: Leinster's *Basic Category Theory*, the author's exercise answers

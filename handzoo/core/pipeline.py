@@ -26,7 +26,7 @@ from .emit import Emission, emit
 from .recognize.base import Recognition, Recognizer
 from .recognize.ollama_vlm import RecognitionError
 from .validate import (ascii_gate, colour_gate, compile_gate, coverage_gate,
-                       delimiter_gate, reference_gate, repetition_gate)
+                       delimiter_gate, reference_gate, repetition_gate, pasted_gate)
 
 MANIFEST = "manifest.jsonl"
 
@@ -211,11 +211,20 @@ def _validate(recognition: Recognition, pdf: Path, page: int, *, mode: str,
         colour_gate.check(draft.text, colours=colours),
         reference_gate.check(draft.text),
         repetition_gate.check(draft.text),
+        pasted_gate.check(_pasted_count(pdf, page)),
     )
     # Reuse the draft rather than normalising a second time. Deterministic today, but
     # nothing enforced that the two runs agreed, and a divergence would have meant the
     # gates judged text the caller never receives.
     return replace(draft, gates=gates)
+
+
+def _pasted_count(pdf: Path, page: int) -> int | None:
+    """Images pasted onto the page, or None when the tool could not look."""
+    try:
+        return rasterize.embedded_images(pdf, page)
+    except rasterize.RasterizeError:
+        return None
 
 
 def _skip_compile():
