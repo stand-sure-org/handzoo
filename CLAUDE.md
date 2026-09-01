@@ -36,6 +36,7 @@ never existed in the code.
 handzoo notes.pdf -o out/                 # fragments + chapter.tex, ready to open
 handzoo notes.pdf -o out/ --standalone    # complete documents; compile gate can run
 handzoo notes.pdf --pages 1-5 --resume    # triage a range; resume from the manifest
+handzoo notes.pdf --exclude 1,4           # cut pages entirely — never sent to a model
 ```
 
 The correction loop is a **separate binary**, `handzoo-review` (not a `handzoo` subcommand):

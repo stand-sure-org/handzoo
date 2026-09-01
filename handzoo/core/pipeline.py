@@ -31,6 +31,36 @@ from .validate import (ascii_gate, colour_gate, compile_gate, coverage_gate,
 MANIFEST = "manifest.jsonl"
 
 
+def parse_excluded(spec: str | None) -> set[int]:
+    """Pages the author has cut, as `1,4` or `1-3,7`.
+
+    **Refused rather than guessed on anything malformed.** A silently-misread range would
+    transcribe a page the author meant to cut, which is the one outcome this exists to
+    prevent — and on the corpus that motivated it (DESIGN 11.2.4) that page is someone else's
+    published writing.
+    """
+    if not spec:
+        return set()
+    out: set[int] = set()
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            lo, _, hi = part.partition("-")
+            if not (lo.strip().isdigit() and hi.strip().isdigit()):
+                raise ValueError(f"cannot read {part!r} as a page range")
+            a, b = int(lo), int(hi)
+            if a > b:
+                raise ValueError(f"range {part!r} counts backwards")
+            out.update(range(a, b + 1))
+        elif part.isdigit():
+            out.add(int(part))
+        else:
+            raise ValueError(f"cannot read {part!r} as a page number")
+    return out
+
+
 @dataclass(frozen=True, slots=True)
 class PageOutcome:
     page: int
@@ -90,6 +120,7 @@ class Run:
 def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
             first: int = 1, last: int | None = None, mode: str = "fragment",
             resume: bool = False, dpi: int = rasterize.DEFAULT_DPI,
+            exclude: set[int] | None = None,
             on_page: Callable[[PageOutcome], None] | None = None) -> Iterator[PageOutcome]:
     """Convert a page range, yielding each outcome as it completes.
 
@@ -101,8 +132,20 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
     already = run.completed_pages() if resume else set()
 
     pages = rasterize.rasterize(pdf, out_dir / "pages", first=first, last=last, dpi=dpi)
+    cut = exclude or set()
 
     for page in pages:
+        if page.number in cut:
+            # Recorded, and never sent to a model. The point is not tidier output: it is that
+            # no transcription of the page is produced at all, which is what the author wants
+            # for a page that is not theirs to reproduce (DESIGN 11.2.4).
+            outcome = PageOutcome(page=page.number, output=None, verdict="excluded",
+                                  gates={}, source=str(pdf))
+            run.record(outcome)
+            if on_page:
+                on_page(outcome)
+            yield outcome
+            continue
         if page.number in already:
             continue
 
