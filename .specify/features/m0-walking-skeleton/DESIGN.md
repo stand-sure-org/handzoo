@@ -2646,6 +2646,69 @@ to reconcile against. The author's two thoughts are one conclusion.
 always be incomplete, which is an argument for the correction-mined path (§11.0.1c) rather than
 against the file.
 
+### 11.2.7 The Leinster 1.1 run — first full pass through the surface
+
+20 pages, 42 decisions, 56 minutes. The richest correction log the project has, and the first
+where every design fix of the last week is visible in the data rather than in a commit message.
+
+| act | n | median | note |
+|---|---|---|---|
+| `keep-reviewed` | 19 | 33.9s | read and accepted |
+| `cropped` | 10 | **32.1s** | the seconds-per-crop the Verdict docstring wanted |
+| `edited` | 4 | 91.7s | the correction arm |
+| `authored` | 9 | 45.9s | **excluded from every measurement** |
+
+**Three things this is the first run to have.**
+
+`mode` is recorded — `web-side-by-side` — closing the gap §11.0.1 left open, where no timing
+could be compared against another. `authored` is separated, so 12.8 minutes of the author
+revising their own prose stays out of the correction arm rather than inflating it. And **zero
+rows record only that a human passed through**: every one of the 42 is `keep-reviewed`,
+`edited`, `cropped` or `authored`. The ch22 run that logged nothing (§11.0.1h) produced this
+directly — a surface that offers an action for every outcome gets one.
+
+**19 of 20 pages needed no text correction**, being accepted outright or resolved by a crop.
+That is the strongest accuracy signal so far and it must be read with its anchor: *accepted*
+means the author read our output and judged it right, not that they reconstructed the page
+independently. §11.0's caveat stands — plausible substitution survives reading.
+
+#### `\forall` emitted as `\neq` — the second substitution caught in the wild
+
+On p10, `A \leq A \quad \forall A` came back as `A \leq A \neq A`.
+
+Both are struck-through symbols, which is presumably how one became the other. What it costs
+is the whole statement: *"A ≤ A for all A"* is reflexivity; *"A ≤ A ≠ A"* is a contradiction.
+ASCII-clean, balanced, compiles, and asserts the opposite of the page.
+
+This is the second such instance found in a real run rather than injected, after `Sps` →
+`\Rightarrow` (§11.0.1a). Both replace a token with something visually adjacent and
+semantically inverted, which is the pattern worth naming: **substitution here is not
+random — it lands on the nearest familiar shape**, and mathematics puts opposites next to
+each other.
+
+#### The other three edits
+
+- **`composition` → `\underline{composition}`** — lost emphasis, now in its third corpus.
+- **`1_X`, `1_Y` → `1_x`, `1_y`** — case degradation in subscripts. New class; on a page about
+  identity morphisms the case distinguishes the object from an element.
+- **`\square` dropped** — third appearance of the same missing QED mark.
+
+Lexicon mining remains blocked: across all three corpora **no replaced pair recurs on three
+different pages**. The repeats that exist (`IR` → `\mathbb{R}` twice, `\delta` → `\alpha`
+twice) are each confined to a single page, which is one page of evidence however many times it
+happens there.
+
+#### A boundary that is fuzzy in practice
+
+One `edited` row removed the author's own `\textbf{Gemini Assisted}` and `\textbf{Need to
+know}` headings. That reads as authorial rather than a transcription fix, and it was logged as
+a correction.
+
+Not a defect in the tool and not worth chasing — but worth recording that **two buttons do not
+make the distinction crisp**, because a single pass over a page mixes both acts and the mode is
+chosen once. §11.3.1 argued the structural separation is better than a question; it is, and it
+is still not exact.
+
 ### 11.2.6 Pasted rasters: a third structure, and the quietest failure so far
 
 Leinster 1.1 is the third distinct shape a corpus has taken, and each defeats a different
