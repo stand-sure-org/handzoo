@@ -239,7 +239,14 @@ def typeset(out_dir: Path, outcome: PageOutcome) -> tuple[Path | None, str]:
     if cached.exists():
         return cached, ""
 
-    pdf = _typeset(outcome, out_dir)
+    # `assemble` decides what to *include*, and excludes a failed page by design — a chapter
+    # must not silently carry one. For a preview that rule inverts: the author is looking at
+    # this page precisely because it failed, and the placeholder assemble emits compiles
+    # cleanly, so the pane reported a successful render of a document containing none of their
+    # content. Preview the page whatever the gates said; if it cannot compile, the pane shows
+    # why.
+    from dataclasses import replace
+    pdf = _typeset(replace(outcome, verdict="pass"), out_dir)
     if pdf:
         cached.parent.mkdir(exist_ok=True)
         cached.write_bytes(pdf.read_bytes())

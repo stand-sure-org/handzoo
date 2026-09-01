@@ -24,6 +24,7 @@ from urllib.request import Request, urlopen
 import pytest
 
 from handzoo.adapters.ui_server import Handler, Review
+from handzoo.core.pipeline import PageOutcome
 
 
 def _get(base, path):
@@ -201,3 +202,32 @@ def test_an_insert_point_past_the_end_lands_at_the_end(cropserver) -> None:
     out = _insert_at("short\n", "f.pdf", 9999)
     assert out.startswith("short\n")
     assert "\\includegraphics" in out
+
+
+def test_the_typeset_pane_shows_the_page_not_an_assembly_placeholder(tmp_path: Path) -> None:
+    r"""A failing fragment rendered as `[PAGE 3 MISSING --- failed delimiters]`.
+
+    `typeset` reuses `assemble` so the master owns the preamble a fragment lacks. But
+    `assemble` also decides *what to include*, and it excludes a failed page by design — a
+    chapter must not silently carry one. For a **preview** that rule is wrong: the author is
+    looking at the page precisely because it failed, and the placeholder compiles cleanly, so
+    the pane reported success over a document with none of their content in it.
+
+    Worse than unhelpful — it is the §5.7 shape, where a valid render of nothing reads as a
+    valid render.
+
+    The preview includes the content whatever the gates said. A page that cannot compile then
+    fails to compile, and the pane shows the real error.
+    """
+    from handzoo.adapters.ui_server import typeset
+
+    (tmp_path / "pages").mkdir()
+    broken = tmp_path / "page-0003.fail.tex"
+    broken.write_text("\\begin{itemize}\n\\item never closed\n", encoding="utf-8")
+    outcome = PageOutcome(page=3, output=str(broken), verdict="fail", gates={},
+                          findings=[{"gate": "delimiters", "detail": "never closed"}])
+
+    pdf, err = typeset(tmp_path, outcome)
+    assert pdf is None, "a page with an unclosed environment must not typeset"
+    assert "MISSING" not in err, "the reason must be the compile error, not an assembly note"
+    assert err.strip(), "and it must say something"
