@@ -66,6 +66,17 @@ PREAMBLE = (
     # pifont for the ballot cross measured in the corpus (declarations.CHARACTER_REPAIRS).
     # amssymb already supplies \\checkmark and \\textcircled is base LaTeX.
     "\\usepackage{pifont}\n"
+    # Blank line -> vertical space, not a first-line indent.
+    #
+    # Measured on one 20-page run: 41 lines beginning `\\` added and 41 blank lines removed,
+    # exactly paired, half of all the author's changed lines. They were converting the
+    # recognizer's paragraph breaks into explicit ones, page after page.
+    #
+    # The author called it preference. It is more than that: handwriting on ruled paper has
+    # no paragraph indentation -- every line starts at the margin -- so an indented paragraph
+    # is already a small infidelity to the page. `parskip` makes a blank line render the way
+    # the page reads, which is why this belongs in the preamble rather than in 41 edits.
+    "\\usepackage{parskip}\n"
     + "".join(f"\\newtheorem{{{e}}}{{{e.capitalize()}}}\n" for e in THEOREM_ENVS)
 )
 
