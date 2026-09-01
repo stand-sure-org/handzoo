@@ -2698,16 +2698,44 @@ different pages**. The repeats that exist (`IR` → `\mathbb{R}` twice, `\delta`
 twice) are each confined to a single page, which is one page of evidence however many times it
 happens there.
 
-#### A boundary that is fuzzy in practice
+#### Correction to the reading of that run
 
-One `edited` row removed the author's own `\textbf{Gemini Assisted}` and `\textbf{Need to
-know}` headings. That reads as authorial rather than a transcription fix, and it was logged as
-a correction.
+An earlier version of this section said one `edited` row *removed* the author's own
+`\textbf{Gemini Assisted}` and `\textbf{Need to know}` headings, and concluded the polish/fix
+boundary had blurred. **Both the observation and the conclusion were wrong**, and from the same
+mistake: four lines of a 25-line diff were read as removals when they were the before-side of
+replacements.
 
-Not a defect in the tool and not worth chasing — but worth recording that **two buttons do not
-make the distinction crisp**, because a single pass over a page mixes both acts and the mode is
-chosen once. §11.3.1 argued the structural separation is better than a question; it is, and it
-is still not exact.
+Nothing was removed. The author converted the recognizer's flat `1)` / `2)` into a proper
+`enumerate`, added `\noindent`, and changed `\Rightarrow` to `\implies`.
+
+**That is a third act, and neither button names it.** The transcription was faithful; the
+*markup* was poor. "Fix transcription" implies the words were wrong and "Edit my notes"
+implies the content changed, and this was neither — it is improving how a correct
+transcription is expressed. Worth recording, and not worth a third button until it is seen
+again.
+
+#### Two measurement bugs the run exposed
+
+**One page carried five `keep-reviewed` rows** — 8.6s, then 31.0, 32.9, 33.8, 33.9. The author
+clicked *Looks right* repeatedly because nothing near the button confirmed it: the status line
+sits in the opposite corner of the window from the actions. Every click recorded, so the corpus
+counted one accepted page five times.
+
+Accept is now **idempotent**, which it should always have been — the claim is *"I read this and
+it is right"*, and that is either recorded or not. Re-asserting it is not a second datum. And
+confirmation now appears **beside the button**, which is where a person looks after pressing
+one.
+
+**Every timing was measured from when the page was opened**, so a second action on the same
+page carried the whole visit again: `edited 211.4s` then `keep-reviewed 212.6s` is 1.2s of work
+reported as 212.6s. Summing a page's rows counted its time once per action, and the correction
+arm (§11.0.1) is built from those seconds. The server now tells the client when an action
+landed so the next is measured from there.
+
+**The published figures in §11.2.7 predate both fixes** and are inflated accordingly: the
+19 accepts include p2's five, and every page with two actions double-counts. They are left as
+recorded — the log says what happened — with this note as the correction.
 
 ### 11.2.6 Pasted rasters: a third structure, and the quietest failure so far
 

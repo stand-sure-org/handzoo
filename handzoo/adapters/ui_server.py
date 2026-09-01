@@ -533,6 +533,7 @@ class Handler(BaseHTTPRequestHandler):
                     released = True
 
             self._json({"saved": True, "verdict": "cropped", "released": released,
+                        "restart_timer": True,
                         "remaining": len(_MARKER.findall(after))})
             return
 
@@ -576,6 +577,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "the text was changed — that is a fix, not an accept"},
                            400)
                 return
+            # Idempotent, because the claim is. "I read this and it is right" is either
+            # already recorded or not; re-asserting it is not a second datum. Measured: one
+            # page carried five accept rows, because nothing near the button confirmed the
+            # first and the author clicked again.
+            if any(r.page == page and r.verdict == "keep-reviewed"
+                   for r in self.review.log().read()):
+                self._json({"saved": False, "reason": "already accepted",
+                            "verdict": "keep-reviewed"})
+                return
             img = self.review.image(page)
             self.review.log().append(Correction(
                 page=page, verdict="keep-reviewed",
@@ -589,7 +599,8 @@ class Handler(BaseHTTPRequestHandler):
                 finding="read and accepted as correct",
             ))
             snapshot.unlink(missing_ok=True)
-            self._json({"saved": True, "verdict": "keep-reviewed"})
+            self._json({"saved": True, "verdict": "keep-reviewed",
+                        "restart_timer": True})
             return
 
         if after == before:
@@ -643,7 +654,10 @@ class Handler(BaseHTTPRequestHandler):
                      else "author revised their own text"),
         ))
         snapshot.unlink(missing_ok=True)
-        self._json({"saved": True, "verdict": MODES[mode],
+        # The next action on this page must be timed from here, not from when the page was
+        # opened. Measured: `edited 211.4s` then `keep-reviewed 212.6s` on one page -- 1.2s of
+        # work reported as 212.6s, and the correction arm is built from these seconds.
+        self._json({"saved": True, "verdict": MODES[mode], "restart_timer": True,
                     "revalidated": revalidated, "quarantined": quarantined})
 
 

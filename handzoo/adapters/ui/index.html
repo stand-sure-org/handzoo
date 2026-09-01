@@ -82,6 +82,11 @@
   button.act:hover:not(:disabled) { border-color:var(--accent); }
   button.act:disabled { opacity:.45; cursor:default; }
   .why { color:var(--dim); font-size:12px; }
+  /* Feedback belongs beside the button that caused it. The status line lives in the opposite
+     corner of the window, so an accept looked like it had done nothing and was clicked five
+     times on one page. */
+  #ack { font-size:12px; font-weight:600; color:var(--ok); }
+  #ack.warn { color:var(--flag); }
   .findings { padding:.4rem .9rem; border-bottom:1px solid var(--line); font-size:12px;
               max-height:7em; overflow-y:auto; }
   .findings div { margin:.15rem 0; }
@@ -143,6 +148,7 @@
   <button class="act" id="accept" disabled>Looks right</button>
   <button class="act" id="fix" disabled>Fix transcription</button>
   <button class="act" id="author" disabled>Edit my notes</button>
+  <span id="ack"></span>
   <span class="why"><b>Looks right</b> records that you read it and it is correct — evidence no
   gate can produce. Only <b>fix</b> measures the tool.</span>
 </footer>
@@ -152,6 +158,14 @@ const $ = id => document.getElementById(id);
 let pages = [], current = null, opened = 0, original = "";
 
 const say = t => { $("msg").textContent = t; };
+
+let ackTimer = null;
+function ack(text, warn) {
+  $("ack").textContent = text;
+  $("ack").classList.toggle("warn", !!warn);
+  clearTimeout(ackTimer);
+  ackTimer = setTimeout(() => { $("ack").textContent = ""; }, 4000);
+}
 
 async function load() {
   const r = await (await fetch("/api/pages")).json();
@@ -207,7 +221,7 @@ async function select(page) {
   $("fix").disabled = $("author").disabled = $("accept").disabled = false;
   // Timing starts when the page is opened, matching --fix's protocol.
   opened = performance.now();
-  dirty = false; $("saveState").textContent = "";
+  dirty = false; $("saveState").textContent = ""; $("ack").textContent = "";
   mark(page);
   say("");
   loadTypeset(page);
@@ -221,6 +235,7 @@ async function save(mode) {
   if (current === null) return;
   const text = $("tex").value;
   if (text === original && mode !== "accept") {
+    ack('· nothing changed — use "Looks right"', true);
     say('nothing changed — use "Looks right" if it is correct');
     return;
   }
@@ -233,7 +248,10 @@ async function save(mode) {
   original = text; dirty = false; $("saveState").textContent = "";
   const note = r.quarantined ? " — NOW FAILS A GATE, quarantined"
              : r.revalidated ? " — re-gated clean, quarantine released" : "";
-  say(r.saved ? `saved as ${r.verdict} — ${seconds.toFixed(1)}s${note}` : "unchanged");
+  ack(r.saved ? `✓ ${r.verdict}${note}` : `· ${r.reason || "unchanged"}`, !r.saved);
+  say(r.saved ? `saved as ${r.verdict} — ${seconds.toFixed(1)}s${note}` : (r.reason || "unchanged"));
+  // A second action on this page is timed from here, not from when the page was opened.
+  if (r.restart_timer) opened = performance.now();
   await load();            // pages[] carries the new findings...
   renderFindings(current); // ...and the panel has to be told about them
   loadTypeset(current);
