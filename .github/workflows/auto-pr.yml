@@ -21,7 +21,9 @@ on:
 # so that who may open PRs is controlled by who may set that secret rather than by who may
 # merge a change to this file. Stating it here means a change to the repo default cannot
 # silently grant write to the one workflow whose purpose is mutation.
-permissions: {}
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   key_shape:
@@ -29,7 +31,7 @@ jobs:
     steps:
       - name: Key shape
         env:
-          KEY: ${{ secrets.AUTO_PR_PRIVATE_KEY }}
+          KEY: ${{ secrets.AUTO_PR_APP_PRIVATE_KEY }}
         run: |
           printf '%s' "$KEY" | wc -c
           printf '%s' "$KEY" | wc -l
