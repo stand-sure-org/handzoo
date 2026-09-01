@@ -69,7 +69,7 @@ Environment, verified on this machine:
 
 1. **No per-character recognizer.** Glyph recognition is solved; 2-D structure is the hard part. End-to-end image→markup, never classify-then-assemble.
 2. **No heuristic segmenter** (D4). The VLM recovers reading order for free; a bbox segmenter would have to reconstruct it.
-3. **Six gates:** zero non-ASCII (unless the `--standalone` preamble supports it) · delimiter and environment balance · compiles clean under `pdflatex` · **no silent mark loss** · **no silent colour loss** (read from the vector source; a raster source reports *not checked*, never *clean*).
+3. **Seven gates:** zero non-ASCII (unless the `--standalone` preamble supports it) · delimiter and environment balance · compiles clean under `pdflatex` · **no silent mark loss** · **no silent colour loss** (read from the vector source; a raster source reports *not checked*, never *clean*).
 4. **Never fabricate `tikz`.** Diagrams are cropped, referenced, and flagged `% TODO: author diagram`.
 5. **Never silently drop, reword, or renotate a mark.** This is the same principle as (4), applied where the baseline proved it was missing.
 5b. **Never silently *add*.** ch17 p1 lists three divisor pairs and an ellipsis; the emitted

@@ -560,3 +560,26 @@ def test_prose_specials_are_still_escaped_outside_math() -> None:
 
     out = normalize("carry the ___ here", standalone=False).text
     assert r"\_" in out
+
+
+def test_a_blank_line_reads_as_a_line_break_not_an_indented_paragraph() -> None:
+    r"""Measured: half the author's editing was undoing paragraph formatting.
+
+    Across one 20-page run, **41 lines beginning `\\` were added and 41 blank lines removed**
+    — exactly paired, and 82 of the 165 changed lines. The author was converting the
+    recognizer's blank-line paragraph breaks into explicit breaks, page after page.
+
+    They framed it as preference, and it is more than that. **Handwriting on ruled paper has
+    no paragraph indentation**: every line starts at the margin and a new thought begins on a
+    new line. Emitting first-line-indented paragraphs is therefore already a small infidelity,
+    and `parskip` is the more faithful default rather than a concession to taste.
+
+    Preamble-level, so a blank line renders the way the page reads and nobody edits 41 lines
+    to say so.
+    """
+    from handzoo.core.normalize import PREAMBLE
+
+    assert "parskip" in PREAMBLE
+    # And the effect it is loaded for, so a future tidy-up cannot drop the behaviour while
+    # keeping the package.
+    assert "\\parindent" in PREAMBLE or "parskip}" in PREAMBLE

@@ -134,6 +134,36 @@ def _tighten(pdf: Path) -> None:
         tmp.unlink()
 
 
+def embedded_images(pdf: Path, page: int) -> int:
+    """How many raster images are pasted onto this page.
+
+    **The one thing nothing else on a page can see.** Measured on Leinster 1.1: pages 14, 15,
+    17 and 18 carry screenshots of the book's printed exercises above the author's handwritten
+    answers, and p14 passed every gate while emitting Leinster's text verbatim.
+
+    Each existing mechanism is blind to it for a different reason:
+
+    - `ink_colours` reads *stroke* colour, and a raster has none — so the black-print-against-
+      coloured-pen discriminator that worked on the previous corpus reports one colour here;
+    - `page_blocks` groups vector paths, so no band is offered over the pasted region and the
+      crop tool cannot reach it;
+    - there is no text layer, so nothing downstream knows the pixels are words.
+
+    Raises rather than returning 0 when it cannot look. "No pasted image" and "could not
+    check" are different answers and must not share one (DESIGN 5.7).
+    """
+    _require("pdfimages")
+    proc = subprocess.run(["pdfimages", "-list", "-f", str(page), "-l", str(page), str(pdf)],
+                          capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        raise RasterizeError(
+            f"pdfimages could not read page {page} of {pdf}: {proc.stderr.strip()[:200]}")
+    # Header is two lines; a `smask` row is the transparency channel of the row above it, not
+    # a second pasted picture, so counting it would double every figure.
+    return sum(1 for line in proc.stdout.splitlines()[2:]
+               if line.split()[2:3] == ["image"])
+
+
 def page_size(pdf: Path, page: int = 1) -> tuple[float, float]:
     """Dimensions of one page, in points, from the PDF itself.
 

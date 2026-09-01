@@ -65,11 +65,17 @@ class Review:
         path = self.out_dir / MANIFEST
         if not path.exists():
             return []
-        rows = []
+        # The manifest is append-only, so `--resume` leaves two rows for a retried page: the
+        # original failure and the successful retry after it. The log is right to keep both —
+        # it records what happened — but a reader must prefer the newest, or the surface
+        # serves a stale failure and every action on that page silently does nothing.
+        # Measured after an Ollama restart mid-run left 18 pages errored and then retried.
+        latest: dict[int, PageOutcome] = {}
         for line in path.read_text(encoding="utf-8").splitlines():
             if line.strip():
-                rows.append(PageOutcome(**json.loads(line)))
-        return rows
+                row = PageOutcome(**json.loads(line))
+                latest[row.page] = row
+        return [latest[k] for k in sorted(latest)]
 
     def image(self, page: int) -> Path | None:
         hits = sorted((self.out_dir / "pages").glob(f"p-{page:04d}*.png"))
@@ -99,7 +105,17 @@ def _pages(review: Review) -> list[dict]:
     convention for a human to look at and does not refuse the page (DESIGN 11.0.1b). Collapsing
     the two would train the reader to ignore both.
     """
-    seen = {r.page for r in review.log().read()}
+    # What the human did, not merely that they passed through. "seen" said the same word over
+    # an accepted page and a skipped one, which are opposite claims about the corpus — the
+    # distinction `keep-unreviewed` exists to protect. The latest verdict per page is both
+    # shorter to read and honest about which it was.
+    done: dict[int, str] = {}
+    for r in review.log().read():
+        done[r.page] = {"keep-reviewed": "accepted", "edited": "edited",
+                        "cropped": "cropped", "authored": "rewritten",
+                        "flagged": "flagged", "skipped": "skipped",
+                        "transcribed": "typed", "keep-unreviewed": "passed over",
+                        }.get(r.verdict, r.verdict)
     out = []
     for o in review.outcomes():
         findings = o.findings or []
@@ -113,7 +129,8 @@ def _pages(review: Review) -> list[dict]:
             "fabricated" in f.get("detail", "") or "diagram" in f.get("detail", "").lower()
             for f in findings)
         out.append({"page": o.page, "state": state, "verdict": o.verdict,
-                    "findings": findings, "reviewed": o.page in seen,
+                    "findings": findings, "reviewed": o.page in done,
+                    "did": done.get(o.page, ""),
                     "diagram_only": diagram_only,
                     "has_image": review.image(o.page) is not None})
     return out
@@ -222,7 +239,14 @@ def typeset(out_dir: Path, outcome: PageOutcome) -> tuple[Path | None, str]:
     if cached.exists():
         return cached, ""
 
-    pdf = _typeset(outcome, out_dir)
+    # `assemble` decides what to *include*, and excludes a failed page by design — a chapter
+    # must not silently carry one. For a preview that rule inverts: the author is looking at
+    # this page precisely because it failed, and the placeholder assemble emits compiles
+    # cleanly, so the pane reported a successful render of a document containing none of their
+    # content. Preview the page whatever the gates said; if it cannot compile, the pane shows
+    # why.
+    from dataclasses import replace
+    pdf = _typeset(replace(outcome, verdict="pass"), out_dir)
     if pdf:
         cached.parent.mkdir(exist_ok=True)
         cached.write_bytes(pdf.read_bytes())
@@ -509,6 +533,7 @@ class Handler(BaseHTTPRequestHandler):
                     released = True
 
             self._json({"saved": True, "verdict": "cropped", "released": released,
+                        "restart_timer": True,
                         "remaining": len(_MARKER.findall(after))})
             return
 
@@ -552,6 +577,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "the text was changed — that is a fix, not an accept"},
                            400)
                 return
+            # Idempotent, because the claim is. "I read this and it is right" is either
+            # already recorded or not; re-asserting it is not a second datum. Measured: one
+            # page carried five accept rows, because nothing near the button confirmed the
+            # first and the author clicked again.
+            if any(r.page == page and r.verdict == "keep-reviewed"
+                   for r in self.review.log().read()):
+                self._json({"saved": False, "reason": "already accepted",
+                            "verdict": "keep-reviewed"})
+                return
             img = self.review.image(page)
             self.review.log().append(Correction(
                 page=page, verdict="keep-reviewed",
@@ -565,7 +599,8 @@ class Handler(BaseHTTPRequestHandler):
                 finding="read and accepted as correct",
             ))
             snapshot.unlink(missing_ok=True)
-            self._json({"saved": True, "verdict": "keep-reviewed"})
+            self._json({"saved": True, "verdict": "keep-reviewed",
+                        "restart_timer": True})
             return
 
         if after == before:
@@ -619,7 +654,10 @@ class Handler(BaseHTTPRequestHandler):
                      else "author revised their own text"),
         ))
         snapshot.unlink(missing_ok=True)
-        self._json({"saved": True, "verdict": MODES[mode],
+        # The next action on this page must be timed from here, not from when the page was
+        # opened. Measured: `edited 211.4s` then `keep-reviewed 212.6s` on one page -- 1.2s of
+        # work reported as 212.6s, and the correction arm is built from these seconds.
+        self._json({"saved": True, "verdict": MODES[mode], "restart_timer": True,
                     "revalidated": revalidated, "quarantined": quarantined})
 
 

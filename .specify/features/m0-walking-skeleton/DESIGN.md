@@ -2646,6 +2646,149 @@ to reconcile against. The author's two thoughts are one conclusion.
 always be incomplete, which is an argument for the correction-mined path (§11.0.1c) rather than
 against the file.
 
+### 11.2.7 The Leinster 1.1 run — first full pass through the surface
+
+20 pages, 42 decisions, 56 minutes. The richest correction log the project has, and the first
+where every design fix of the last week is visible in the data rather than in a commit message.
+
+| act | n | median | note |
+|---|---|---|---|
+| `keep-reviewed` | 19 | 33.9s | read and accepted |
+| `cropped` | 10 | **32.1s** | the seconds-per-crop the Verdict docstring wanted |
+| `edited` | 4 | 91.7s | the correction arm |
+| `authored` | 9 | 45.9s | **excluded from every measurement** |
+
+**Three things this is the first run to have.**
+
+`mode` is recorded — `web-side-by-side` — closing the gap §11.0.1 left open, where no timing
+could be compared against another. `authored` is separated, so 12.8 minutes of the author
+revising their own prose stays out of the correction arm rather than inflating it. And **zero
+rows record only that a human passed through**: every one of the 42 is `keep-reviewed`,
+`edited`, `cropped` or `authored`. The ch22 run that logged nothing (§11.0.1h) produced this
+directly — a surface that offers an action for every outcome gets one.
+
+**19 of 20 pages needed no text correction**, being accepted outright or resolved by a crop.
+That is the strongest accuracy signal so far and it must be read with its anchor: *accepted*
+means the author read our output and judged it right, not that they reconstructed the page
+independently. §11.0's caveat stands — plausible substitution survives reading.
+
+#### `\forall` emitted as `\neq` — the second substitution caught in the wild
+
+On p10, `A \leq A \quad \forall A` came back as `A \leq A \neq A`.
+
+Both are struck-through symbols, which is presumably how one became the other. What it costs
+is the whole statement: *"A ≤ A for all A"* is reflexivity; *"A ≤ A ≠ A"* is a contradiction.
+ASCII-clean, balanced, compiles, and asserts the opposite of the page.
+
+This is the second such instance found in a real run rather than injected, after `Sps` →
+`\Rightarrow` (§11.0.1a). Both replace a token with something visually adjacent and
+semantically inverted, which is the pattern worth naming: **substitution here is not
+random — it lands on the nearest familiar shape**, and mathematics puts opposites next to
+each other.
+
+#### The other three edits
+
+- **`composition` → `\underline{composition}`** — lost emphasis, now in its third corpus.
+- **`1_X`, `1_Y` → `1_x`, `1_y`** — case degradation in subscripts. New class; on a page about
+  identity morphisms the case distinguishes the object from an element.
+- **`\square` dropped** — third appearance of the same missing QED mark.
+
+Lexicon mining remains blocked: across all three corpora **no replaced pair recurs on three
+different pages**. The repeats that exist (`IR` → `\mathbb{R}` twice, `\delta` → `\alpha`
+twice) are each confined to a single page, which is one page of evidence however many times it
+happens there.
+
+#### Correction to the reading of that run
+
+An earlier version of this section said one `edited` row *removed* the author's own
+`\textbf{Gemini Assisted}` and `\textbf{Need to know}` headings, and concluded the polish/fix
+boundary had blurred. **Both the observation and the conclusion were wrong**, and from the same
+mistake: four lines of a 25-line diff were read as removals when they were the before-side of
+replacements.
+
+Nothing was removed. The author converted the recognizer's flat `1)` / `2)` into a proper
+`enumerate`, added `\noindent`, and changed `\Rightarrow` to `\implies`.
+
+**That is a third act, and neither button names it.** The transcription was faithful; the
+*markup* was poor. "Fix transcription" implies the words were wrong and "Edit my notes"
+implies the content changed, and this was neither — it is improving how a correct
+transcription is expressed. Worth recording, and not worth a third button until it is seen
+again.
+
+#### Two measurement bugs the run exposed
+
+**One page carried five `keep-reviewed` rows** — 8.6s, then 31.0, 32.9, 33.8, 33.9. The author
+clicked *Looks right* repeatedly because nothing near the button confirmed it: the status line
+sits in the opposite corner of the window from the actions. Every click recorded, so the corpus
+counted one accepted page five times.
+
+Accept is now **idempotent**, which it should always have been — the claim is *"I read this and
+it is right"*, and that is either recorded or not. Re-asserting it is not a second datum. And
+confirmation now appears **beside the button**, which is where a person looks after pressing
+one.
+
+**Every timing was measured from when the page was opened**, so a second action on the same
+page carried the whole visit again: `edited 211.4s` then `keep-reviewed 212.6s` is 1.2s of work
+reported as 212.6s. Summing a page's rows counted its time once per action, and the correction
+arm (§11.0.1) is built from those seconds. The server now tells the client when an action
+landed so the next is measured from there.
+
+**The published figures in §11.2.7 predate both fixes** and are inflated accordingly: the
+19 accepts include p2's five, and every page with two actions double-counts. They are left as
+recorded — the log says what happened — with this note as the correction.
+
+### 11.2.6 Pasted rasters: a third structure, and the quietest failure so far
+
+Leinster 1.1 is the third distinct shape a corpus has taken, and each defeats a different
+mechanism:
+
+| corpus | typeset content is | what sees it |
+|---|---|---|
+| ch18, ch22 | none — vector handwriting only | n/a |
+| Leinster intro | the PDF **background**: black vector text | the **colour gate** — black print against a purple pen |
+| **Leinster 1.1** | **pasted raster screenshots** (pp. 14, 15, 17, 18) | **nothing, until now** |
+
+**Page 14 passed every gate** — ASCII, delimiters, compile, coverage, colour, reference,
+repetition — and emitted Leinster's exercise text verbatim.
+
+Each existing mechanism is blind for its own reason, and the reasons are worth separating
+because they are not one oversight:
+
+- `ink_colours` reads **stroke** colour and a raster has none, so the discriminator that
+  worked one corpus ago reports a single colour here and passes.
+- `page_blocks` groups **vector paths**, so no band is offered over the pasted region — the
+  crop tool cannot reach it even if the author wanted to.
+- there is **no text layer** (`pdftotext` returns nothing), so nothing downstream knows the
+  pixels are words.
+
+**And the author's own label was dropped.** They wrote an underlined `1.1.12` above their
+answer; the emitted page has Leinster's exercise, the three answers, and no label — so the
+answers float with nothing saying what they answer.
+
+**The reference gate could not catch that, and the reason generalises.** It flags a numbered
+claim carrying *no marking*. A claim that is **absent entirely** is not a claim it can see.
+The gate detects *unmarked*, never *missing* — which is the §5.7 shape once more: what did
+not arrive leaves no trace to check.
+
+#### `pasted_gate`
+
+`pdfimages -list` answers it directly: on this corpus exactly pp. 14, 15, 17, 18, no false
+positives. It is the cheapest check in the project and the only one that sees this case.
+
+**Advisory rather than a refusal.** An author may legitimately paste their own figure, and
+nothing here can tell whose picture it is. What it can say is *there is content on this page
+that did not come from your pen* — which is the moment to decide between transcribing it,
+cropping it, and cutting the page with `--exclude`.
+
+**Counted per image, not per smask.** `pdfimages` lists a transparency channel as its own row
+beneath the image it belongs to; counting those would report every figure twice.
+
+#### An aside worth keeping
+
+The pasted screenshots include the **mouse cursor**. The recognizer ignored it, and there is
+no reason to assume it always will — a UI artefact in the source is a mark on the page as far
+as any inventory pass is concerned.
+
 ### 11.2.4 Mixed printed and handwritten pages — it works, and it captures the wrong half
 
 First corpus with both: Leinster's *Basic Category Theory*, the author's exercise answers

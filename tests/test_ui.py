@@ -472,3 +472,114 @@ def test_the_snapshot_is_released_once_a_verdict_lands(server) -> None:
     from handzoo.core.corrections import CorrectionLog
     rows = CorrectionLog.for_run(run).read()
     assert rows[-1].before == "one\n", "the second edit starts from where the first ended"
+
+
+def test_a_resumed_page_uses_its_latest_row_not_its_first(tmp_path: Path) -> None:
+    r"""The manifest is append-only, so `--resume` leaves two rows for a retried page.
+
+    Measured: a run interrupted by an Ollama restart recorded 18 pages as errored with
+    `output: None`; resuming appended a good row after each. Every reader took `match[0]` —
+    the *first* — so the surface served the stale failure and accepting the page did nothing.
+
+    Append-only is right: the log records what happened. The interpretation has to prefer the
+    newest, which is the same reasoning that makes an abandoned transcription attempt stay in
+    the log and out of the arms (§11.0.2).
+    """
+    (tmp_path / "pages").mkdir()
+    good = tmp_path / "page-0003.tex"
+    good.write_text("the retry succeeded\n", encoding="utf-8")
+    rows = [
+        {"page": 3, "output": None, "verdict": "fail", "gates": {},
+         "error": "produced nothing after 3 attempts", "findings": []},
+        {"page": 3, "output": str(good), "verdict": "pass", "gates": {}, "findings": []},
+    ]
+    (tmp_path / "manifest.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+    review = Review(tmp_path)
+    outcomes = review.outcomes()
+    assert len(outcomes) == 1, "one page, one row — the newest"
+    assert outcomes[0].verdict == "pass"
+    assert outcomes[0].output == str(good)
+
+
+def test_the_page_list_shows_a_resumed_page_once(tmp_path: Path) -> None:
+    """Two rows for one page listed the page twice in the nav."""
+    (tmp_path / "pages").mkdir()
+    f = tmp_path / "page-0003.tex"
+    f.write_text("x\n", encoding="utf-8")
+    rows = [{"page": 3, "output": None, "verdict": "fail", "gates": {}, "error": "e",
+             "findings": []},
+            {"page": 3, "output": str(f), "verdict": "pass", "gates": {}, "findings": []}]
+    (tmp_path / "manifest.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+    Handler.review = Review(tmp_path)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{srv.server_address[1]}"
+        pages = json.loads(_get(base, "/api/pages")[1])["pages"]
+        assert [p["page"] for p in pages] == [3]
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_the_page_list_says_what_the_human_did_not_just_that_they_looked(server) -> None:
+    r"""One word over every outcome flattened opposite claims.
+
+    "seen" read the same on a page the author accepted as correct and one they skipped — and
+    those are exactly the two the corpus must never conflate (`keep-unreviewed` exists to keep
+    them apart). The list now carries the verdict.
+    """
+    base, run = server
+    same = (run / "page-0001.tex").read_text(encoding="utf-8")
+    _post(base, "/api/save", {"page": 1, "mode": "accept", "text": same})
+    _post(base, "/api/save", {"page": 2, "mode": "fix", "text": "corrected\n"})
+
+    pages = {p["page"]: p for p in json.loads(_get(base, "/api/pages")[1])["pages"]}
+    assert pages[1]["did"] == "accepted"
+    assert pages[2]["did"] == "edited"
+
+
+def test_accepting_a_page_twice_does_not_log_it_twice(server) -> None:
+    r"""Measured: one page carried **five** `keep-reviewed` rows.
+
+    The author clicked *Looks right* repeatedly because nothing near the button confirmed it —
+    the status line sits in the opposite corner of the window. Every click recorded, so the
+    corpus counted one accepted page five times and the exit-criterion arms inherited it.
+
+    An accept is idempotent by nature: the claim is *"I read this and it is right"*, which is
+    either already recorded or not. Re-asserting it is not a second datum.
+    """
+    base, run = server
+    same = (run / "page-0001.tex").read_text(encoding="utf-8")
+
+    first = _post(base, "/api/save", {"page": 1, "mode": "accept", "text": same, "seconds": 9})
+    again = _post(base, "/api/save", {"page": 1, "mode": "accept", "text": same, "seconds": 31})
+
+    assert first["saved"] is True
+    assert again["saved"] is False and again["reason"] == "already accepted"
+
+    from handzoo.core.corrections import CorrectionLog
+    accepts = [r for r in CorrectionLog.for_run(run).read() if r.verdict == "keep-reviewed"]
+    assert len(accepts) == 1, "one page read once is one row"
+
+
+def test_a_second_action_on_a_page_is_timed_from_the_first(server) -> None:
+    r"""Every timing was measured from when the page was *opened*, so a second action on the
+    same page carried the whole visit again.
+
+    Measured: `edited 211.4s` then `keep-reviewed 212.6s` on one page — 1.2s of work reported
+    as 212.6s. Summing a page's rows therefore counted its time as many times as it had
+    actions, and the correction arm (§11.0.1) is built from those seconds.
+
+    The server cannot fix the client's clock, but it can say when the last action landed so
+    the next one is measured from there.
+    """
+    base, run = server
+    _post(base, "/api/save", {"page": 1, "mode": "fix", "text": "corrected\n", "seconds": 50})
+    r = _post(base, "/api/save", {"page": 1, "mode": "fix", "text": "corrected twice\n",
+                                  "seconds": 60})
+    assert "restart_timer" in r and r["restart_timer"] is True
