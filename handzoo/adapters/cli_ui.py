@@ -1,4 +1,4 @@
-"""`handzoo-ui` — open the review surface on a run directory."""
+"""`handzoo-ui` — open the review surface on a project, or start a new one."""
 
 from __future__ import annotations
 
@@ -14,13 +14,20 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
     parser = argparse.ArgumentParser(
         prog="handzoo-ui",
         description="Review a run in the browser: page image and emitted text, side by side.")
-    parser.add_argument("out_dir", type=Path, help="the directory `handzoo` wrote to")
+    parser.add_argument("out_dir", type=Path,
+                        help="a project folder, or a new one to ingest a PDF into")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-open", action="store_true", help="do not launch a browser")
     args = parser.parse_args(argv)
 
-    if not (args.out_dir / "manifest.jsonl").exists():
-        print(f"error: no manifest.jsonl in {args.out_dir} — run `handzoo` on a PDF first.",
+    out = args.out_dir
+    is_project = (out / "manifest.jsonl").exists() or (out / "source").is_dir()
+    is_new = not out.exists() or (out.is_dir() and not any(out.iterdir()))
+    if not (is_project or is_new):
+        # Most likely the folder that *holds* the projects. Making it a project would put a
+        # run's pages beside the author's corrected corpora.
+        print(f"error: {out} is not a project — it has no manifest.jsonl and is not empty.\n"
+              "  To start a new project, name a new folder: handzoo-ui <new folder>",
               file=stream)
         return 2
 
