@@ -22,7 +22,9 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
 from . import rasterize
+from .corrections import protected_pages
 from .emit import Emission, emit
+from .normalize import chapter_preamble
 from .recognize.base import Recognition, Recognizer
 from .recognize.ollama_vlm import RecognitionError
 from .validate import (ascii_gate, colour_gate, compile_gate, coverage_gate,
@@ -103,24 +105,53 @@ class Run:
         return {o.page for o in self.outcomes if o.done}
 
     def load(self) -> Run:
-        if self.manifest_path.exists():
-            for line in self.manifest_path.read_text(encoding="utf-8").splitlines():
-                if line.strip():
-                    self.outcomes.append(PageOutcome(**json.loads(line)))
+        self.outcomes.extend(read_manifest(self.out_dir))
         return self
 
     def record(self, outcome: PageOutcome) -> None:
         self.outcomes.append(outcome)
         # Appended per page, not at the end: a manifest written only on success is no
         # manifest at all, since the case it exists for is the run that did not finish.
-        with self.manifest_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(asdict(outcome)) + "\n")
+        append_manifest(self.out_dir, outcome)
+
+
+def append_manifest(out_dir: Path, outcome: PageOutcome) -> None:
+    """The only way anything writes the manifest: one new row, appended, in one write.
+
+    Nothing rewrites a row. A run and a save from the surface can both be writing, and a
+    writer that reads the file, changes a row and writes it all back drops whatever the other
+    appended in between. Appending cannot, and `read_manifest` makes the newest row win. The
+    row goes in a single write because an O_APPEND write lands whole; two writes per row would
+    let another writer's row in between them.
+    """
+    with (out_dir / MANIFEST).open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(asdict(outcome)) + "\n")
+
+
+def read_manifest(out_dir: Path) -> list[PageOutcome]:
+    """The run as it stands: the newest row for each page, in page order.
+
+    The manifest is append-only, so a page can carry several rows -- `--resume` leaves the
+    original failure and the retry after it; a re-gate on save adds another. The log is right to
+    keep them all, since it records what happened. A reader must take the newest, and every
+    reader must take it the same way: two did not, and each served a stale row (DESIGN, in-app
+    ingestion D3 P1). No manifest reads as no pages -- a run may not have written one yet.
+    """
+    path = out_dir / MANIFEST
+    if not path.exists():
+        return []
+    latest: dict[int, PageOutcome] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            row = PageOutcome(**json.loads(line))
+            latest[row.page] = row
+    return [latest[k] for k in sorted(latest)]
 
 
 def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
             first: int = 1, last: int | None = None, mode: str = "fragment",
             resume: bool = False, dpi: int = rasterize.DEFAULT_DPI,
-            exclude: set[int] | None = None,
+            exclude: set[int] | None = None, replacing: set[int] | None = None,
             on_page: Callable[[PageOutcome], None] | None = None) -> Iterator[PageOutcome]:
     """Convert a page range, yielding each outcome as it completes.
 
@@ -130,6 +161,16 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
     out_dir.mkdir(parents=True, exist_ok=True)
     run = Run(out_dir).load() if resume else Run(out_dir)
     already = run.completed_pages() if resume else set()
+    replaced = replacing or set()
+
+    def kept(n: int) -> bool:
+        # Author work is never overwritten by a run -- only by the author saying so. Enforced
+        # here rather than in each caller, so an adapter that forgets to check still cannot
+        # destroy a correction; adapters only *announce* what was kept (DESIGN 11.1.3 bug #2,
+        # 11.1.3a). Read each time, not once per run: with ingestion in the surface the author
+        # reviews while the run is still going, and a page they start on after it began is
+        # theirs by the time the run reaches it. One log read, next to a model call.
+        return n not in replaced and n in protected_pages(out_dir)
 
     pages = rasterize.rasterize(pdf, out_dir / "pages", first=first, last=last, dpi=dpi)
     cut = exclude or set()
@@ -146,7 +187,7 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
                 on_page(outcome)
             yield outcome
             continue
-        if page.number in already:
+        if page.number in already or kept(page.number):
             continue
 
         try:
@@ -162,6 +203,11 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
 
         emission = _validate(recognition, pdf, page.number, mode=mode,
                              out_dir=out_dir)
+        if kept(page.number):
+            # The author started on this page while the model was reading it. Their work
+            # wins; this recognition is discarded, and nothing is recorded that would point
+            # the manifest away from the file they are editing.
+            continue
         target = out_dir / f"page-{page.number:04d}.tex"
         # A failing page is still written, but under a name a build cannot pick up by
         # accident. Discarding it would throw away the very thing a human needs to correct.
@@ -205,7 +251,8 @@ def _validate(recognition: Recognition, pdf: Path, page: int, *, mode: str,
         ascii_gate.check(draft.text, fragment=(mode != "standalone")),
         delimiter_gate.check(draft.text),
         compile_gate.check(draft.text, base_dir=out_dir) if mode == "standalone"
-        else _skip_compile(),
+        else compile_gate.check_fragment(draft.text, preamble=chapter_preamble([draft.text]),
+                                         base_dir=out_dir),
         coverage_gate.check(draft.text, recognition.inventory, ink=ink,
                             inventory_failed=recognition.inventory_failed),
         colour_gate.check(draft.text, colours=colours),
@@ -227,11 +274,3 @@ def _pasted_count(pdf: Path, page: int) -> int | None:
         return None
 
 
-def _skip_compile():
-    """A fragment has no preamble, so compiling it in isolation proves nothing.
-
-    Reported as unverified rather than passed — the distinction is the whole point of
-    `GateResult.checked`.
-    """
-    from .validate.base import GateResult
-    return GateResult(compile_gate.GATE, checked=False)

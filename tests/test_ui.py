@@ -16,6 +16,7 @@ from urllib.request import Request, urlopen
 import pytest
 
 from handzoo.adapters.ui_server import MODES, Handler, Review
+from handzoo.core.pipeline import read_manifest
 
 
 @pytest.fixture
@@ -231,6 +232,34 @@ def test_the_manifest_learns_the_new_path_and_verdict(qserver) -> None:
     assert not rows[-1]["findings"], "the findings that were fixed must not persist"
 
 
+@pytest.mark.parametrize("text,fixture", [
+    ("\\documentclass{article}\\begin{document}\nwords\n\\end{document}\n", "qserver"),
+    ("\\documentclass{article}\\begin{document}\nSince \\square\n\\end{document}\n",
+     "server"),
+])
+def test_a_save_never_rewrites_what_the_manifest_already_holds(request, text: str,
+                                                                fixture: str) -> None:
+    """Append-only, in both directions a save can move a page: released from quarantine, and
+    quarantined by a correction that breaks the build.
+
+    The UI used to read the whole manifest, change one page's row, and write the whole file
+    back. A run appends to that same file. With ingestion inside the UI the two overlap, and a
+    row the run appended between the read and the write was lost -- the page vanished from the
+    list and a later `--resume` recognized it again. If every byte already there is still
+    there afterwards, nothing a concurrent writer added can have been dropped.
+    """
+    base, run = request.getfixturevalue(fixture)
+    manifest = run / "manifest.jsonl"
+    page = json.loads(manifest.read_text().splitlines()[0])["page"]
+    before = manifest.read_bytes()
+
+    _post(base, "/api/save", {"page": page, "mode": "fix", "text": text})
+
+    after = manifest.read_bytes()
+    assert after.startswith(before), "a save rewrote rows it did not own"
+    assert len(after) > len(before), "the page's new state was not recorded"
+
+
 def test_a_correction_that_breaks_the_build_is_quarantined(server) -> None:
     r"""Re-gating has to run in both directions, and this was measured in the wild.
 
@@ -257,10 +286,22 @@ def test_a_correction_that_breaks_the_build_is_quarantined(server) -> None:
     assert (run / "page-0002.fail.tex").exists()
     assert not (run / "page-0002.tex").exists()
 
-    rows = [json.loads(l) for l in (run / "manifest.jsonl").read_text().splitlines() if l.strip()]
-    row = [x for x in rows if x["page"] == 2][0]
-    assert row["verdict"] == "fail"
-    assert any("Missing $" in f["detail"] for f in row["findings"]), row["findings"]
+    (row,) = [o for o in read_manifest(run) if o.page == 2]
+    assert row.verdict == "fail"
+    assert any("Missing $" in f["detail"] for f in row.findings), row.findings
+
+
+def test_a_fragment_correction_that_breaks_the_build_is_quarantined(server) -> None:
+    r"""The same ch18 p13 defect, on a fragment. Re-gating on save compiled only pages with a
+    `\begin{document}`, so in the default mode a correction that broke the build was saved
+    as good."""
+    base, run = server
+    r = _post(base, "/api/save", {"page": 2, "mode": "fix",
+                                  "text": "fine\nSince it is unique. \\square\n"})
+    assert r["quarantined"] is True
+    (row,) = [o for o in read_manifest(run) if o.page == 2]
+    assert row.verdict == "fail"
+    assert any(f["gate"] == "compile" and f["line"] == 2 for f in row.findings), row.findings
 
 
 def test_authoring_never_quarantines(server) -> None:

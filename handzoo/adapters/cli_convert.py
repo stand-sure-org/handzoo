@@ -14,6 +14,7 @@ from pathlib import Path
 
 from ..core import pipeline
 from ..core.assemble import assemble
+from ..core.corrections import protected_pages
 from ..core.pipeline import PageOutcome
 from ..core.recognize.ollama_vlm import DEFAULT_MODEL, OllamaRecognizer, swap_pressure
 
@@ -64,6 +65,11 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
                              "a recognizer and never transcribed — use this for pages that "
                              "are not yours to reproduce. They still appear in chapter.tex "
                              "as a visible marker.")
+    parser.add_argument("--replace", metavar="PAGES",
+                        help="re-recognize these pages even though they carry your "
+                             "corrections, overwriting them. Without it a run keeps any page "
+                             "you have edited, cropped, accepted or are part way through "
+                             "editing.")
     parser.add_argument("--resume", action="store_true",
                         help="skip pages already recorded in the manifest")
     parser.add_argument("--provider", choices=("ollama", "gemini", "anthropic"),
@@ -112,17 +118,29 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
 
     try:
         excluded = pipeline.parse_excluded(args.exclude)
+        replacing = pipeline.parse_excluded(args.replace)
     except ValueError as exc:
         print(f"error: {exc}", file=stream)
         return 2
     if excluded:
         print(f"excluding {len(excluded)} page(s): they will not be sent to a recognizer.",
               file=stream)
+    # Announced, because kept silently is the mirror image of overwritten silently: the author
+    # re-runs to pick up a new page and cannot tell why an old one did not change. The keeping
+    # itself happens inside `convert`, so it does not depend on this message being printed.
+    kept = {n: why for n, why in protected_pages(args.out).items()
+            if n not in replacing and first <= n <= (last or n)}
+    if kept:
+        pages = ", ".join(f"{n} ({why})" for n, why in sorted(kept.items()))
+        print(f"keeping {len(kept)} page(s) with your work on them: {pages}.\n"
+              f"  A run never overwrites these. To re-recognize one on purpose: "
+              f"--replace {min(kept)}", file=stream)
 
     failed = unverified = errored = excluded_seen = 0
     done: list[pipeline.PageOutcome] = []
     for outcome in pipeline.convert(args.pdf, args.out, recognizer,
                                     first=first, last=last, exclude=excluded,
+                                    replacing=replacing,
                                     mode=args.mode, resume=args.resume, dpi=args.dpi):
         print(_format(outcome), file=stream, flush=True)
         done.append(outcome)
@@ -135,7 +153,11 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
             unverified += outcome.verdict == "unverified"
 
     if done:
-        master = assemble(args.out, done)
+        # The chapter is the run as it stands, not what this invocation happened to produce.
+        # A resumed page is skipped rather than yielded, so assembling `done` left every page
+        # an earlier invocation finished out of the chapter, with no placeholder -- the l11
+        # run's chapter began at page 3.
+        master = assemble(args.out, pipeline.read_manifest(args.out))
         print(f"\nassembled -> {master.name}  (pages that failed appear as placeholders, "
               "never silently omitted)", file=stream)
 

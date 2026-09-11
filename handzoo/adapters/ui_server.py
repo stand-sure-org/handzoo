@@ -23,14 +23,15 @@ import hashlib
 import json
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from ..core import rasterize
-from ..core.corrections import Correction, CorrectionLog
-from ..core.pipeline import MANIFEST, PageOutcome
+from ..core.corrections import Correction, CorrectionLog, pristine_path
+from ..core.normalize import chapter_preamble
+from ..core.pipeline import PageOutcome, append_manifest, read_manifest
 from ..core.validate import (ascii_gate, colour_gate, compile_gate, delimiter_gate,
                              reference_gate, repetition_gate)
 
@@ -62,20 +63,9 @@ class Review:
     out_dir: Path
 
     def outcomes(self) -> list[PageOutcome]:
-        path = self.out_dir / MANIFEST
-        if not path.exists():
-            return []
-        # The manifest is append-only, so `--resume` leaves two rows for a retried page: the
-        # original failure and the successful retry after it. The log is right to keep both —
-        # it records what happened — but a reader must prefer the newest, or the surface
-        # serves a stale failure and every action on that page silently does nothing.
-        # Measured after an Ollama restart mid-run left 18 pages errored and then retried.
-        latest: dict[int, PageOutcome] = {}
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                row = PageOutcome(**json.loads(line))
-                latest[row.page] = row
-        return [latest[k] for k in sorted(latest)]
+        # Newest row per page. A reader that took the first served a stale failure after an
+        # Ollama restart mid-run, and every action on that page silently did nothing.
+        return read_manifest(self.out_dir)
 
     def image(self, page: int) -> Path | None:
         hits = sorted((self.out_dir / "pages").glob(f"p-{page:04d}*.png"))
@@ -95,7 +85,7 @@ class Review:
         On disk rather than in memory so a browser reload, or a restarted server, does not
         silently reset the baseline mid-edit.
         """
-        return self.out_dir / ".pristine" / f"p{page:04d}.tex"
+        return pristine_path(self.out_dir, page)
 
 
 def _pages(review: Review) -> list[dict]:
@@ -245,7 +235,6 @@ def typeset(out_dir: Path, outcome: PageOutcome) -> tuple[Path | None, str]:
     # cleanly, so the pane reported a successful render of a document containing none of their
     # content. Preview the page whatever the gates said; if it cannot compile, the pane shows
     # why.
-    from dataclasses import replace
     pdf = _typeset(replace(outcome, verdict="pass"), out_dir)
     if pdf:
         cached.parent.mkdir(exist_ok=True)
@@ -310,8 +299,9 @@ def _revalidate(text: str, target: Path) -> tuple[bool, list[dict], str]:
         repetition_gate.check(text),
         colour_gate.check(text, colours=None),
     ]
-    if standalone:
-        gates.append(compile_gate.check(text, base_dir=target.parent))
+    gates.append(compile_gate.check(text, base_dir=target.parent) if standalone
+                 else compile_gate.check_fragment(text, preamble=chapter_preamble([text]),
+                                                  base_dir=target.parent))
 
     findings = [{"gate": g.gate, "detail": f.detail, "line": f.line, "excerpt": f.excerpt}
                 for g in gates if g.checked and not g.advisory
@@ -324,16 +314,17 @@ def _revalidate(text: str, target: Path) -> tuple[bool, list[dict], str]:
     return (not findings), findings + advisory, json.dumps(state)
 
 
-def _rewrite_manifest(out_dir: Path, page: int, **fields) -> None:
-    """Update one page's row in place. Every reader — `handzoo-review`, `assemble`, this UI —
-    goes through the manifest, so a rename it does not know about points them all at a file
-    that is gone."""
-    path = out_dir / MANIFEST
-    rows = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
-    for r in rows:
-        if r.get("page") == page:
-            r.update(fields)
-    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+def _amend_manifest(out_dir: Path, page: int, **fields) -> None:
+    """Record a page's new state as a new row. Every reader -- `handzoo-review`, `assemble`,
+    this UI -- goes through the manifest, so a rename it does not know about points them all at
+    a file that is gone.
+
+    Appended, never rewritten in place: a run may be appending to this file at the same moment,
+    and the read-change-write this replaced lost any row that landed in between.
+    """
+    rows = [o for o in read_manifest(out_dir) if o.page == page]
+    if rows:
+        append_manifest(out_dir, replace(rows[0], **fields))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -527,7 +518,7 @@ class Handler(BaseHTTPRequestHandler):
                 if clean:
                     freed = target.with_name(target.name.replace(".fail.tex", ".tex"))
                     target.rename(freed)
-                    _rewrite_manifest(self.review.out_dir, page, output=str(freed),
+                    _amend_manifest(self.review.out_dir, page, output=str(freed),
                                       verdict="pass", findings=findings,
                                       gates=json.loads(gates))
                     released = True
@@ -630,17 +621,17 @@ class Handler(BaseHTTPRequestHandler):
             if clean and was_quarantined:
                 released = target.with_name(target.name.replace(".fail.tex", ".tex"))
                 target.rename(released)
-                _rewrite_manifest(self.review.out_dir, page, output=str(released),
+                _amend_manifest(self.review.out_dir, page, output=str(released),
                                   verdict="pass", findings=findings, gates=json.loads(gates))
                 target, revalidated = released, True
             elif not clean and not was_quarantined:
                 held = target.with_name(target.name.replace(".tex", ".fail.tex"))
                 target.rename(held)
-                _rewrite_manifest(self.review.out_dir, page, output=str(held),
+                _amend_manifest(self.review.out_dir, page, output=str(held),
                                   verdict="fail", findings=findings, gates=json.loads(gates))
                 target, quarantined = held, True
             else:
-                _rewrite_manifest(self.review.out_dir, page, findings=findings,
+                _amend_manifest(self.review.out_dir, page, findings=findings,
                                   gates=json.loads(gates))
 
         img = self.review.image(page)

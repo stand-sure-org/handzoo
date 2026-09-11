@@ -70,6 +70,40 @@ GOLD: frozenset[str] = frozenset({"edited", "cropped", "keep-reviewed"})
 through, which is worth knowing and worth never mistaking for verification."""
 
 
+PRISTINE = ".pristine"
+
+
+def pristine_path(out_dir: Path, page: int) -> Path:
+    """Where a page's pre-edit text is kept while the author is working on it.
+
+    Autosave overwrites the page file and records nothing until a verdict, so this snapshot is
+    the only evidence that a page is mid-edit. Its existence is what the write path reads to
+    know it must not overwrite the page (`protected_pages`).
+    """
+    return out_dir / PRISTINE / f"p{page:04d}.tex"
+
+
+def protected_pages(out_dir: Path) -> dict[int, str]:
+    """Pages a re-run must not overwrite, and why. DESIGN 11.1.3 bug #2.
+
+    A page carries author work if the log holds a GOLD or authored row for it -- text the
+    author wrote or vouched for -- or if an edit is in progress. Verdicts that only record a
+    pass-through (flagged, skipped, keep-unreviewed) leave no author text on the page, and
+    protecting them would stop a re-run fixing the pages the author flagged as wrong.
+    `transcribed` writes its own file, which no run touches.
+    """
+    kept: dict[int, str] = {}
+    for row in CorrectionLog.for_run(out_dir).read():
+        if row.verdict in GOLD | AUTHORING:
+            kept[row.page] = "carries your corrections"
+    snapshots = out_dir / PRISTINE
+    if snapshots.is_dir():
+        for snap in snapshots.glob("p*.tex"):
+            if snap.stem[1:].isdigit():
+                kept.setdefault(int(snap.stem[1:]), "has an edit in progress")
+    return kept
+
+
 @dataclass(frozen=True, slots=True)
 class Correction:
     """One human decision about one span of one page."""

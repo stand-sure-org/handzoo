@@ -56,6 +56,22 @@ def test_the_assembled_document_actually_builds(tmp_path: Path) -> None:
     assert result.passed, result.report()
 
 
+@pytest.mark.skipif(not compile_gate.engine_available(), reason="pdflatex not installed")
+def test_a_macro_the_recognizer_invented_does_not_break_the_chapter(tmp_path: Path) -> None:
+    r"""A standalone page gets a guarded declaration for every macro the recognizer invented
+    (R8). A fragment is told "not declared here" -- and the master declared only unmapped
+    characters, never macros. So a fragment using `\foo{x}` built as a standalone page and
+    broke the chapter, and nobody saw it, because fragments were never compiled.
+
+    The master now declares them, the same way a standalone page does -- still flagged
+    `TODO`, so an invented name is visible, not quietly accepted."""
+    assemble(tmp_path, [_outcome(tmp_path, 1, body=r"By \foo{x} we mean the thing.")])
+    text = (tmp_path / MASTER).read_text(encoding="utf-8")
+    result = compile_gate.check(text, base_dir=tmp_path)
+    assert result.passed, result.report()
+    assert "TODO" in text and "foo" in text
+
+
 def test_a_run_with_nothing_usable_says_so(tmp_path: Path) -> None:
     master = assemble(tmp_path, [_outcome(tmp_path, 1, verdict="fail")])
     assert "no page passed" in master.read_text(encoding="utf-8").lower()
