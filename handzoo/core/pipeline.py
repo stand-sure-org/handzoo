@@ -21,7 +21,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
-from . import rasterize
+from . import rasterize, store
 from .corrections import protected_pages
 from .emit import Emission, emit
 from .normalize import chapter_preamble
@@ -84,6 +84,14 @@ class PageOutcome:
     An absolute path is acceptable *here*: the manifest is the run's local record, not the
     shareable artifact. 8.1's hash-and-purgable-sidecar rule governs what goes into the
     emitted `.tex`, which is the file that travels."""
+    source_page: int | None = None
+    """This page's number *in `source`*, when it differs from its number in the project -- a
+    page appended from a second PDF. Anything that reads the source (the crop tool, the ink and
+    colour gates) must use `pdf_page`, or it cuts the right region from the wrong page."""
+
+    @property
+    def pdf_page(self) -> int:
+        return self.source_page or self.page
 
     @property
     def done(self) -> bool:
@@ -145,13 +153,18 @@ def read_manifest(out_dir: Path) -> list[PageOutcome]:
         if line.strip():
             row = PageOutcome(**json.loads(line))
             latest[row.page] = row
-    return [latest[k] for k in sorted(latest)]
+    # A project with a store has an extent: the pages it has *now*. Undoing an append lowers
+    # it, and the pages beyond it have left -- decided here, once, so no reader has to learn
+    # what a removed page looks like (DESIGN, in-app ingestion D5).
+    limit = store.extent(out_dir)
+    return [latest[k] for k in sorted(latest) if limit is None or k <= limit]
 
 
 def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
             first: int = 1, last: int | None = None, mode: str = "fragment",
             resume: bool = False, dpi: int = rasterize.DEFAULT_DPI,
             exclude: set[int] | None = None, replacing: set[int] | None = None,
+            offset: int = 0,
             on_page: Callable[[PageOutcome], None] | None = None) -> Iterator[PageOutcome]:
     """Convert a page range, yielding each outcome as it completes.
 
@@ -172,16 +185,35 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
         # theirs by the time the run reaches it. One log read, next to a model call.
         return n not in replaced and n in protected_pages(out_dir)
 
-    pages = rasterize.rasterize(pdf, out_dir / "pages", first=first, last=last, dpi=dpi)
+    # `first`, `last` and the rasterized numbers are the *file's*; everything recorded -- the
+    # manifest, the output name, `exclude`, `replacing`, protection -- uses the project's.
+    # They differ only for an append (`offset`), which renders aside and places each page at
+    # its project number.
+    if offset:
+        placed = []
+        for page in rasterize.rasterize(pdf, out_dir / ".incoming", first=first, last=last,
+                                        dpi=dpi):
+            n = page.number + offset
+            for stale in (out_dir / "pages").glob(f"p-{n:04d}*.png"):
+                stale.unlink()   # a render of a page that left; it is in the store
+            dest = out_dir / "pages" / f"p-{n:04d}.png"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            page.image.replace(dest)
+            placed.append((n, page.number, dest))
+    else:
+        placed = [(p.number, p.number, p.image) for p in
+                  rasterize.rasterize(pdf, out_dir / "pages", first=first, last=last, dpi=dpi)]
     cut = exclude or set()
+    src_page = (lambda s: s) if offset else (lambda s: None)
 
-    for page in pages:
+    for number, file_page, image in placed:
+        page = rasterize.Page(number=number, image=image)
         if page.number in cut:
             # Recorded, and never sent to a model. The point is not tidier output: it is that
             # no transcription of the page is produced at all, which is what the author wants
             # for a page that is not theirs to reproduce (DESIGN 11.2.4).
             outcome = PageOutcome(page=page.number, output=None, verdict="excluded",
-                                  gates={}, source=str(pdf))
+                                  gates={}, source=str(pdf), source_page=src_page(file_page))
             run.record(outcome)
             if on_page:
                 on_page(outcome)
@@ -194,15 +226,16 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
             recognition = recognizer.recognize(page.image)
         except RecognitionError as exc:
             outcome = PageOutcome(page=page.number, output=None, verdict="fail",
-                                  gates={}, error=str(exc))
+                                  gates={}, error=str(exc), source=str(pdf),
+                                  source_page=src_page(file_page))
             run.record(outcome)
             if on_page:
                 on_page(outcome)
             yield outcome
             continue
 
-        emission = _validate(recognition, pdf, page.number, mode=mode,
-                             out_dir=out_dir)
+        emission = _validate(recognition, pdf, file_page, mode=mode, out_dir=out_dir,
+                             page_number=page.number)
         if kept(page.number):
             # The author started on this page while the model was reading it. Their work
             # wins; this recognition is discarded, and nothing is recorded that would point
@@ -224,6 +257,7 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
                    for g in emission.gates},
             rules=len(emission.rules),
             source=str(pdf),
+            source_page=src_page(file_page),
             findings=[
                 {"gate": g.gate, "detail": f.detail, "line": f.line, "excerpt": f.excerpt}
                 for g in emission.gates for f in g.failures
@@ -236,8 +270,10 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
 
 
 def _validate(recognition: Recognition, pdf: Path, page: int, *, mode: str,
-              out_dir: Path | None = None) -> Emission:
-    draft = emit(recognition, mode=mode, page=page, base_dir=out_dir)
+              out_dir: Path | None = None, page_number: int | None = None) -> Emission:
+    """`page` is the page *of the PDF* -- what the ink and colour gates read. `page_number` is
+    its number in the project, which is what the emitted provenance names."""
+    draft = emit(recognition, mode=mode, page=page_number or page, base_dir=out_dir)
     try:
         ink = rasterize.ink_profile(pdf, page)
     except rasterize.RasterizeError:

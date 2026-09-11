@@ -99,9 +99,24 @@
          white-space:nowrap; }
   .run abbr { text-decoration:none; border-bottom:1px dotted var(--dim); cursor:help; }
   .run b { color:var(--ink); font-weight:600; }
-  .run button, #ingest button { padding:.2rem .6rem; border:1px solid var(--line);
+  .run button, #ingest button, #addPages { padding:.2rem .6rem; border:1px solid var(--line);
       border-radius:4px; background:var(--panel); color:inherit; font:inherit; cursor:pointer; }
-  #ingest[hidden], #work[hidden] { display:none; }
+  #ingest[hidden], #work[hidden], #importPanel[hidden] { display:none; }
+  #importPanel { flex:1; display:flex; align-items:center; justify-content:center; }
+  #importPanel form { max-width:36rem; padding:1.5rem; border:1px solid var(--line);
+      border-radius:8px; background:var(--panel); display:grid; gap:.7rem; }
+  #importPanel h2 { margin:0; font-size:16px; }
+  #importPanel label { display:grid; gap:.25rem; font-size:12px; color:var(--dim); }
+  #importPanel label.mode { display:flex; gap:.4rem; align-items:center; color:var(--ink); }
+  #importPanel label.mode.off { color:var(--dim); }
+  #importPanel input[type=text], #importPanel input[type=number] { font:inherit;
+      padding:.3rem .5rem; border:1px solid var(--line); border-radius:4px;
+      background:var(--bg); color:var(--ink); width:8rem; }
+  #importPanel button { padding:.25rem .7rem; border:1px solid var(--line); border-radius:4px;
+      background:var(--panel); color:inherit; font:inherit; cursor:pointer; }
+  #importPanel .note { font-size:12px; color:var(--dim); }
+  #importPanel .warn { font-size:12px; color:var(--flag); }
+  #importPanel .err { font-size:12px; color:var(--fail); }
   #ingest { flex:1; display:flex; align-items:center; justify-content:center; }
   #ingest form { max-width:32rem; padding:1.5rem; border:1px solid var(--line); border-radius:8px;
                  background:var(--panel); display:grid; gap:.8rem; }
@@ -123,6 +138,7 @@
     <button id="hide-diag" aria-pressed="false" title="hide pages whose only finding is an
       invented drawing — they need the crop tool, not the editor">hide diagram-only</button>
   </span>
+  <button id="addPages" hidden title="append pages from a PDF to this project">Add pages…</button>
   <span class="run" id="run"></span>
   <span class="msg" id="msg"></span>
   <span class="done" id="saveState" style="margin-left:.7rem"></span>
@@ -140,6 +156,25 @@
       <p>Pages are read by the model on this machine; nothing leaves it. You can start
          reviewing page 1 while the rest are still being read.</p>
       <div><button type="submit">Transcribe</button> <span class="err" id="ingestErr"></span></div>
+    </form>
+  </div>
+  <div id="importPanel" hidden>
+    <form id="importForm">
+      <h2>Add pages from a PDF</h2>
+      <label>PDF <input type="file" id="impFile" accept="application/pdf,.pdf" required></label>
+      <div class="note" id="impPlan"></div>
+      <label class="mode"><input type="radio" name="mode" checked> Append — after the last page</label>
+      <label class="mode off" title="not built yet: it needs a side-by-side check of which page
+        replaces which"><input type="radio" name="mode" disabled> Replace pages from… (coming next)</label>
+      <label>Start at page of the file
+        <span><input type="number" id="impStart" min="1" value="1">
+        <button type="button" id="impSuggest" hidden></button></span></label>
+      <div class="warn" id="impWarn"></div>
+      <label>Pages of the file to cut — never sent to the model (optional)
+        <input type="text" id="impExclude" placeholder="none"></label>
+      <div><button type="submit" id="impGo" disabled>Add pages</button>
+        <button type="button" id="impCancel">Cancel</button>
+        <span class="err" id="impErr"></span></div>
     </form>
   </div>
   <section id="work">
@@ -209,10 +244,13 @@ async function load() {
   $("dir").textContent = r.dir;
   const before = pages.find(x => x.page === current);
   pages = r.pages;
-  renderRun(r.ingest);
+  renderRun(r.ingest, r.imports);
   const fresh = pages.length === 0 && r.ingest.state === "idle";
+  const busy = r.ingest.state === "running" || r.ingest.state === "stopping";
   $("ingest").hidden = !fresh;
-  $("work").hidden = fresh;
+  $("addPages").hidden = fresh || busy || r.imports.pending;
+  if (!$("importPanel").hidden) $("work").hidden = true;
+  else $("work").hidden = fresh;
   // Poll only while a run is going: the list changes under the author as pages land.
   clearTimeout(polling);
   if (r.ingest.state === "running" || r.ingest.state === "stopping")
@@ -562,7 +600,7 @@ window.addEventListener("beforeunload", () => {
 });
 
 // The run, in one line: where it is, and the one action that makes sense from here.
-function renderRun(ing) {
+function renderRun(ing, imports) {
   const waiting = pages.filter(p => p.state === "unrecognized").length;
   const failed = pages.filter(p => p.error).length;
   let text = "", action = null;
@@ -580,10 +618,31 @@ function renderRun(ing) {
             failed && `${failed} failed in the recognizer`].filter(Boolean).join(", ");
     action = [failed && !waiting ? "Retry failed" : "Resume", "/api/ingest/resume"];
   } else if (ing.state === "done") {
-    text = `all ${ing.total} pages read`;
+    // Counted from the project, not the finished run: an undo since has changed it.
+    text = `all ${pages.filter(p => p.state !== "excluded").length} pages read`;
   }
   if (ing.note) text += ` · <abbr title="${escapeHtml(ing.note)}">lexicon on</abbr>`;
   $("run").innerHTML = text;
+  // Undo reverts the last import and only it: the pages it added leave; nothing else moves.
+  const undo = imports && imports.undo;
+  if (undo && ing.state !== "running" && ing.state !== "stopping") {
+    const [a, b] = undo.pages, span = a === b ? `page ${a}` : `pages ${a}–${b}`;
+    const u = document.createElement("button");
+    u.textContent = "Undo import";
+    u.title = `remove ${span}, added from ${undo.file}`;
+    u.onclick = async () => {
+      if (!confirm(`Remove ${span}, added from ${undo.file}?\n\nNothing else changes. ` +
+                   `Corrections made to those pages since go to the project's history, ` +
+                   `not the project.`)) return;
+      const r = await (await fetch("/api/import/undo", { method: "POST" })).json();
+      if (r.error) { say("error: " + r.error); return; }
+      const kept = r.kept_in_history.length
+        ? ` — your work on page(s) ${r.kept_in_history.join(", ")} is kept in history` : "";
+      say(`removed ${span}${kept}`);
+      load();
+    };
+    $("run").appendChild(u);
+  }
   if (action) {
     const b = document.createElement("button");
     b.textContent = action[0];
@@ -606,6 +665,68 @@ $("ingestForm").onsubmit = async e => {
   const r = await (await fetch("/api/ingest" + q, {
     method: "POST", headers: { "Content-Type": "application/pdf" }, body: file })).json();
   if (r.error) { $("ingestErr").textContent = r.error; return; }
+  load();
+};
+
+// Adding pages: preview first (writes nothing), then the author chooses where to start.
+let preview = null;
+$("addPages").onclick = () => {
+  preview = null; $("importForm").reset(); $("impPlan").textContent = "";
+  $("impWarn").textContent = ""; $("impErr").textContent = "";
+  $("impSuggest").hidden = true; $("impGo").disabled = true;
+  $("importPanel").hidden = false; $("work").hidden = true;
+};
+$("impCancel").onclick = () => { $("importPanel").hidden = true; $("work").hidden = false; };
+
+$("impFile").onchange = async () => {
+  const file = $("impFile").files[0];
+  if (!file) return;
+  $("impPlan").textContent = "comparing with this project…"; $("impErr").textContent = "";
+  const r = await (await fetch(`/api/import/preview?name=${encodeURIComponent(file.name)}`, {
+    method: "POST", headers: { "Content-Type": "application/pdf" }, body: file })).json();
+  if (r.error) { $("impPlan").textContent = ""; $("impErr").textContent = r.error; return; }
+  preview = r;
+  const p = r.plan, lines = [`${r.total} page(s) in the file; this project has ${r.project_pages}.`];
+  if (p.present) lines.push(`${p.present} of them are already in this project.`);
+  if (p.changed.length) lines.push(`${p.changed.length} look edited since — project page(s) ` +
+    `${p.changed.map(c => c.project_page).join(", ")}. Replacing a page comes with ` +
+    `Replace pages from…, not built yet.`);
+  if (p.append_from === null && !p.changed.length) lines.push("Nothing in it is new.");
+  $("impPlan").textContent = lines.join(" ");
+  // The hint suggests; the start stays 1 until the author takes it.
+  if (p.append_from && p.append_from > 1) {
+    $("impSuggest").hidden = false;
+    $("impSuggest").textContent = `start at ${p.append_from} — only the new pages`;
+    $("impSuggest").onclick = () => { $("impStart").value = p.append_from; warn(); };
+  }
+  $("impStart").max = r.total;
+  $("impGo").disabled = false;
+  warn();
+};
+
+// The commonest mistake: appending a grown notebook from page 1, so every old page arrives
+// twice. Say so beside the button, before it is pressed.
+function warn() {
+  if (!preview) return;
+  const start = Number($("impStart").value) || 1;
+  const dup = preview.plan.pages.filter(x => x.file_page >= start &&
+    (x.status === "identical" || x.status === "elsewhere")).length;
+  $("impWarn").textContent = dup
+    ? `${dup} of the pages you would add are already in this project — they would appear twice.`
+    : "";
+}
+$("impStart").oninput = warn;
+
+$("importForm").onsubmit = async e => {
+  e.preventDefault();
+  if (!preview) return;
+  $("impErr").textContent = "";
+  const r = await (await fetch("/api/import/commit", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: preview.token, start: Number($("impStart").value) || 1,
+                           exclude: $("impExclude").value }) })).json();
+  if (r.error) { $("impErr").textContent = r.error; return; }
+  $("importPanel").hidden = true; $("work").hidden = false;
   load();
 };
 

@@ -42,6 +42,13 @@ handzoo notes.pdf --exclude 1,4           # cut pages entirely — never sent to
 handzoo notes.pdf --replace 2             # re-recognize a page that carries your work
 ```
 
+Or start in the browser — a new folder opens on a *New project* panel; choose a PDF and review
+page 1 while the rest are still being read:
+
+```
+handzoo-ui ~/handzoo-out/new-project     # ingest in the surface (local Ollama only)
+```
+
 The correction loop is a **separate binary**, `handzoo-review` (not a `handzoo` subcommand):
 
 ```
@@ -101,9 +108,9 @@ Environment, verified on this machine:
 | `handzoo/core/recognize/gemini_vlm.py` | **Working**, opt-in. Same port, same prompts, over the wire. Two providers disagreeing is the project's only self-audit-free substitution detector — DESIGN §5.5.6. |
 | Rasterizer, recognizer, gates, emitter, pipeline, CLI | **Working.** The command is `handzoo <pdf>` — see Commands above; there is no `convert` subcommand. |
 | `handzoo/core/assemble.py` | **Working.** Writes `chapter.tex` after a run — pages `\input` in order, failures as visible placeholders. A `--standalone` page cannot be assembled and says so. |
-| `handzoo-ui` — the review surface | **Working.** `handzoo-ui out/` serves a local page: page image and emitted text side by side, page list with gate state. Three panes — **ink | typeset | tex**, each collapsible. Typeset is the differentiator: proofing against the rendered page is faster than against markup, and it is served as a **PNG, not a PDF** (a browser PDF *extension* commonly will not render in an iframe). Compiles are cached on the source hash. **Two save actions** — *Fix transcription* writes `edited`, *Edit my notes* writes `authored`. A corrected `.fail.tex` is **re-gated on save** and released from quarantine only if it now passes; the coverage gate cannot re-run (it needs the run's inventory), so a coverage-only failure stays quarantined rather than being promoted on faith. Bound to 127.0.0.1; page images never leave the machine. |
+| `handzoo-ui` — the review surface | **Working.** `handzoo-ui out/` serves a local page: page image and emitted text side by side, page list with gate state. Three panes — **ink | typeset | tex**, each collapsible. Typeset is the differentiator: proofing against the rendered page is faster than against markup, and it is served as a **PNG, not a PDF** (a browser PDF *extension* commonly will not render in an iframe). Compiles are cached on the source hash. **Two save actions** — *Fix transcription* writes `edited`, *Edit my notes* writes `authored`. A corrected `.fail.tex` is **re-gated on save** and released from quarantine only if it now passes; the coverage gate cannot re-run (it needs the run's inventory), so a coverage-only failure stays quarantined rather than being promoted on faith. Bound to 127.0.0.1; page images never leave the machine. **Ingests a PDF into a new project** (`handzoo/adapters/ingest.py`): the run goes on a thread, pages show *queued / reading / ready* and are reviewable as they land, with stop, resume and retry. **Adds pages from another PDF** to an existing project (*Add pages…*): a preview says how the file lines up by page-render hash — a hint, never identity — the author picks where to start, and *Undo import* takes the added pages back out. Backed by `core/store.py` + `core/project.py` (snapshots, an `extent` pointer, page births); append only — *Replace pages from…* is not built. See in-app ingestion D5–D6. |
 | `handzoo-review` — the correction loop | **Built** (PLAN Wave 5). Walks gate findings, records a verdict per page, and can **crop** a diagram from the source as vector (`c`) — the fix for 45 of 49 findings on a real run. **The M0 exit criterion has now been run through it** — see below. |
-| Tests | **331**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
+| Tests | **369**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
 
 Measured state of the Normalizer, on identical raw recognizer output (Naive Math, the hardest
 document): 16/22 → **22/22**. Older Thinking-checkpoint corpora hold at 30/34 as a fixed
