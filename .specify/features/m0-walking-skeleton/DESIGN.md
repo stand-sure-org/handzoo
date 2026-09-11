@@ -2378,6 +2378,24 @@ as a streamed response would arrive — and applying the gate's own rule at each
   page 5 in only one. An abort makes a single retry cheap enough to be worth it, not reliable.
 - Two ch18 runaway pages still carry passing `.tex` names — written before the gate existed.
 
+**Two other things that run showed.** The **colour gate could not run on 83 of 162 pages** (51%),
+and the ASCII gate on 4 — which is what most of the 71 `unverified` verdicts are. Whether that is
+the document or the thrashing host it ran on (below) is unmeasured, and worth knowing: a gate
+that cannot run on half a chapter is a gap the size of the chapter. And the run itself was
+**stopped at page 162 because the machine went into swap** — 60.8 GB of 61.4 GB swap used, load
+average 513, on 64 GB of RAM, with ~190 GB of compressed pages held. The recognizer's own
+preflight warns that a swapping host produces blank pages and stalls that read as page problems;
+these pages show no such signature (no errors, no short pages, median length steady at 812–1012
+characters across the run), but the rest of the notebook waits for a healthy machine.
+
+**Confirmed at scale the same day**, on 162 pages of a 642-page notebook ingested through the
+surface (the run was stopped early — see below): **4 runaway pages in 162, a 2.5% rate**, two of
+them over 50,000 characters, tripping at **1.5% and 2.3%** of their length. Across all 11 runaway
+pages now on disk, 279,087 characters were generated and 30,569 were needed before the page was
+already refusable: **89% of that generation was waste**. On this run the four pages cost roughly
+19 minutes of a 70-minute run; with an abort they would have cost under one. And 374 legitimate
+pages — 140 more than before — still never trip at any prefix.
+
 So: stream the transcription pass, abort at the limit, retry once, and record the page as
 runaway if it trips again — the same verdict as now, minutes sooner, and *Stop* stops waiting on
 it. **Not built.** First thing to verify when it is: that Ollama stops generating when the
