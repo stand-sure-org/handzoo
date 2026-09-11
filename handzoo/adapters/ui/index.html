@@ -99,7 +99,7 @@
          white-space:nowrap; }
   .run abbr { text-decoration:none; border-bottom:1px dotted var(--dim); cursor:help; }
   .run b { color:var(--ink); font-weight:600; }
-  .run button, #ingest button { padding:.2rem .6rem; border:1px solid var(--line);
+  .run button, #ingest button, #addPages { padding:.2rem .6rem; border:1px solid var(--line);
       border-radius:4px; background:var(--panel); color:inherit; font:inherit; cursor:pointer; }
   #ingest[hidden], #work[hidden], #importPanel[hidden] { display:none; }
   #importPanel { flex:1; display:flex; align-items:center; justify-content:center; }
@@ -138,7 +138,7 @@
     <button id="hide-diag" aria-pressed="false" title="hide pages whose only finding is an
       invented drawing — they need the crop tool, not the editor">hide diagram-only</button>
   </span>
-  <button class="act" id="addPages" hidden title="append pages from a PDF to this project">Add pages…</button>
+  <button id="addPages" hidden title="append pages from a PDF to this project">Add pages…</button>
   <span class="run" id="run"></span>
   <span class="msg" id="msg"></span>
   <span class="done" id="saveState" style="margin-left:.7rem"></span>
@@ -618,7 +618,8 @@ function renderRun(ing, imports) {
             failed && `${failed} failed in the recognizer`].filter(Boolean).join(", ");
     action = [failed && !waiting ? "Retry failed" : "Resume", "/api/ingest/resume"];
   } else if (ing.state === "done") {
-    text = `all ${ing.total} pages read`;
+    // Counted from the project, not the finished run: an undo since has changed it.
+    text = `all ${pages.filter(p => p.state !== "excluded").length} pages read`;
   }
   if (ing.note) text += ` · <abbr title="${escapeHtml(ing.note)}">lexicon on</abbr>`;
   $("run").innerHTML = text;

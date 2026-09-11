@@ -202,3 +202,47 @@ again under a new one.
 
 **Size, roughly:** re-export hash check — done · store, snapshots, pointer 5
 · working copy and outside-edit detection 5 · replace preview and import undo 5.
+
+## D6. Built: the store, append, and undo (2026-09-11)
+
+**Store** (`core/store.py`): page texts, renders and source PDFs stored once by content hash and
+never modified; snapshots only ever added; `HEAD` names the newest. Which pages exist is one
+pointer, **`extent`**, applied in `read_manifest` alone. The first design used a manifest verdict
+for a removed page; the advisor's objection held — it would have inverted the newest-row-appears
+invariant every reader relies on, and a bug there drops a page from the chapter without a
+placeholder, the exact class #52 fixed.
+
+**Every capture checks itself**: each stored text is read back against the file, and every page
+carrying the author's work must be in the snapshot — otherwise it refuses and writes nothing.
+Adoption (the first capture) writes nothing outside `.store/`; a preview does not adopt at all.
+
+**Append only.** *Replace pages from…* is shown and disabled: its side-by-side check is a working
+design, not a settled one. The CLI refuses a project imports manage — it places pages by the
+file's numbers. An import is refused while the project's first run is unfinished: the capture
+would count only the pages that landed and put new pages in the unread pages' places.
+
+**Undo reverts what the import changed, and only that.** An append changed only the pages it
+added, so they leave; corrections made since to pages it did not touch stay. *For the author:*
+this means pre-mortem 4's second case — a correction on a page whose image did not change — never
+arises for an append, because undo never rolls such a page back. The cherry-pick question stays
+open for *Replace pages from…*, where it can arise.
+
+**Page numbers are reused after an undo**, and the correction log is keyed by number. Old rows
+would have protected the new page (the run keeping the undone page's text in its place) and
+labelled it "edited". The store records when each number was born; `corrections.current()` and
+`protected_pages` ignore rows and edit snapshots older than that. The log itself is untouched.
+
+**`source_page`**: an appended page is page 5 of the project and page 3 of its PDF; the gates,
+crop tool and region finder read the source page.
+
+**Measured with the real model and the author's exports** (scratch project, driven in headless
+Chrome over the DevTools protocol): a 22-page project, then the 24-page post-edit export. The
+preview reported *22 of them are already in this project* — page renders from earlier in the day
+matched a fresh render of a new export — suggested *start at 23*, and warned at start 1 that 22
+pages would appear twice. The import read only pages 23–24; *Undo import* took them back out.
+Adoption on a copy of the ch22 corpus: 716 files outside  byte-identical afterwards, all
+35 corrected pages captured with text and render, 0.1 s, 4.6 MB.
+
+**Not built:** *Replace pages from…* and its preview; detecting edits made outside HandZoo
+(captures record each page's text hash, so comparing the working file against HEAD is a small
+step); the cherry-pick; browsing history or redoing an undone import; a per-attempt timeout.
