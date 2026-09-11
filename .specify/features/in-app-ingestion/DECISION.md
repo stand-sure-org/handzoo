@@ -109,8 +109,55 @@ construction, and the chapter compile remains the backstop. On the real corpus (
 - A page that errors (Ollama restarted mid-run) is already resumable — the newest row wins — and
   the surface needs a retry for it rather than a re-run of the whole PDF.
 
-## Open — the author's call
+## D5. Ingesting into an existing project (author, 2026-09-11)
 
-- **Re-ingesting a PDF that was already ingested:** a new project per source hash, or a merge
-  into the existing project under P3. P1 and P2 do not depend on the answer; P3 is needed
-  under either.
+**Neither a new folder per ingest nor a merge.** A new folder duplicates every page and strands
+the author's work in the old one; a merge changes things in place. The store is modelled on
+Snowflake / Iceberg snapshots instead, which matches the author's standing preference —
+*append, never annihilate*:
+
+- **One project per manuscript.** Pages and their texts (recognized, corrected) are stored once,
+  named by content hash, and never modified.
+- **Every import writes a snapshot**: the ordered page list, each entry pointing at that page's
+  current text. Entries the import did not change are referenced, not copied.
+- **A small pointer file marks the current snapshot.** Nothing is deleted; going back is moving
+  the pointer.
+- **The working folder is a copy of the current snapshot**, so `page-0003.tex` and `chapter.tex`
+  keep stable names for any LaTeX editor. A working file whose hash no longer matches the
+  snapshot is an edit made outside HandZoo, and is saved as a new version rather than lost —
+  closing the gap P3 leaves.
+
+**Ask, don't infer.** Choosing a file for an existing project offers a mode — **Append**
+(default) or **Replace pages from…** — and a *start at page* input, default 1.
+
+**The hash is a hint, never identity.** The author has low confidence that a future reMarkable
+update will keep page bytes stable across exports. So an exact hash match is used only to skip
+re-recognizing an identical page and to *suggest* an action, never to decide one. A broken hash
+costs speed and suggestions, never work. (Measured so far: rasterizing is repeatable — the same
+file gives byte-identical pages. Whether a *re-export* does is unmeasured; it needs the author to
+export one notebook twice unchanged, and once after editing a single page.)
+
+### Pre-mortem
+
+1. **Replace, start at 1** *(author)*. Identical pages are skipped by hash. For the mess case:
+   **Undo import** moves the pointer back to the snapshot before it — the whole import, not page
+   by page — and the undone import stays in the store.
+2. **Replace, start at N ≠ 1** *(author: "the Gordian knot")*. It assumes the device's page
+   numbers correspond to the project's, which nothing guarantees; an author who did the work
+   recently will know, one who did not may not. *Proposed:* show the correspondence instead of
+   assuming it — a preview pairing each project page's ink with the incoming page's, each marked
+   *identical*, *changed* or *has your corrections*, which the author confirms or shifts. Hash
+   matches, when they exist, propose N; when they do not, the author aligns by eye. The human
+   asserts the correspondence, as in §11.1.3a; the tool makes it visible. **Pending the
+   author.**
+3. **Append, start at 1, on a notebook that grew** *(added — likely the commonest mistake)*.
+   Every page is appended, most already present. Hash matches catch it ("15 of these are already
+   in the project — start at 16?"); if hashes broke, the duplicates are visible in the page list
+   and Undo import removes them.
+4. **Undo an import after correcting pages since** *(added)*. Whether corrections to pages
+   present in both snapshots carry back is **open** — rework behaviour that likely varies between
+   authors and needs their feedback. Whatever the answer, nothing is lost: the corrections stay
+   in the store.
+
+**Size, roughly:** re-export hash check 1 (once the exports exist) · store, snapshots, pointer 5
+· working copy and outside-edit detection 5 · replace preview and import undo 5.
