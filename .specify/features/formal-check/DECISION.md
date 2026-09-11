@@ -24,10 +24,19 @@ questions: does the statement type-check, and can it be refuted?
 
 | outcome | what it means |
 |---|---|
-| does not type-check | **flag** — e.g. `A \leq A \neq A` |
-| refuted (negation proved by `decide` / `norm_num` / `simp`, or a counterexample from `plausible`) | **flag** |
-| type-checks | **proves nothing** |
-| could not be formalized | **not checked** — never a pass (§5.7) |
+| refuted (it type-checks, and its negation is proved by `decide` / `norm_num` / `simp`, or `plausible` finds a counterexample) | **flag** |
+| type-checks, not refuted | **proves nothing** |
+| does not type-check, or could not be formalized | **not checked** — never a pass (§5.7) |
+
+**Corrected 2026-09-11: "does not type-check" is not a flag.** The first version of this table
+flagged it, on the example of `A \leq A \neq A`. But a 2026 evaluation of the three open 7B
+statement autoformalizers (Kimina, Herald, DeepSeek-Prover-V2) found their output *compiles*
+only **11–24%** of the time on undergraduate statements (ProofNet#), the failures dominated by
+Mathlib names that do not exist (34–50% of failures) and malformed syntax. When the formalizer's
+own output fails three times in four, a compile failure says almost nothing about the page —
+and a gate that flagged it would bury the author in false alarms. Only *refuted* survives as a
+flag. Ill-typedness may yet become a signal *differentially* — the same formalizer compiling the
+page's neighbouring statements but not this one — which is unmeasured.
 
 A statement that type-checks has not been verified, because the formalizer is itself a model
 translating text, and can substitute exactly as the recognizer does. §5.5.3's constraint also
@@ -85,9 +94,14 @@ is what the spike is for.
 
 **Open:**
 
-- **The formalizer.** No candidate has been verified to run locally. Lean-specialised open
-  models (the DeepSeek-Prover, Kimina and Goedel-Prover families) are to be researched, not
-  assumed.
+- **The formalizer.** Researched 2026-09-11, none yet run: **Kimina-Autoformalizer-7B** (trained
+  on competition-style problems, not textbook prose); **DeepSeek-Prover-V2-7B**, which has
+  quantized GGUF builds that load in Ollama; **Goedel-Prover-V2** is the strongest open *prover*
+  at that size, but proves rather than translates. Expect the compile rate above, so most
+  statements will come back *not checked*: the spike measures reach as much as detection.
+  Sources: arXiv 2604.23135 (*Characterizing Paraphrase-Induced Failures in Lean 4
+  Autoformalization*); huggingface.co/AI-MO/Kimina-Autoformalizer-7B;
+  huggingface.co/unsloth/DeepSeek-Prover-V2-7B-GGUF.
 - **Throughput.** Loading Mathlib takes seconds per process; a page with a dozen claims likely
   wants a persistent Lean process (the community `repl`). A harness decision, not a reason to
   split projects.

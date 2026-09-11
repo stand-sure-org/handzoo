@@ -2223,6 +2223,32 @@ is a **typographic pattern rather than a string**, which a token-mapping learner
 represent at all. The correction log is the right place to mine and it does not yet hold enough
 to mine.
 
+#### 2026-09-11: re-mined with LaTeX-aware tokens — the tokenizer hid recurrence, but not lexicon material
+
+By then the log held 88 `edited` rows. Each carries the whole page before and after, and they
+fall on **24 distinct pages** (ch18 4, ch22 16, l11 4) — so "recurs on two pages" has 24 pages
+to recur across, in three notebooks. `authored` rows excluded, as §11.3.1 requires. Each row's
+diff mined three ways, counting distinct pages, not rows:
+
+| tokens | substitutions on ≥2 pages | additions / deletions on ≥2 pages | across ≥2 notebooks |
+|---|---|---|---|
+| whitespace (the original miner) | **0** | 1 / 1 | 0 |
+| LaTeX-aware (`\cmd` one token, punctuation split) | 2 | 4 / 4 | 3 |
+| LaTeX-aware, `$` and braces dropped | 2 | 1 / 0 | 1 |
+
+**The tokenizer was hiding recurrence.** Whitespace tokens reproduce the zero; `\underline{composition}`
+never matches as a whole. LaTeX-aware tokens find `\underline` restored on **4 pages across all
+three notebooks** — §11.0.1a's lost-emphasis class, the underline that is a label (§11.0.1b).
+
+**But what recurs is not lexicon material.** Every recurrence is a restored mark (`\underline`;
+`\\` line breaks, since made unnecessary by `parskip`), the author's own markup convention
+(`Defn` → `\label{defn:…}` on 4 ch22 pages), or a layout / crop edit (`array` → `center`,
+`\texttt` → `\includegraphics`). **No token substitution of the `Sps` → `\Rightarrow` kind recurs
+at all.** So the author's reading stands — the lexicon needs a larger *corrected* corpus, not a
+better miner — with one amendment: when it is mined, mine LaTeX-aware tokens, or the recurrences
+that exist stay invisible. `Defn` → `\label` is a candidate convention for the author, of the same
+family as the underline-as-label.
+
 ### 11.0.1d The diagram-description path has weaker notation fidelity
 
 Separate finding, from the same investigation. Blackboard-bold `\mathbb{R}` is emitted
@@ -2330,6 +2356,32 @@ convention override a general one.
 **Category theory is the only corpus that exists.** Physics tiering is a reasonable guess with
 zero evidence behind it, and is marked as such for the same reason §8.1 marks the scan path:
 a design written against an imagined corpus is a design nobody has tested.
+
+### 11.0.1f Runaway generation — the third defect class
+
+Recorded in CLAUDE.md and in `validate/repetition_gate.py`, whose module note is the primary
+account; this section had been cited and never written. In short: pages carrying 23,000+
+characters of one repeated sentence, four of which passed every other gate, caught by counting
+8-word phrases — legitimate pages top out at 3 repeats, degenerate ones start at 122, and the
+gate refuses above 20.
+
+#### 2026-09-11: it could be caught while it is being written
+
+A runaway page costs minutes before the gate sees it: on the first in-surface run one took over
+two minutes (18 KB) and blocked *Stop* while it did. Replaying every page on disk word by word —
+as a streamed response would arrive — and applying the gate's own rule at each word:
+
+- **241 pages; the 234 legitimate ones never trip at any prefix.**
+- **All 7 runaway pages trip at 6–34% of their length** (one outlier at 67%, a short page). The
+  18 KB page would have been cut off at 6% — roughly ten seconds instead of two and a half minutes.
+- **Retry is not a cure.** ch18 pages 21 and 25 ran away in *both* independent runs of the chapter;
+  page 5 in only one. An abort makes a single retry cheap enough to be worth it, not reliable.
+- Two ch18 runaway pages still carry passing `.tex` names — written before the gate existed.
+
+So: stream the transcription pass, abort at the limit, retry once, and record the page as
+runaway if it trips again — the same verdict as now, minutes sooner, and *Stop* stops waiting on
+it. **Not built.** First thing to verify when it is: that Ollama stops generating when the
+streaming client disconnects, rather than finishing into the void.
 
 ### 11.0.1g The ch22 read-through — author's findings, no log behind them
 
