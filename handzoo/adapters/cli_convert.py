@@ -12,7 +12,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from ..core import pipeline
+from ..core import pipeline, store
 from ..core.assemble import assemble
 from ..core.corrections import protected_pages
 from ..core.pipeline import PageOutcome
@@ -84,6 +84,14 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
     args = parser.parse_args(argv)
 
     first, last = _parse_range(args.pages)
+    if store.extent(args.out) is not None:
+        # A project that has had a PDF appended places pages by *project* number; this command
+        # places them by the file's, and would write page 3 of a new file over page 3 of the
+        # project. The surface knows the difference.
+        print(f"error: {args.out} is managed by imports (it has pages appended from more than "
+              "one PDF). Add pages from the review surface: handzoo-ui " + str(args.out),
+              file=stream)
+        return 2
     _preflight(stream)
 
     from ..core.lexicon import discover as _discover_lexicon

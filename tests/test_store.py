@@ -185,6 +185,7 @@ def test_the_crop_tool_reads_the_source_page_not_the_project_page(tmp_path, pdfs
     import threading
     from http.server import ThreadingHTTPServer
     from urllib.request import urlopen
+
     from handzoo.adapters.ui_server import Handler, configure
 
     out = _project(tmp_path, pdfs["a"])

@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import secrets
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass, replace
@@ -28,7 +30,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from ..core import rasterize
+from ..core import project, rasterize, store
+from ..core.assemble import assemble
 from ..core.corrections import Correction, CorrectionLog, pristine_path
 from ..core.normalize import chapter_preamble
 from ..core.pipeline import PageOutcome, append_manifest, parse_excluded, read_manifest
@@ -136,7 +139,11 @@ def _pages(review: Review, ingest: Ingest | None = None) -> list[dict]:
     # Pages the run has not reached. Without these the list would show a 3-page project in the
     # middle of a 40-page run, and a stopped run's missing pages would simply not exist.
     running = ingest is not None and ingest.running
-    total = ingest.total if running else None
+    # A project with a store says how many pages it has; an import raises that before its
+    # first page lands, so the pages still to come show as queued.
+    total = store.extent(review.out_dir)
+    if total is None and running:
+        total = ingest.total
     if total is None and (src := source_pdf(review.out_dir)) is not None:
         try:
             total = rasterize.page_count(src)
@@ -399,6 +406,16 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"stopping": ingest.running})
             return
         if url.path == "/api/ingest/resume":
+            run = project.pending(self.review.out_dir)
+            if run is not None:
+                # An import that stopped part way: carry on from the page it reached.
+                try:
+                    ingest.start(Path(run["source"]), append=run, resume=True)
+                except IngestError as exc:
+                    self._json({"error": str(exc)}, 409)
+                    return
+                self._json({"started": True, "total": ingest.total}, 202)
+                return
             src = source_pdf(self.review.out_dir)
             if src is None:
                 self._json({"error": "nothing to resume -- this project has no source PDF"}, 409)
@@ -418,10 +435,8 @@ class Handler(BaseHTTPRequestHandler):
         # pages is D5's Append / Replace-pages-from flow, not built yet; pouring a second PDF
         # over pages that may carry the author's work is exactly what P3 exists to prevent.
         if self.review.outcomes():
-            self._json({"error": "this project already has pages. Adding a PDF to an existing "
-                        "project will come with Append / Replace pages from... (DESIGN, "
-                        "in-app ingestion D5). For now, start a new project: "
-                        "handzoo-ui <new folder>"}, 409)
+            self._json({"error": "this project already has pages -- use Add pages to append "
+                        "a PDF to it, or start a new project: handzoo-ui <new folder>"}, 409)
             return
         if ingest.running:
             self._json({"error": "a run is already running in this project"}, 409)
@@ -445,6 +460,103 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._json({"started": True, "total": total, "source": pdf.name}, 202)
 
+    def _post_import(self, url) -> None:
+        """Adding a PDF to a project that already has pages (DESIGN, in-app ingestion D5).
+
+        Preview writes nothing to the project: it renders the incoming file aside and says how
+        it lines up. Commit appends. Undo reverts the last import. Replace-pages-from is not
+        offered yet -- its preview is a working design, not a settled one.
+        """
+        out = self.review.out_dir
+        ingest = self._ingest()
+        incoming = out / store.STORE / "incoming"
+        if ingest.running:
+            self._json({"error": "a run is going in this project -- wait for it or stop it"}, 409)
+            return
+
+        # A first run that stopped part way has pages it has not read. An append would count
+        # only the pages that landed, hide the rest, and put the new pages in their places.
+        unread = [e for e in _pages(self.review, ingest) if e["state"] == "unrecognized"]
+        if unread and project.pending(out) is None and url.path != "/api/import/undo":
+            self._json({"error": f"this project's first run has not finished -- "
+                        f"{len(unread)} page(s) not read yet. Resume it first."}, 409)
+            return
+
+        if url.path == "/api/import/preview":
+            if not self.review.outcomes():
+                self._json({"error": "this project has no pages yet -- choose a PDF to start it"},
+                           409)
+                return
+            length = int(self.headers.get("Content-Length") or 0)
+            if not 0 < length <= MAX_UPLOAD:
+                self._json({"error": "send the PDF as the request body (at most 1 GiB)"}, 400)
+                return
+            data = self.rfile.read(length)
+            if not data.startswith(b"%PDF-"):
+                self._json({"error": "that file is not a PDF"}, 400)
+                return
+            shutil.rmtree(incoming, ignore_errors=True)   # one preview at a time
+            token = secrets.token_hex(8)
+            staging = incoming / token
+            staging.mkdir(parents=True)
+            (staging / "file.pdf").write_bytes(data)
+            name = Path(parse_qs(url.query).get("name", [""])[0]).name or "added.pdf"
+            (staging / "name").write_text(name, encoding="utf-8")
+            try:
+                hashes = project.incoming_hashes(staging / "file.pdf", staging / "pages")
+            except rasterize.RasterizeError as exc:
+                self._json({"error": f"that PDF could not be read: {exc}"}, 400)
+                return
+            mine = project.working_hashes(out)
+            self._json({"token": token, "name": name, "total": len(hashes),
+                        "project_pages": len(mine), "plan": project.plan(mine, hashes)})
+            return
+
+        payload = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                             or b"{}")
+
+        if url.path == "/api/import/commit":
+            token = str(payload.get("token", ""))
+            staging = incoming / token
+            if not token.isalnum() or not (staging / "file.pdf").exists():
+                self._json({"error": "that preview has expired -- choose the file again"}, 409)
+                return
+            if project.pending(out) is not None:
+                self._json({"error": "an import stopped part way -- resume it or undo it first"},
+                           409)
+                return
+            try:
+                start = int(payload.get("start", 1))
+                exclude = parse_excluded(payload.get("exclude", ""))
+                name = (staging / "name").read_text(encoding="utf-8")
+                pdf, _ = store_upload(out, name, (staging / "file.pdf").read_bytes())
+                run = project.begin_append(out, pdf, start=start, exclude=exclude)
+                ingest.start(pdf, append=run)
+            except store.StoreError as exc:
+                self._json({"error": str(exc)}, 409)
+                return
+            except (IngestError, ValueError) as exc:
+                self._json({"error": str(exc)}, 400)
+                return
+            shutil.rmtree(incoming, ignore_errors=True)
+            self._json({"started": True, "pages": run["pages"]}, 202)
+            return
+
+        if url.path == "/api/import/undo":
+            try:
+                if project.pending(out) is not None:
+                    # A stopped import, undone as it stands: record what landed, then revert.
+                    project.finish_import(out)
+                result = project.undo_last_import(out)
+            except store.StoreError as exc:
+                self._json({"error": str(exc)}, 409)
+                return
+            assemble(out, read_manifest(out))
+            self._json(result)
+            return
+
+        self._json({"error": "not found"}, 404)
+
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler's spelling
         url = urlparse(self.path)
         q = parse_qs(url.query)
@@ -453,8 +565,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send((HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
         elif url.path == "/api/pages":
             ingest = self._ingest()
-            self._json({"dir": str(self.review.out_dir), "pages": _pages(self.review, ingest),
-                        "ingest": ingest.status()})
+            out = self.review.out_dir
+            self._json({"dir": str(out), "pages": _pages(self.review, ingest),
+                        "ingest": ingest.status(),
+                        "imports": {"undo": project.last_import(out),
+                                    "pending": project.pending(out) is not None}})
         elif url.path == "/api/ingest":
             self._json(self._ingest().status())
         elif url.path == "/api/text":
@@ -538,6 +653,9 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         if url.path.startswith("/api/ingest"):
             self._post_ingest(url)
+            return
+        if url.path.startswith("/api/import/"):
+            self._post_import(url)
             return
         if url.path not in ("/api/save", "/api/autosave", "/api/crop",
                             "/api/crop/confirm"):

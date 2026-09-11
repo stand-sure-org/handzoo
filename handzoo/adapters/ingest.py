@@ -16,7 +16,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from ..core import pipeline, rasterize
+from ..core import pipeline, project, rasterize
 from ..core.assemble import assemble
 from ..core.recognize.base import Recognition, Recognizer
 
@@ -37,6 +37,17 @@ def source_pdf(out_dir: Path) -> Path | None:
     return hits[0] if hits else None
 
 
+def _free_name(folder: Path, name: str, data: bytes) -> Path:
+    """`name`, or `name-2`, `-3`... -- never overwriting a different file of the same name.
+    A second export of one notebook usually arrives with the first one's filename."""
+    dest = folder / name
+    n = 2
+    while dest.exists() and dest.read_bytes() != data:
+        dest = folder / f"{Path(name).stem}-{n}{Path(name).suffix}"
+        n += 1
+    return dest
+
+
 def store_upload(out_dir: Path, name: str, data: bytes) -> tuple[Path, int]:
     """Keep an uploaded PDF inside the project. Returns where it went and its page count.
 
@@ -51,7 +62,7 @@ def store_upload(out_dir: Path, name: str, data: bytes) -> tuple[Path, int]:
         safe += ".pdf"
     folder = out_dir / SOURCE_DIR
     folder.mkdir(parents=True, exist_ok=True)
-    dest = folder / safe
+    dest = _free_name(folder, safe, data)
     if dest.resolve().parent != folder.resolve():
         raise IngestError(f"refusing to write {name!r} outside the project")
     dest.write_bytes(data)
@@ -113,15 +124,20 @@ class Ingest:
         return {"state": state, "total": self.total, "current": self.current,
                 "error": self.error, "note": self.note}
 
-    def start(self, pdf: Path, *, exclude: set[int] | None = None, resume: bool = False) -> None:
+    def start(self, pdf: Path, *, exclude: set[int] | None = None, resume: bool = False,
+              append: dict | None = None) -> None:
+        """Run `pdf` into the project. `append` is a plan from `project.begin_append`: the
+        file's pages go after the project's last page, and the run is recorded as an import
+        that can be undone."""
         with self._lock:
             if self.running:
                 raise IngestError("a run is already running in this project -- stop it first")
-            self.total = rasterize.page_count(pdf)
+            self.total = append["pages"][1] if append else rasterize.page_count(pdf)
             self.state, self.current, self.error = "running", None, ""
-            self.exclude = set(exclude or ())
+            self.exclude = set(append["exclude"]) if append else set(exclude or ())
             self._stop.clear()
-            self._thread = threading.Thread(target=self._run, args=(pdf, exclude or set(), resume),
+            self._thread = threading.Thread(target=self._run,
+                                            args=(pdf, self.exclude, resume, append),
                                             name="handzoo-ingest", daemon=True)
             self._thread.start()
 
@@ -145,13 +161,19 @@ class Ingest:
                      "recognizer -- tokens only, never their meanings" if lexicon else "")
         return OllamaRecognizer(model=DEFAULT_MODEL, lexicon_tokens=lexicon.tokens)
 
-    def _run(self, pdf: Path, exclude: set[int], resume: bool) -> None:
+    def _run(self, pdf: Path, exclude: set[int], resume: bool, append: dict | None) -> None:
         try:
             recognizer = _Watched(self._build_recognizer(), self)
+            where = ({"first": append["first"], "last": append["last"],
+                      "offset": append["offset"]} if append else {})
             for _ in pipeline.convert(pdf, self.out_dir, recognizer, exclude=exclude,
-                                      resume=resume):
+                                      resume=resume, **where):
                 if self._stop.is_set():
                     break
+            # An import is recorded once it has read every page; a stopped one stays pending,
+            # to be resumed -- or finished as it stands and undone.
+            if append and not self._stop.is_set():
+                project.finish_import(self.out_dir)
             # The chapter is the run as it stands -- every page, not only this run's.
             assemble(self.out_dir, pipeline.read_manifest(self.out_dir))
             self.state = "stopped" if self._stop.is_set() else "done"

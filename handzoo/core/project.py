@@ -160,6 +160,28 @@ def project_hashes(out_dir: Path) -> list[str | None]:
     return [by_page.get(n) for n in range(1, doc["extent"] + 1)]
 
 
+def working_hashes(out_dir: Path) -> list[str | None]:
+    """The project's page renders as they are on disk, by page. For a preview, which must not
+    write: adoption waits until the author commits to an import."""
+    import hashlib
+    rows = pipeline.read_manifest(out_dir)
+    pages = store.extent(out_dir) or max((o.page for o in rows), default=0)
+    out: list[str | None] = []
+    for n in range(1, pages + 1):
+        img = page_image(out_dir, n)
+        out.append(hashlib.sha256(img.read_bytes()).hexdigest() if img else None)
+    return out
+
+
+def last_import(out_dir: Path) -> dict | None:
+    """What an undo would revert now: the newest import not yet undone."""
+    snap = _last_import(out_dir)
+    if snap is None:
+        return None
+    action = store.read_snapshot(out_dir, snap)["action"]
+    return {"snapshot": snap, "pages": action["pages"], "file": Path(action["source"]).name}
+
+
 def incoming_hashes(pdf: Path, staging: Path) -> list[str]:
     """Render an incoming PDF the way the project's pages were rendered, and hash each page."""
     import hashlib
