@@ -20,6 +20,8 @@ The design is settled and evidence-backed. Read in this order:
 | `.specify/features/m0-walking-skeleton/DESIGN.md` | Technical design v1.1, post-review |
 | `.specify/features/m0-walking-skeleton/PLAN.md` | 74 points of work in 6 waves, with the dependency graph |
 | `.specify/features/m0-walking-skeleton/reviews/` | Two Delphi panels — the opinion poll stopped the first spec; the design review imposed 9 binding conditions |
+| `.specify/features/in-app-ingestion/DECISION.md` | **Next up** (2026-09-11). Review runs behind recognition; the four preconditions are the work |
+| `.specify/features/formal-check/DECISION.md` | Lean: statements not proofs, a one-sided detector, one Lean project per install |
 | `docs/handoff.md` | The original brief. **Provenance, not specification** — its header lists what the baseline falsified |
 
 ## Naming
@@ -62,7 +64,7 @@ Environment, verified on this machine:
 | `pdflatex` (MacTeX) | compile gate — **hardcoded for M0** | present |
 | `ollama` | recognizer host | present; **use `qwen3-vl:8b-instruct`** |
 | `uv`, `pylatexenc` | toolchain + Normalizer basis | `.venv` present |
-| `lean`, `agda` | deferred formal checking (§5.5.3) | installed, not wired in |
+| `lean`, `agda` | deferred formal checking (§5.5.3) | installed, not wired in; **no Mathlib** — see `formal-check/DECISION.md` |
 | `tectonic` | CI-reproducibility swap, later | not installed, not blocking |
 
 ## Hard constraints
