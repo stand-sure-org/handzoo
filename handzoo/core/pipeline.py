@@ -161,10 +161,16 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
     out_dir.mkdir(parents=True, exist_ok=True)
     run = Run(out_dir).load() if resume else Run(out_dir)
     already = run.completed_pages() if resume else set()
-    # Author work is never overwritten by a run -- only by the author saying so. Enforced here
-    # rather than in each caller, so an adapter that forgets to check still cannot destroy a
-    # correction; adapters only have to *announce* what was kept (DESIGN 11.1.3 bug #2, 11.1.3a).
-    kept = set(protected_pages(out_dir)) - (replacing or set())
+    replaced = replacing or set()
+
+    def kept(n: int) -> bool:
+        # Author work is never overwritten by a run -- only by the author saying so. Enforced
+        # here rather than in each caller, so an adapter that forgets to check still cannot
+        # destroy a correction; adapters only *announce* what was kept (DESIGN 11.1.3 bug #2,
+        # 11.1.3a). Read each time, not once per run: with ingestion in the surface the author
+        # reviews while the run is still going, and a page they start on after it began is
+        # theirs by the time the run reaches it. One log read, next to a model call.
+        return n not in replaced and n in protected_pages(out_dir)
 
     pages = rasterize.rasterize(pdf, out_dir / "pages", first=first, last=last, dpi=dpi)
     cut = exclude or set()
@@ -181,7 +187,7 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
                 on_page(outcome)
             yield outcome
             continue
-        if page.number in already or page.number in kept:
+        if page.number in already or kept(page.number):
             continue
 
         try:
@@ -197,6 +203,11 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
 
         emission = _validate(recognition, pdf, page.number, mode=mode,
                              out_dir=out_dir)
+        if kept(page.number):
+            # The author started on this page while the model was reading it. Their work
+            # wins; this recognition is discarded, and nothing is recorded that would point
+            # the manifest away from the file they are editing.
+            continue
         target = out_dir / f"page-{page.number:04d}.tex"
         # A failing page is still written, but under a name a build cannot pick up by
         # accident. Discarding it would throw away the very thing a human needs to correct.

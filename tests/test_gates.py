@@ -120,6 +120,13 @@ def test_delimiters_report_where_it_opened_not_where_it_ended() -> None:
 # --------------------------------------------------------------------------- compile
 
 
+def test_a_fragment_the_engine_cannot_compile_is_not_checked_not_passed(monkeypatch) -> None:
+    """The cannot-run case, tested directly (constraint #6)."""
+    monkeypatch.setattr(compile_gate, "engine_available", lambda: False)
+    result = compile_gate.check_fragment("Hello.\n", preamble=chapter_preamble(["Hello.\n"]))
+    assert result.checked is False and not result.failures
+
+
 @pytest.mark.skipif(not compile_gate.engine_available(), reason="pdflatex not installed")
 def test_a_fragment_is_compiled_inside_the_chapters_own_preamble() -> None:
     """Fragments were reported *not checked*: with no preamble, compiling one alone proved

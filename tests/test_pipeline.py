@@ -19,6 +19,7 @@ from handzoo.core.corrections import Correction, CorrectionLog, pristine_path
 from handzoo.core.emit import Emission, emit, report
 from handzoo.core.recognize.base import Mark, Recognition
 from handzoo.core.recognize.ollama_vlm import RecognitionError
+from handzoo.core.validate import compile_gate
 from handzoo.core.validate.base import GateResult
 
 
@@ -301,6 +302,30 @@ def test_an_edit_in_progress_is_author_work_too(pdf: Path, tmp_path: Path) -> No
 
 
 @pytestmark_pdf
+@pytest.mark.parametrize("when", ["before the run reaches it", "while it is recognized"])
+def test_work_the_author_starts_during_a_run_is_kept_too(pdf: Path, tmp_path: Path,
+                                                         when: str) -> None:
+    """In-app ingestion overlaps review with recognition -- that is its whole design (DESIGN,
+    in-app ingestion D1). Protection read once at the start of a run misses a page the author
+    starts on after it: they fix page 3 of the previous run while this one is on page 1, or
+    while page 3 itself is being recognized. Either way the run reached page 3 and overwrote
+    it. So the check is made again at the moment of writing."""
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer()))
+    trigger = 1 if when == "before the run reaches it" else 3
+
+    class AuthorAtWork(_StubRecognizer):
+        def recognize(self, page: Path) -> Recognition:
+            result = super().recognize(page)
+            if _pages_seen(self)[-1] == trigger:
+                _corrected(tmp_path, 3, "edited", "fixed mid-run\n")
+            return result
+
+    list(pipeline.convert(pdf, tmp_path, AuthorAtWork()))
+
+    assert (tmp_path / "page-0003.tex").read_text(encoding="utf-8") == "fixed mid-run\n"
+
+
+@pytestmark_pdf
 def test_replace_is_the_explicit_instruction_that_overrides_it(pdf: Path,
                                                                tmp_path: Path) -> None:
     """The author's rule (DESIGN 11.1.3a): "replace page 2 with this". The human asserts the
@@ -329,6 +354,18 @@ def test_a_page_the_author_only_passed_through_is_not_protected(
     list(pipeline.convert(pdf, tmp_path, again))
 
     assert _pages_seen(again) == [1, 2, 3]
+
+
+@pytestmark_pdf
+def test_a_fragment_run_without_pdflatex_reads_unverified_not_passed(
+        pdf: Path, tmp_path: Path, monkeypatch) -> None:
+    """Constraint #6, for the new gate entry point: a compile that could not run must not
+    read as one that passed. Fragment compiles used to be skipped unconditionally, so a
+    fragment run's verdict did not depend on the engine; now it does."""
+    monkeypatch.setattr(compile_gate, "engine_available", lambda: False)
+    (outcome, *_) = list(pipeline.convert(pdf, tmp_path, _StubRecognizer(), last=1))
+    assert outcome.gates["compile"] == "skipped"
+    assert outcome.verdict == "unverified"
 
 
 @pytestmark_pdf

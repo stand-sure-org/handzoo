@@ -92,9 +92,11 @@ def check_fragment(fragment: str, *, preamble: str, timeout: int = TIMEOUT_SECON
 
     A fragment has no preamble, so compiling it alone proves nothing -- which is why fragment
     runs used to report this gate *not checked* (ch17: 8 of 13 pages, DESIGN 11.4). The caller
-    passes `normalize.chapter_preamble`, the same one the master uses, so this proves the page
-    builds where it will actually be built. It cannot catch what spans pages -- a macro defined
-    on page 3 and used on page 7 -- which is what compiling the chapter is for.
+    passes `normalize.chapter_preamble([page])` -- the function the master is built with, given
+    this page alone -- so this proves the page builds the way the chapter builds it. It cannot
+    catch what spans pages -- a macro defined on page 3 and used on page 7 -- and the master's
+    declarations are derived from every page, so the two can differ at the edges; compiling the
+    chapter is the backstop for both.
 
     Errors are reported at the fragment's own line numbers. The wrapper puts a preamble above
     the page; a line counted in the wrapped document would point the author at a line of their

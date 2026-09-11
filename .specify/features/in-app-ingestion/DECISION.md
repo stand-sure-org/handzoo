@@ -75,6 +75,12 @@ and a button turns that into one click. Ingestion **refuses a page that carries 
 `authored` row** unless the author has said "replace page N" — the explicit-replacement rule
 the author already chose (§11.1.3a), now enforced rather than remembered.
 
+*Checked at the moment of writing, not once per run.* The first version read the protected set
+before the loop, which is right for the CLI and wrong for this design: the author reviews while
+the run is going, and a page they start on after it began — before the run reaches it, or while
+the model is reading it — was overwritten. Found in review, not by the tests, which only ran
+sequentially; both timings are tested now.
+
 **P4 — Fragments, gated by wrapping.** UI runs should produce fragments, because only fragments
 assemble into a chapter; but in fragment mode the compile gate cannot run, and ch17 came back
 8 of 13 `unverified` for exactly that reason (§11.4). Wrapping each fragment in the preamble to
@@ -87,7 +93,9 @@ nothing, and the master declared only unmapped characters — never the macros t
 invented. A fragment using one built fine as a standalone page and broke `chapter.tex` with
 "Undefined control sequence", unseen, because fragments were never compiled.
 `normalize.chapter_preamble()` is now the one definition — master, per-page gate, and the UI's
-re-gate on save all use it. On the real corpus (no model called) all 20 l11 fragments and the
+re-gate on save all use it. One function, not one output: the gate gives it one page and the
+master every page, so their declarations agree in the ordinary case rather than by
+construction, and the chapter compile remains the backstop. On the real corpus (no model called) all 20 l11 fragments and the
 3 remaining leinster-cut fragments pass; 19 had read `skipped`, and none is newly refused.
 
 ## D4. Constraints carried over unchanged
