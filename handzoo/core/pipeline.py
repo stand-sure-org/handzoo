@@ -110,8 +110,20 @@ class Run:
         self.outcomes.append(outcome)
         # Appended per page, not at the end: a manifest written only on success is no
         # manifest at all, since the case it exists for is the run that did not finish.
-        with self.manifest_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(asdict(outcome)) + "\n")
+        append_manifest(self.out_dir, outcome)
+
+
+def append_manifest(out_dir: Path, outcome: PageOutcome) -> None:
+    """The only way anything writes the manifest: one new row, appended, in one write.
+
+    Nothing rewrites a row. A run and a save from the surface can both be writing, and a
+    writer that reads the file, changes a row and writes it all back drops whatever the other
+    appended in between. Appending cannot, and `read_manifest` makes the newest row win. The
+    row goes in a single write because an O_APPEND write lands whole; two writes per row would
+    let another writer's row in between them.
+    """
+    with (out_dir / MANIFEST).open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(asdict(outcome)) + "\n")
 
 
 def read_manifest(out_dir: Path) -> list[PageOutcome]:

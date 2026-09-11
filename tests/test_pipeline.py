@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -189,6 +190,34 @@ def test_the_manifest_reads_as_its_newest_row_per_page(tmp_path: Path) -> None:
 
     assert [o.page for o in read] == [1, 2], "one row per page, in page order"
     assert read[1].done and read[1].output == "page-0002.tex", "the newest row wins"
+
+
+def test_concurrent_appends_never_interleave_a_row(tmp_path: Path) -> None:
+    """A run in a background thread and a save from the surface both append.
+
+    Each row must reach the file in one write: on an O_APPEND file a single write lands whole,
+    so concurrent writers can only interleave *between* rows. A row written in two calls --
+    the JSON, then the newline -- lets another writer's row in between and glues two rows into
+    one corrupt line, which `read_manifest` rightly refuses to skip. Measured: that variant
+    fails this test every time; the single write passes.
+    """
+    big = [{"gate": "coverage", "detail": "x" * 200, "line": i, "excerpt": "y" * 200}
+           for i in range(60)]                          # ~25 KB, several times a real row
+
+    def writer(page: int) -> None:
+        for _ in range(40):
+            pipeline.append_manifest(tmp_path, pipeline.PageOutcome(
+                page=page, output=None, verdict="fail", gates={}, findings=big))
+
+    threads = [threading.Thread(target=writer, args=(n,)) for n in range(1, 5)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    lines = (tmp_path / pipeline.MANIFEST).read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 160
+    assert all(json.loads(line)["findings"] == big for line in lines)
 
 
 def test_a_missing_manifest_reads_as_no_pages_not_an_error(tmp_path: Path) -> None:
