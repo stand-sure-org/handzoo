@@ -169,10 +169,11 @@ def test_failing_pages_are_written_where_a_build_cannot_consume_them(pdf: Path,
 
 
 @pytestmark_pdf
-def test_fragments_report_compile_as_unverified_not_passed(pdf: Path, tmp_path: Path) -> None:
-    """A fragment has no preamble, so compiling it in isolation proves nothing."""
+def test_a_fragment_run_is_compile_gated(pdf: Path, tmp_path: Path) -> None:
+    """Formerly `skipped`: a fragment has no preamble, so compiling it alone proved nothing.
+    It is now compiled inside the chapter's preamble, which is where it will be built."""
     (outcome, *_) = list(pipeline.convert(pdf, tmp_path, _StubRecognizer(), last=1))
-    assert outcome.gates["compile"] == "skipped"
+    assert outcome.gates["compile"] == "pass"
 
 
 def test_the_manifest_reads_as_its_newest_row_per_page(tmp_path: Path) -> None:

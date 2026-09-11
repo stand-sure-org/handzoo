@@ -291,6 +291,19 @@ def test_a_correction_that_breaks_the_build_is_quarantined(server) -> None:
     assert any("Missing $" in f["detail"] for f in row.findings), row.findings
 
 
+def test_a_fragment_correction_that_breaks_the_build_is_quarantined(server) -> None:
+    r"""The same ch18 p13 defect, on a fragment. Re-gating on save compiled only pages with a
+    `\begin{document}`, so in the default mode a correction that broke the build was saved
+    as good."""
+    base, run = server
+    r = _post(base, "/api/save", {"page": 2, "mode": "fix",
+                                  "text": "fine\nSince it is unique. \\square\n"})
+    assert r["quarantined"] is True
+    (row,) = [o for o in read_manifest(run) if o.page == 2]
+    assert row.verdict == "fail"
+    assert any(f["gate"] == "compile" and f["line"] == 2 for f in row.findings), row.findings
+
+
 def test_authoring_never_quarantines(server) -> None:
     """Revising one's own prose is not a claim about the recognizer, and a gate result on it
     would be a verdict on the author. The file is still written; it is simply not judged."""

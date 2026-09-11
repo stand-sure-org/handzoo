@@ -339,6 +339,22 @@ def _strip_fabricated_graphics(text: str, rules: list[str],
     return _FAB_GRAPHIC.sub(graphic, text)
 
 
+def chapter_preamble(texts: list[str]) -> str:
+    """The preamble a chapter gives its fragments -- the one definition of it.
+
+    The master document uses it, and so does the compile gate when it checks a single fragment,
+    so the gate compiles each page exactly where the chapter will. Two definitions would let
+    the gate refuse a page the chapter builds, or pass one it cannot.
+
+    It declares what a standalone page would declare for itself (R8): macros the recognizer
+    invented, as guarded `TODO` stubs, and characters `pylatexenc` cannot map. A fragment is
+    told "not declared here", so if the chapter does not declare them nobody does.
+    """
+    joined = "\n".join(texts)
+    return PREAMBLE + declarations_for(find_undefined(joined), non_ascii_chars(joined),
+                                       source=joined)
+
+
 def normalize(markup: str, standalone: bool = True,
               base_dir: Path | None = None) -> Result:
     rules: list[str] = []

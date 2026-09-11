@@ -30,6 +30,7 @@ from urllib.parse import parse_qs, urlparse
 
 from ..core import rasterize
 from ..core.corrections import Correction, CorrectionLog, pristine_path
+from ..core.normalize import chapter_preamble
 from ..core.pipeline import PageOutcome, append_manifest, read_manifest
 from ..core.validate import (ascii_gate, colour_gate, compile_gate, delimiter_gate,
                              reference_gate, repetition_gate)
@@ -298,8 +299,9 @@ def _revalidate(text: str, target: Path) -> tuple[bool, list[dict], str]:
         repetition_gate.check(text),
         colour_gate.check(text, colours=None),
     ]
-    if standalone:
-        gates.append(compile_gate.check(text, base_dir=target.parent))
+    gates.append(compile_gate.check(text, base_dir=target.parent) if standalone
+                 else compile_gate.check_fragment(text, preamble=chapter_preamble([text]),
+                                                  base_dir=target.parent))
 
     findings = [{"gate": g.gate, "detail": f.detail, "line": f.line, "excerpt": f.excerpt}
                 for g in gates if g.checked and not g.advisory

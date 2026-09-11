@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from handzoo.core.normalize import chapter_preamble
 from handzoo.core.validate import ascii_gate, compile_gate, delimiter_gate
 from handzoo.core.validate.base import Failure, GateResult
 
@@ -117,6 +118,35 @@ def test_delimiters_report_where_it_opened_not_where_it_ended() -> None:
 
 
 # --------------------------------------------------------------------------- compile
+
+
+@pytest.mark.skipif(not compile_gate.engine_available(), reason="pdflatex not installed")
+def test_a_fragment_is_compiled_inside_the_chapters_own_preamble() -> None:
+    """Fragments were reported *not checked*: with no preamble, compiling one alone proved
+    nothing. Wrapped in the preamble the chapter will give it, it proves the page builds
+    where it will actually be built -- so fragment mode stops trading the compile gate away
+    (ch17: 8 of 13 pages came back unverified for exactly this reason, DESIGN 11.4)."""
+    body = "Hello $x^2$.\n"
+    result = compile_gate.check_fragment(body, preamble=chapter_preamble([body]))
+    assert result.checked and result.passed, result.report()
+
+
+@pytest.mark.skipif(not compile_gate.engine_available(), reason="pdflatex not installed")
+def test_a_fragment_error_is_reported_at_the_fragments_own_line() -> None:
+    r"""The wrapper adds a preamble above the page. An error reported at the wrapped document's
+    line would point the author at a line of their file that says something else entirely."""
+    body = "fine\n\nmore prose\nSince it is unique. \\square\n"
+    result = compile_gate.check_fragment(body, preamble=chapter_preamble([body]))
+    assert not result.passed
+    assert result.failures[0].line == 4, result.report()
+
+
+@pytest.mark.skipif(not compile_gate.engine_available(), reason="pdflatex not installed")
+def test_an_invented_macro_in_a_fragment_builds_as_it_will_in_the_chapter() -> None:
+    """Same preamble as the chapter, including its TODO declarations -- otherwise the gate
+    would refuse a page the chapter builds, or pass one the chapter cannot."""
+    body = "By \\foo{x} we mean the thing.\n"
+    assert compile_gate.check_fragment(body, preamble=chapter_preamble([body])).passed
 
 
 @pytest.mark.skipif(not compile_gate.engine_available(), reason="pdflatex not installed")

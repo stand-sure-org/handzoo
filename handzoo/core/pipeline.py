@@ -24,6 +24,7 @@ from pathlib import Path
 from . import rasterize
 from .corrections import protected_pages
 from .emit import Emission, emit
+from .normalize import chapter_preamble
 from .recognize.base import Recognition, Recognizer
 from .recognize.ollama_vlm import RecognitionError
 from .validate import (ascii_gate, colour_gate, compile_gate, coverage_gate,
@@ -239,7 +240,8 @@ def _validate(recognition: Recognition, pdf: Path, page: int, *, mode: str,
         ascii_gate.check(draft.text, fragment=(mode != "standalone")),
         delimiter_gate.check(draft.text),
         compile_gate.check(draft.text, base_dir=out_dir) if mode == "standalone"
-        else _skip_compile(),
+        else compile_gate.check_fragment(draft.text, preamble=chapter_preamble([draft.text]),
+                                         base_dir=out_dir),
         coverage_gate.check(draft.text, recognition.inventory, ink=ink,
                             inventory_failed=recognition.inventory_failed),
         colour_gate.check(draft.text, colours=colours),
@@ -261,11 +263,3 @@ def _pasted_count(pdf: Path, page: int) -> int | None:
         return None
 
 
-def _skip_compile():
-    """A fragment has no preamble, so compiling it in isolation proves nothing.
-
-    Reported as unverified rather than passed — the distinction is the whole point of
-    `GateResult.checked`.
-    """
-    from .validate.base import GateResult
-    return GateResult(compile_gate.GATE, checked=False)
