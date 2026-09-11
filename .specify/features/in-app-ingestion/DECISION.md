@@ -109,8 +109,82 @@ construction, and the chapter compile remains the backstop. On the real corpus (
 - A page that errors (Ollama restarted mid-run) is already resumable — the newest row wins — and
   the surface needs a retry for it rather than a re-run of the whole PDF.
 
-## Open — the author's call
+## D5. Ingesting into an existing project (author, 2026-09-11)
 
-- **Re-ingesting a PDF that was already ingested:** a new project per source hash, or a merge
-  into the existing project under P3. P1 and P2 do not depend on the answer; P3 is needed
-  under either.
+**Neither a new folder per ingest nor a merge.** A new folder duplicates every page and strands
+the author's work in the old one; a merge changes things in place. The store is modelled on
+Snowflake / Iceberg snapshots instead, which matches the author's standing preference —
+*append, never annihilate*:
+
+- **One project per manuscript.** Pages and their texts (recognized, corrected) are stored once,
+  named by content hash, and never modified.
+- **Every import writes a snapshot**: the ordered page list, each entry pointing at that page's
+  current text. Entries the import did not change are referenced, not copied.
+- **A small pointer file marks the current snapshot.** Nothing is deleted; going back is moving
+  the pointer.
+- **The working folder is a copy of the current snapshot**, so `page-0003.tex` and `chapter.tex`
+  keep stable names for any LaTeX editor. A working file whose hash no longer matches the
+  snapshot is an edit made outside HandZoo, and is saved as a new version rather than lost —
+  closing the gap P3 leaves.
+
+**Ask, don't infer.** Choosing a file for an existing project offers a mode — **Append**
+(default) or **Replace pages from…** — and a *start at page* input, default 1.
+
+**The hash is a hint, never identity.** The author has low confidence that a future reMarkable
+update will keep page bytes stable across exports. So an exact hash match is used only to skip
+re-recognizing an identical page and to *suggest* an action, never to decide one. A broken hash
+costs speed and suggestions, never work.
+
+**Measured 2026-09-11** — the author exported one 24-page notebook six ways over eight minutes;
+pages compared by a SHA-256 of the 150-DPI render, matched by hash rather than position:
+
+| export | pages | result |
+|---|---|---|
+| full, then full again 5 min later, unchanged | 24, 24 | **24 of 24 byte-identical** |
+| starting at page 2 | 23 | each page identical to the same page of the full export, one position earlier |
+| three chosen pages (1, 3, 5) | 3 | 3 of 3 identical to those pages of the full export |
+| after editing one page | 24 | **only the edited page differs** — 0.53% of its pixels, in one band; the other 23 identical |
+| an earlier export, before two pages were added | 22 | identical to the first 22 of the later one |
+
+So on this device, today: **a page's hash depends on the page, not on the export** — not on its
+position in the file, not on which pages accompany it, not on the moment of export. An edit
+changes that page's hash and no other. And each hint in the pre-mortem below works on this data:
+the grown notebook is found already present for its first 22 pages; the export that starts at
+page 2 aligns to the project by hash with no input; the edit is flagged on exactly one page.
+
+What it does not show: one notebook, one device, one firmware, one day. The author's doubt about
+a future update stands, so the hash stays a hint. The render is part of the hash recipe — a
+poppler upgrade or a DPI change would make every page look new (safe, but slow) — so each
+snapshot records the recipe, and the store keeps the source PDFs so both sides can be hashed
+again under a new one.
+
+### Pre-mortem
+
+1. **Replace, start at 1** *(author)*. Identical pages are skipped by hash. For the mess case:
+   **Undo import** moves the pointer back to the snapshot before it — the whole import, not page
+   by page — and the undone import stays in the store.
+2. **Replace, start at N ≠ 1** *(author: "the Gordian knot")*. It assumes the device's page
+   numbers correspond to the project's, which nothing guarantees; an author who did the work
+   recently will know, one who did not may not. *Proposed:* show the correspondence instead of
+   assuming it — a preview pairing each project page's ink with the incoming page's, each marked
+   *identical*, *changed* or *has your corrections*, which the author confirms or shifts. Hash
+   matches, when they exist, propose N; when they do not, the author aligns by eye. The human
+   asserts the correspondence, as in §11.1.3a; the tool makes it visible. *Author: "don't know,
+   but it seems reasonable"* — adopted as the working design, to be revisited against real use.
+3. **Append, start at 1, on a notebook that grew** *(added — likely the commonest mistake)*.
+   Every page is appended, most already present. Hash matches catch it ("15 of these are already
+   in the project — start at 16?"); if hashes broke, the duplicates are visible in the page list
+   and Undo import removes them.
+4. **Undo an import after correcting pages since** *(added; author's answer)*. It splits on
+   whether the import re-recognized the page:
+   - **The page's image changed, so its text was recognized again.** The corrections were made
+     to text the earlier snapshot never had. There is no free way to carry them back or
+     reconcile them, so they do not return with the undo — they stay in the store, reachable,
+     but not in the current version. This is stated, not hidden.
+   - **The page's image did not change**, so the import carried its entry over untouched. A
+     correction made afterwards is to the same text the earlier snapshot holds, and *might* be
+     cherry-picked onto it. A candidate, not a decision — rework behaviour that likely varies
+     between authors and needs their feedback.
+
+**Size, roughly:** re-export hash check — done · store, snapshots, pointer 5
+· working copy and outside-edit detection 5 · replace preview and import undo 5.
