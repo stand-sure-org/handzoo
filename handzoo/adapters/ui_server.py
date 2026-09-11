@@ -29,7 +29,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from ..core import rasterize
-from ..core.corrections import Correction, CorrectionLog
+from ..core.corrections import Correction, CorrectionLog, pristine_path
 from ..core.pipeline import PageOutcome, append_manifest, read_manifest
 from ..core.validate import (ascii_gate, colour_gate, compile_gate, delimiter_gate,
                              reference_gate, repetition_gate)
@@ -84,7 +84,7 @@ class Review:
         On disk rather than in memory so a browser reload, or a restarted server, does not
         silently reset the baseline mid-edit.
         """
-        return self.out_dir / ".pristine" / f"p{page:04d}.tex"
+        return pristine_path(self.out_dir, page)
 
 
 def _pages(review: Review) -> list[dict]:

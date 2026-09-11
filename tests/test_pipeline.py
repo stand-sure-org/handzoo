@@ -15,6 +15,7 @@ import pytest
 
 from handzoo.adapters import cli_convert
 from handzoo.core import pipeline
+from handzoo.core.corrections import Correction, CorrectionLog, pristine_path
 from handzoo.core.emit import Emission, emit, report
 from handzoo.core.recognize.base import Mark, Recognition
 from handzoo.core.recognize.ollama_vlm import RecognitionError
@@ -245,6 +246,106 @@ def test_a_resumed_run_assembles_every_page_not_only_the_ones_it_ran(
     chapter = (out / "chapter.tex").read_text(encoding="utf-8")
     for page in (1, 2, 3):
         assert f"\\input{{page-{page:04d}}}" in chapter, f"page {page} missing from the chapter"
+
+
+# ------------------------------------------------------- author work is not overwritten
+
+
+def _pages_seen(recognizer: _StubRecognizer) -> list[int]:
+    return [int(p.stem.split("-")[1].split("_")[0]) for p in recognizer.seen]
+
+
+def _corrected(out_dir: Path, page: int, verdict: str, text: str) -> Path:
+    """A page the author has worked on: their text on disk, and the log row that says so."""
+    target = out_dir / f"page-{page:04d}.tex"
+    target.write_text(text, encoding="utf-8")
+    CorrectionLog.for_run(out_dir).append(Correction(
+        page=page, verdict=verdict, source_image="p.png", before="emitted", after=text))
+    return target
+
+
+@pytestmark_pdf
+@pytest.mark.parametrize("verdict", ["edited", "cropped", "keep-reviewed", "authored"])
+def test_a_rerun_does_not_overwrite_a_page_that_carries_author_work(
+        pdf: Path, tmp_path: Path, verdict: str) -> None:
+    """DESIGN 11.1.3 bug #2: a re-run wrote every page unconditionally, over the author's
+    corrections. A button that ingests a PDF makes that one click away. The page is kept, and
+    it is not sent to the recognizer at all."""
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer()))
+    mine = _corrected(tmp_path, 2, verdict, "what the author made it\n")
+
+    again = _StubRecognizer()
+    list(pipeline.convert(pdf, tmp_path, again))
+
+    assert mine.read_text(encoding="utf-8") == "what the author made it\n"
+    assert _pages_seen(again) == [1, 3], "a kept page must not be recognized"
+
+
+@pytestmark_pdf
+def test_an_edit_in_progress_is_author_work_too(pdf: Path, tmp_path: Path) -> None:
+    """Autosave writes the page file and records nothing until a verdict -- by design, so a
+    half-typed line is never logged as a judgement. So the log cannot be the only evidence: the
+    pre-edit snapshot is what marks a page as mid-edit, and a re-run over it would destroy an
+    edit that has no log row to recover it from."""
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer()))
+    target = tmp_path / "page-0003.tex"
+    snapshot = pristine_path(tmp_path, 3)
+    snapshot.parent.mkdir(exist_ok=True)
+    snapshot.write_text(target.read_text(encoding="utf-8"), encoding="utf-8")
+    target.write_text("half way through a fix\n", encoding="utf-8")
+
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer()))
+
+    assert target.read_text(encoding="utf-8") == "half way through a fix\n"
+
+
+@pytestmark_pdf
+def test_replace_is_the_explicit_instruction_that_overrides_it(pdf: Path,
+                                                               tmp_path: Path) -> None:
+    """The author's rule (DESIGN 11.1.3a): "replace page 2 with this". The human asserts the
+    correspondence, so nothing has to infer it."""
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer()))
+    mine = _corrected(tmp_path, 2, "edited", "stale correction\n")
+
+    again = _StubRecognizer()
+    list(pipeline.convert(pdf, tmp_path, again, replacing={2}))
+
+    assert "Page 2 body." in mine.read_text(encoding="utf-8")
+    assert _pages_seen(again) == [1, 2, 3]
+
+
+@pytestmark_pdf
+@pytest.mark.parametrize("verdict", ["flagged", "skipped", "keep-unreviewed"])
+def test_a_page_the_author_only_passed_through_is_not_protected(
+        pdf: Path, tmp_path: Path, verdict: str) -> None:
+    """These verdicts leave no author text on the page. Protecting them would stop a re-run
+    from fixing the very pages the author flagged as wrong."""
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer()))
+    CorrectionLog.for_run(tmp_path).append(Correction(
+        page=2, verdict=verdict, source_image="p.png", before="emitted"))
+
+    again = _StubRecognizer()
+    list(pipeline.convert(pdf, tmp_path, again))
+
+    assert _pages_seen(again) == [1, 2, 3]
+
+
+@pytestmark_pdf
+def test_the_cli_says_which_pages_it_kept_and_how_to_replace_one(
+        pdf: Path, tmp_path: Path, monkeypatch) -> None:
+    """Kept silently would be the mirror image of overwritten silently: the author re-runs to
+    pick up a new page and cannot tell why an old one did not change."""
+    monkeypatch.setattr(cli_convert, "OllamaRecognizer", lambda **_: _StubRecognizer())
+    out = tmp_path / "run"
+    cli_convert.main([str(pdf), "-o", str(out)], stream=io.StringIO())
+    _corrected(out, 2, "edited", "mine\n")
+
+    said = io.StringIO()
+    assert cli_convert.main([str(pdf), "-o", str(out)], stream=said) == 0
+
+    text = said.getvalue()
+    assert "keeping 1 page" in text and "2" in text
+    assert "--replace" in text
 
 
 # --------------------------------------------------------------------------- cli

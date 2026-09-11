@@ -22,6 +22,7 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
 from . import rasterize
+from .corrections import protected_pages
 from .emit import Emission, emit
 from .recognize.base import Recognition, Recognizer
 from .recognize.ollama_vlm import RecognitionError
@@ -149,7 +150,7 @@ def read_manifest(out_dir: Path) -> list[PageOutcome]:
 def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
             first: int = 1, last: int | None = None, mode: str = "fragment",
             resume: bool = False, dpi: int = rasterize.DEFAULT_DPI,
-            exclude: set[int] | None = None,
+            exclude: set[int] | None = None, replacing: set[int] | None = None,
             on_page: Callable[[PageOutcome], None] | None = None) -> Iterator[PageOutcome]:
     """Convert a page range, yielding each outcome as it completes.
 
@@ -159,6 +160,10 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
     out_dir.mkdir(parents=True, exist_ok=True)
     run = Run(out_dir).load() if resume else Run(out_dir)
     already = run.completed_pages() if resume else set()
+    # Author work is never overwritten by a run -- only by the author saying so. Enforced here
+    # rather than in each caller, so an adapter that forgets to check still cannot destroy a
+    # correction; adapters only have to *announce* what was kept (DESIGN 11.1.3 bug #2, 11.1.3a).
+    kept = set(protected_pages(out_dir)) - (replacing or set())
 
     pages = rasterize.rasterize(pdf, out_dir / "pages", first=first, last=last, dpi=dpi)
     cut = exclude or set()
@@ -175,7 +180,7 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
                 on_page(outcome)
             yield outcome
             continue
-        if page.number in already:
+        if page.number in already or page.number in kept:
             continue
 
         try:
