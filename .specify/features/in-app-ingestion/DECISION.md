@@ -240,7 +240,7 @@ Chrome over the DevTools protocol): a 22-page project, then the 24-page post-edi
 preview reported *22 of them are already in this project* — page renders from earlier in the day
 matched a fresh render of a new export — suggested *start at 23*, and warned at start 1 that 22
 pages would appear twice. The import read only pages 23–24; *Undo import* took them back out.
-Adoption on a copy of the ch22 corpus: 716 files outside  byte-identical afterwards, all
+Adoption on a copy of the ch22 corpus: 716 files outside `.store/` byte-identical afterwards, all
 35 corrected pages captured with text and render, 0.1 s, 4.6 MB.
 
 **Not built:** *Replace pages from…* and its preview; detecting edits made outside HandZoo
