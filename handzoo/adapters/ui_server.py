@@ -498,8 +498,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             pdf = Path(outcome.source)
             try:
-                blocks = rasterize.page_blocks(pdf, page)
-                pw, ph = rasterize.page_size(pdf, page)
+                # The page *of the source*: an appended page is page 4 of the project and
+                # page 2 of its PDF, and cutting page 4 would cut the wrong ink.
+                blocks = rasterize.page_blocks(pdf, outcome.pdf_page)
+                pw, ph = rasterize.page_size(pdf, outcome.pdf_page)
             except rasterize.RasterizeError as exc:
                 self._send(str(exc).encode(), "text/plain; charset=utf-8", 409)
                 return
@@ -569,7 +571,7 @@ class Handler(BaseHTTPRequestHandler):
             name = f"fig-p{page:04d}-{existing + 1}.pdf"
             try:
                 figure = rasterize.crop_vector(
-                    Path(outcome.source), page, self.review.out_dir / name,
+                    Path(outcome.source), outcome.pdf_page, self.review.out_dir / name,
                     x=int(r["x"]), y=int(r["y"]),
                     width=int(r.get("w", r.get("width"))),
                     height=int(r.get("h", r.get("height"))))

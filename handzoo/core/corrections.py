@@ -30,6 +30,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from . import store
+
 LOG_NAME = "corrections.jsonl"
 
 Verdict = Literal["keep-reviewed", "keep-unreviewed", "edited", "cropped", "flagged",
@@ -93,15 +95,29 @@ def protected_pages(out_dir: Path) -> dict[int, str]:
     `transcribed` writes its own file, which no run touches.
     """
     kept: dict[int, str] = {}
-    for row in CorrectionLog.for_run(out_dir).read():
+    for row in current(out_dir):
         if row.verdict in GOLD | AUTHORING:
             kept[row.page] = "carries your corrections"
+    births = store.born(out_dir)
     snapshots = out_dir / PRISTINE
     if snapshots.is_dir():
         for snap in snapshots.glob("p*.tex"):
-            if snap.stem[1:].isdigit():
-                kept.setdefault(int(snap.stem[1:]), "has an edit in progress")
+            n = int(snap.stem[1:]) if snap.stem[1:].isdigit() else None
+            if n is not None and snap.stat().st_mtime >= births.get(n, 0):
+                kept.setdefault(n, "has an edit in progress")
     return kept
+
+
+def current(out_dir: Path) -> list[Correction]:
+    """Log rows about the pages as they exist now.
+
+    A page number is reused when an append follows an undo, and a row about the page that left
+    is not about the page that arrived -- it would protect the newcomer and label it "edited"
+    for work nobody did on it. So rows older than the page's birth (`store.born`) are left out
+    here. The log is unchanged; `CorrectionLog.read` still returns every row, as history.
+    """
+    births = store.born(out_dir)
+    return [r for r in CorrectionLog.for_run(out_dir).read() if r.at >= births.get(r.page, 0)]
 
 
 @dataclass(frozen=True, slots=True)
