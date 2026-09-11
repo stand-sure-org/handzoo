@@ -148,16 +148,22 @@ export one notebook twice unchanged, and once after editing a single page.)
    assuming it — a preview pairing each project page's ink with the incoming page's, each marked
    *identical*, *changed* or *has your corrections*, which the author confirms or shifts. Hash
    matches, when they exist, propose N; when they do not, the author aligns by eye. The human
-   asserts the correspondence, as in §11.1.3a; the tool makes it visible. **Pending the
-   author.**
+   asserts the correspondence, as in §11.1.3a; the tool makes it visible. *Author: "don't know,
+   but it seems reasonable"* — adopted as the working design, to be revisited against real use.
 3. **Append, start at 1, on a notebook that grew** *(added — likely the commonest mistake)*.
    Every page is appended, most already present. Hash matches catch it ("15 of these are already
    in the project — start at 16?"); if hashes broke, the duplicates are visible in the page list
    and Undo import removes them.
-4. **Undo an import after correcting pages since** *(added)*. Whether corrections to pages
-   present in both snapshots carry back is **open** — rework behaviour that likely varies between
-   authors and needs their feedback. Whatever the answer, nothing is lost: the corrections stay
-   in the store.
+4. **Undo an import after correcting pages since** *(added; author's answer)*. It splits on
+   whether the import re-recognized the page:
+   - **The page's image changed, so its text was recognized again.** The corrections were made
+     to text the earlier snapshot never had. There is no free way to carry them back or
+     reconcile them, so they do not return with the undo — they stay in the store, reachable,
+     but not in the current version. This is stated, not hidden.
+   - **The page's image did not change**, so the import carried its entry over untouched. A
+     correction made afterwards is to the same text the earlier snapshot holds, and *might* be
+     cherry-picked onto it. A candidate, not a decision — rework behaviour that likely varies
+     between authors and needs their feedback.
 
 **Size, roughly:** re-export hash check 1 (once the exports exist) · store, snapshots, pointer 5
 · working copy and outside-edit detection 5 · replace preview and import undo 5.
