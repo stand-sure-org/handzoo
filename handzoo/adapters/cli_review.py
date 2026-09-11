@@ -18,7 +18,6 @@ repetitive load and a tool that flatters its reviewer produces a corpus that fla
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import subprocess
@@ -30,7 +29,7 @@ from pathlib import Path
 from ..core import rasterize
 from ..core.assemble import assemble
 from ..core.corrections import BASELINE, Correction, CorrectionLog
-from ..core.pipeline import MANIFEST, PageOutcome
+from ..core.pipeline import MANIFEST, PageOutcome, read_manifest
 
 PROMPT = "[k]eep  [e]dit  [c]rop  [f]lag  [s]kip  [q]uit > "
 
@@ -45,11 +44,7 @@ def load_outcomes(out_dir: Path) -> list[PageOutcome]:
     path = out_dir / MANIFEST
     if not path.exists():
         raise FileNotFoundError(f"no {MANIFEST} in {out_dir} — run `handzoo` on a PDF first")
-    rows = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            rows.append(PageOutcome(**json.loads(line)))
-    return rows
+    return read_manifest(out_dir)
 
 
 def page_image(out_dir: Path, page: int) -> Path | None:

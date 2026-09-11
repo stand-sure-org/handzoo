@@ -103,10 +103,7 @@ class Run:
         return {o.page for o in self.outcomes if o.done}
 
     def load(self) -> Run:
-        if self.manifest_path.exists():
-            for line in self.manifest_path.read_text(encoding="utf-8").splitlines():
-                if line.strip():
-                    self.outcomes.append(PageOutcome(**json.loads(line)))
+        self.outcomes.extend(read_manifest(self.out_dir))
         return self
 
     def record(self, outcome: PageOutcome) -> None:
@@ -115,6 +112,26 @@ class Run:
         # manifest at all, since the case it exists for is the run that did not finish.
         with self.manifest_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(asdict(outcome)) + "\n")
+
+
+def read_manifest(out_dir: Path) -> list[PageOutcome]:
+    """The run as it stands: the newest row for each page, in page order.
+
+    The manifest is append-only, so a page can carry several rows -- `--resume` leaves the
+    original failure and the retry after it; a re-gate on save adds another. The log is right to
+    keep them all, since it records what happened. A reader must take the newest, and every
+    reader must take it the same way: two did not, and each served a stale row (DESIGN, in-app
+    ingestion D3 P1). No manifest reads as no pages -- a run may not have written one yet.
+    """
+    path = out_dir / MANIFEST
+    if not path.exists():
+        return []
+    latest: dict[int, PageOutcome] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            row = PageOutcome(**json.loads(line))
+            latest[row.page] = row
+    return [latest[k] for k in sorted(latest)]
 
 
 def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,

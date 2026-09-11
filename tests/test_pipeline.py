@@ -173,6 +173,51 @@ def test_fragments_report_compile_as_unverified_not_passed(pdf: Path, tmp_path: 
     assert outcome.gates["compile"] == "skipped"
 
 
+def test_the_manifest_reads_as_its_newest_row_per_page(tmp_path: Path) -> None:
+    """The manifest is a log: `--resume` and a re-gate on save both add a row for a page that
+    already has one. The log is right to keep both. A *reader* that takes the first row serves
+    the stale one, and every consumer that did so got a different page wrong."""
+    rows = [
+        {"page": 2, "output": None, "verdict": "fail", "gates": {}, "error": "ollama down"},
+        {"page": 1, "output": "page-0001.tex", "verdict": "pass", "gates": {}},
+        {"page": 2, "output": "page-0002.tex", "verdict": "pass", "gates": {}},
+    ]
+    (tmp_path / pipeline.MANIFEST).write_text(
+        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+    read = pipeline.read_manifest(tmp_path)
+
+    assert [o.page for o in read] == [1, 2], "one row per page, in page order"
+    assert read[1].done and read[1].output == "page-0002.tex", "the newest row wins"
+
+
+def test_a_missing_manifest_reads_as_no_pages_not_an_error(tmp_path: Path) -> None:
+    """The UI polls a directory a run may not have written to yet."""
+    assert pipeline.read_manifest(tmp_path) == []
+
+
+@pytestmark_pdf
+def test_a_resumed_run_assembles_every_page_not_only_the_ones_it_ran(
+        pdf: Path, tmp_path: Path, monkeypatch) -> None:
+    """Measured on the l11 run: its chapter began at page 3.
+
+    A resumed page is skipped, not yielded, and the CLI assembled only what this invocation
+    yielded -- so every page finished by an earlier invocation was absent from `chapter.tex`,
+    with no placeholder. That is the omission `assemble()` exists to prevent.
+    """
+    monkeypatch.setattr(cli_convert, "OllamaRecognizer",
+                        lambda **_: _StubRecognizer())
+    out = tmp_path / "run"
+    assert cli_convert.main([str(pdf), "-o", str(out), "--pages", "1-2"],
+                            stream=io.StringIO()) == 0
+    assert cli_convert.main([str(pdf), "-o", str(out), "--resume"],
+                            stream=io.StringIO()) == 0
+
+    chapter = (out / "chapter.tex").read_text(encoding="utf-8")
+    for page in (1, 2, 3):
+        assert f"\\input{{page-{page:04d}}}" in chapter, f"page {page} missing from the chapter"
+
+
 # --------------------------------------------------------------------------- cli
 
 

@@ -135,7 +135,11 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
             unverified += outcome.verdict == "unverified"
 
     if done:
-        master = assemble(args.out, done)
+        # The chapter is the run as it stands, not what this invocation happened to produce.
+        # A resumed page is skipped rather than yielded, so assembling `done` left every page
+        # an earlier invocation finished out of the chapter, with no placeholder -- the l11
+        # run's chapter began at page 3.
+        master = assemble(args.out, pipeline.read_manifest(args.out))
         print(f"\nassembled -> {master.name}  (pages that failed appear as placeholders, "
               "never silently omitted)", file=stream)
 

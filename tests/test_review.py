@@ -647,6 +647,30 @@ def test_fix_times_the_same_interaction_seeded_with_our_output(tmp_path: Path,
     assert row.before == "what the tool emitted\n"
 
 
+def test_fix_opens_the_newest_row_for_a_page_not_the_first(tmp_path: Path,
+                                                           monkeypatch) -> None:
+    """After `--resume` a page can carry two rows. `--fix` took the first -- the stale one --
+    which is the bug the UI already had fixed after an accept on p3 failed to register."""
+    stale = _page(tmp_path, 1, findings=[FINDING], body="the failed first attempt\n")
+    stale["output"] = str(tmp_path / "page-0001.fail.tex")
+    Path(stale["output"]).write_text("the failed first attempt\n", encoding="utf-8")
+    current = _page(tmp_path, 1, findings=[], body="the retry that passed\n")
+    current["verdict"] = "pass"
+    out = _manifest(tmp_path, stale, current)
+
+    seen = {}
+
+    def fake_edit(path, line):
+        seen["seeded"] = path.read_text()
+        return seen["seeded"]
+
+    monkeypatch.setattr(cli_review, "_edit", fake_edit)
+    cli_review.main([str(out), "--fix", "1", "--mode", "tex"], stream=io.StringIO(),
+                    read_line=_keys("y"), open_file=lambda p: None)
+
+    assert seen["seeded"] == "the retry that passed\n"
+
+
 def test_fixing_a_page_you_transcribed_is_refused(tmp_path: Path, monkeypatch) -> None:
     """The symmetric contamination, and the one that would have quietly favoured the tool.
 

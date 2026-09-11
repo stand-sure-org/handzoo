@@ -30,7 +30,7 @@ from urllib.parse import parse_qs, urlparse
 
 from ..core import rasterize
 from ..core.corrections import Correction, CorrectionLog
-from ..core.pipeline import MANIFEST, PageOutcome
+from ..core.pipeline import MANIFEST, PageOutcome, read_manifest
 from ..core.validate import (ascii_gate, colour_gate, compile_gate, delimiter_gate,
                              reference_gate, repetition_gate)
 
@@ -62,20 +62,9 @@ class Review:
     out_dir: Path
 
     def outcomes(self) -> list[PageOutcome]:
-        path = self.out_dir / MANIFEST
-        if not path.exists():
-            return []
-        # The manifest is append-only, so `--resume` leaves two rows for a retried page: the
-        # original failure and the successful retry after it. The log is right to keep both —
-        # it records what happened — but a reader must prefer the newest, or the surface
-        # serves a stale failure and every action on that page silently does nothing.
-        # Measured after an Ollama restart mid-run left 18 pages errored and then retried.
-        latest: dict[int, PageOutcome] = {}
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                row = PageOutcome(**json.loads(line))
-                latest[row.page] = row
-        return [latest[k] for k in sorted(latest)]
+        # Newest row per page. A reader that took the first served a stale failure after an
+        # Ollama restart mid-run, and every action on that page silently did nothing.
+        return read_manifest(self.out_dir)
 
     def image(self, page: int) -> Path | None:
         hits = sorted((self.out_dir / "pages").glob(f"p-{page:04d}*.png"))
