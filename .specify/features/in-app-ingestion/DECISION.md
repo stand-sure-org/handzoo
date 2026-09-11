@@ -46,6 +46,8 @@ is no batch progress bar, because there is no batch.
 
 ## D3. The preconditions are the work; the wiring is not
 
+**Status 2026-09-11: P1–P4 built** (PR #52, 327 tests). The ingestion wiring itself is next.
+
 **P1 — One way to read the manifest: newest row per page.** The manifest is a log; a page can
 carry several rows (a `--resume`, a re-gate on save). The UI already collapses to the newest.
 Two other readers did not, and both were found live while scoping this:
@@ -79,6 +81,14 @@ assemble into a chapter; but in fragment mode the compile gate cannot run, and c
 compile it — and writing the fragment — removes the choice the `--standalone` flag forces. The
 chapter compile stays the stronger check, since it catches cross-page definitions a single page
 cannot.
+
+*Found while building it:* there were two preambles. In fragment mode the normalizer declares
+nothing, and the master declared only unmapped characters — never the macros the recognizer
+invented. A fragment using one built fine as a standalone page and broke `chapter.tex` with
+"Undefined control sequence", unseen, because fragments were never compiled.
+`normalize.chapter_preamble()` is now the one definition — master, per-page gate, and the UI's
+re-gate on save all use it. On the real corpus (no model called) all 20 l11 fragments and the
+3 remaining leinster-cut fragments pass; 19 had read `skipped`, and none is newly refused.
 
 ## D4. Constraints carried over unchanged
 

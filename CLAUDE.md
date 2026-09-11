@@ -39,6 +39,7 @@ handzoo notes.pdf -o out/                 # fragments + chapter.tex, ready to op
 handzoo notes.pdf -o out/ --standalone    # complete documents; compile gate can run
 handzoo notes.pdf --pages 1-5 --resume    # triage a range; resume from the manifest
 handzoo notes.pdf --exclude 1,4           # cut pages entirely — never sent to a model
+handzoo notes.pdf --replace 2             # re-recognize a page that carries your work
 ```
 
 The correction loop is a **separate binary**, `handzoo-review` (not a `handzoo` subcommand):
@@ -102,7 +103,7 @@ Environment, verified on this machine:
 | `handzoo/core/assemble.py` | **Working.** Writes `chapter.tex` after a run — pages `\input` in order, failures as visible placeholders. A `--standalone` page cannot be assembled and says so. |
 | `handzoo-ui` — the review surface | **Working.** `handzoo-ui out/` serves a local page: page image and emitted text side by side, page list with gate state. Three panes — **ink | typeset | tex**, each collapsible. Typeset is the differentiator: proofing against the rendered page is faster than against markup, and it is served as a **PNG, not a PDF** (a browser PDF *extension* commonly will not render in an iframe). Compiles are cached on the source hash. **Two save actions** — *Fix transcription* writes `edited`, *Edit my notes* writes `authored`. A corrected `.fail.tex` is **re-gated on save** and released from quarantine only if it now passes; the coverage gate cannot re-run (it needs the run's inventory), so a coverage-only failure stays quarantined rather than being promoted on faith. Bound to 127.0.0.1; page images never leave the machine. |
 | `handzoo-review` — the correction loop | **Built** (PLAN Wave 5). Walks gate findings, records a verdict per page, and can **crop** a diagram from the source as vector (`c`) — the fix for 45 of 49 findings on a real run. **The M0 exit criterion has now been run through it** — see below. |
-| Tests | **278**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
+| Tests | **327**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
 
 Measured state of the Normalizer, on identical raw recognizer output (Naive Math, the hardest
 document): 16/22 → **22/22**. Older Thinking-checkpoint corpora hold at 30/34 as a fixed
@@ -294,17 +295,19 @@ separation is **structural**: the mode is chosen before typing, so nothing has t
 ## Known bugs from the mutable-source analysis (DESIGN §11.1.3)
 
 The PDF is not immutable — the author keeps writing, inserts, reorders, edits. Three verified
-consequences, none fixed:
+consequences; #2 and #3 fixed 2026-09-11, #1 open:
 
 1. **Page number is not page identity.** `PageOutcome.page` and `Correction.page` are both
    ordinals. Insert a page anywhere but the end and the manifest, correction log, crops, and
    the `--transcribe`/`--fix` guards all silently point at different content.
-2. **A re-run overwrites author corrections.** `pipeline.convert` writes unconditionally;
-   `--fix` writes to the same path. Recoverable by hand from the log's `after` field —
-   *external* edits have no log row, so not even that.
-3. **`--resume` protects a corrected page only by accident.** It keys on "recognized without
-   error", not "carries author work". Nothing in the write path knows a page has GOLD rows,
-   so there is no way to re-recognize one page while keeping a correction on another.
+2. ~~A re-run overwrites author corrections.~~ **Fixed.** `convert` keeps any page with a GOLD
+   or `authored` row, or an edit in progress (the `.pristine` snapshot autosave leaves), and
+   the CLI says which it kept. `--replace N` is the explicit override. Enforced inside
+   `convert`, so a caller that forgets cannot destroy a correction. **Still unprotected:**
+   edits made *outside* HandZoo leave no log row and no snapshot.
+3. ~~`--resume` protects a corrected page only by accident.~~ **Fixed** by the same change:
+   protection now keys on "carries author work", so one page can be re-recognized while a
+   correction on another is kept.
 
 Hashing page content answers four of the five actions; **"edit a page" is the one it cannot**,
 and it is the one most likely to land on a page already corrected.
