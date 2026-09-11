@@ -251,3 +251,35 @@ def test_a_reused_page_number_does_not_inherit_the_old_pages_corrections(tmp_pat
     assert all(r.page != 5 for r in current(out))
     assert "Text of" in (out / "page-0005.tex").read_text(), "the new page 5 was written"
     assert any(r.page == 5 for r in CorrectionLog.for_run(out).read()), "history is untouched"
+
+
+def test_an_undo_whose_capture_fails_changes_nothing(tmp_path, pdfs, monkeypatch) -> None:
+    """Undo captures before it moves anything. If that capture refuses -- a damaged object, a
+    page it cannot copy -- the project must be exactly as it was, and still undoable."""
+    out = _project(tmp_path, pdfs["a"])
+    _append(out, pdfs["b"], start=2)
+    before = (store.extent(out), [o.page for o in pipeline.read_manifest(out)], _tree(out))
+
+    def refuse(*a, **k):
+        raise store.StoreError("simulated damage")
+    monkeypatch.setattr(project, "capture", refuse)
+    with pytest.raises(store.StoreError):
+        project.undo_last_import(out)
+
+    assert (store.extent(out), [o.page for o in pipeline.read_manifest(out)], _tree(out)) == before
+    monkeypatch.undo()
+    assert project.undo_last_import(out)["removed"] == [4, 6]
+
+
+def test_an_import_whose_capture_fails_changes_nothing(tmp_path, pdfs, monkeypatch) -> None:
+    out = _project(tmp_path, pdfs["a"])
+    before = _tree(out)
+
+    def refuse(*a, **k):
+        raise store.StoreError("simulated damage")
+    monkeypatch.setattr(project, "capture", refuse)
+    with pytest.raises(store.StoreError):
+        project.begin_append(out, pdfs["b"], start=1)
+
+    assert _tree(out) == before
+    assert store.extent(out) is None and project.pending(out) is None
