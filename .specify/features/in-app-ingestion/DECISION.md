@@ -46,7 +46,7 @@ is no batch progress bar, because there is no batch.
 
 ## D3. The preconditions are the work; the wiring is not
 
-**Status 2026-09-11: P1–P4 built** (PR #52, 327 tests). The ingestion wiring itself is next.
+**Status 2026-09-11: P1–P4 built** (PR #52, 331 tests). The ingestion wiring itself is next.
 
 **P1 — One way to read the manifest: newest row per page.** The manifest is a log; a page can
 carry several rows (a `--resume`, a re-gate on save). The UI already collapses to the newest.
