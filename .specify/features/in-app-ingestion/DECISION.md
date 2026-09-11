@@ -133,9 +133,30 @@ Snowflake / Iceberg snapshots instead, which matches the author's standing prefe
 **The hash is a hint, never identity.** The author has low confidence that a future reMarkable
 update will keep page bytes stable across exports. So an exact hash match is used only to skip
 re-recognizing an identical page and to *suggest* an action, never to decide one. A broken hash
-costs speed and suggestions, never work. (Measured so far: rasterizing is repeatable — the same
-file gives byte-identical pages. Whether a *re-export* does is unmeasured; it needs the author to
-export one notebook twice unchanged, and once after editing a single page.)
+costs speed and suggestions, never work.
+
+**Measured 2026-09-11** — the author exported one 24-page notebook six ways over eight minutes;
+pages compared by a SHA-256 of the 150-DPI render, matched by hash rather than position:
+
+| export | pages | result |
+|---|---|---|
+| full, then full again 5 min later, unchanged | 24, 24 | **24 of 24 byte-identical** |
+| starting at page 2 | 23 | each page identical to the same page of the full export, one position earlier |
+| three chosen pages (1, 3, 5) | 3 | 3 of 3 identical to those pages of the full export |
+| after editing one page | 24 | **only the edited page differs** — 0.53% of its pixels, in one band; the other 23 identical |
+| an earlier export, before two pages were added | 22 | identical to the first 22 of the later one |
+
+So on this device, today: **a page's hash depends on the page, not on the export** — not on its
+position in the file, not on which pages accompany it, not on the moment of export. An edit
+changes that page's hash and no other. And each hint in the pre-mortem below works on this data:
+the grown notebook is found already present for its first 22 pages; the export that starts at
+page 2 aligns to the project by hash with no input; the edit is flagged on exactly one page.
+
+What it does not show: one notebook, one device, one firmware, one day. The author's doubt about
+a future update stands, so the hash stays a hint. The render is part of the hash recipe — a
+poppler upgrade or a DPI change would make every page look new (safe, but slow) — so each
+snapshot records the recipe, and the store keeps the source PDFs so both sides can be hashed
+again under a new one.
 
 ### Pre-mortem
 
@@ -165,5 +186,5 @@ export one notebook twice unchanged, and once after editing a single page.)
      cherry-picked onto it. A candidate, not a decision — rework behaviour that likely varies
      between authors and needs their feedback.
 
-**Size, roughly:** re-export hash check 1 (once the exports exist) · store, snapshots, pointer 5
+**Size, roughly:** re-export hash check — done · store, snapshots, pointer 5
 · working copy and outside-edit detection 5 · replace preview and import undo 5.
