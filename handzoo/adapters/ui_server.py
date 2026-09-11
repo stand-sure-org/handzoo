@@ -31,9 +31,11 @@ from urllib.parse import parse_qs, urlparse
 from ..core import rasterize
 from ..core.corrections import Correction, CorrectionLog, pristine_path
 from ..core.normalize import chapter_preamble
-from ..core.pipeline import PageOutcome, append_manifest, read_manifest
+from ..core.pipeline import PageOutcome, append_manifest, parse_excluded, read_manifest
 from ..core.validate import (ascii_gate, colour_gate, compile_gate, delimiter_gate,
                              reference_gate, repetition_gate)
+
+from .ingest import MAX_UPLOAD, Ingest, IngestError, source_pdf, store_upload
 
 HERE = Path(__file__).resolve().parent / "ui"
 
@@ -88,7 +90,7 @@ class Review:
         return pristine_path(self.out_dir, page)
 
 
-def _pages(review: Review) -> list[dict]:
+def _pages(review: Review, ingest: Ingest | None = None) -> list[dict]:
     """The page list, with each page's worst gate state.
 
     Advisory findings are reported as `flag`, never as `fail`: the reference gate marks a
@@ -107,11 +109,18 @@ def _pages(review: Review) -> list[dict]:
                         "transcribed": "typed", "keep-unreviewed": "passed over",
                         }.get(r.verdict, r.verdict)
     out = []
-    for o in review.outcomes():
+    rows = review.outcomes()
+    for o in rows:
         findings = o.findings or []
         advisory = any(f.get("gate") == "reference" for f in findings)
         hard = [f for f in findings if f.get("gate") != "reference"]
         state = "fail" if hard else ("flag" if advisory else "ok")
+        if o.verdict == "excluded":
+            state = "excluded"
+        elif not o.done or (o.verdict == "fail" and not findings):
+            # A page the recognizer never returned has no findings, so it used to fall through
+            # to "ok" -- a tick beside a page with no text at all.
+            state = "fail"
         # A page whose *only* complaint is an invented drawing needs the crop tool, not the
         # editor. Marking it lets a text-only pass skip it without opening it -- opening it
         # would put its content on screen and cost the page as a transcription subject.
@@ -121,9 +130,36 @@ def _pages(review: Review) -> list[dict]:
         out.append({"page": o.page, "state": state, "verdict": o.verdict,
                     "findings": findings, "reviewed": o.page in done,
                     "did": done.get(o.page, ""),
-                    "diagram_only": diagram_only,
+                    "diagram_only": diagram_only, "error": o.error or "",
                     "has_image": review.image(o.page) is not None})
-    return out
+
+    # Pages the run has not reached. Without these the list would show a 3-page project in the
+    # middle of a 40-page run, and a stopped run's missing pages would simply not exist.
+    running = ingest is not None and ingest.running
+    total = ingest.total if running else None
+    if total is None and (src := source_pdf(review.out_dir)) is not None:
+        try:
+            total = rasterize.page_count(src)
+        except rasterize.RasterizeError:
+            total = None
+    landed = {o.page for o in rows}
+    for n in range(1, (total or 0) + 1):
+        if n in landed:
+            continue
+        state = ("excluded" if running and n in ingest.exclude
+                 else "recognizing" if running and n == ingest.current
+                 else "queued" if running else "unrecognized")
+        out.append({"page": n, "state": state, "verdict": "", "findings": [],
+                    "reviewed": False, "did": "", "diagram_only": False, "error": "",
+                    "has_image": review.image(n) is not None})
+    return sorted(out, key=lambda e: e["page"])
+
+
+def configure(out_dir: Path, *, recognizer=None) -> None:
+    """Point the surface at one project. The recognizer is injectable so tests never call a
+    model; left as None, a run builds the local one."""
+    Handler.review = Review(out_dir)
+    Handler.ingest = Ingest(out_dir, recognizer=recognizer)
 
 
 # Shared with the CLI rather than restated: the two paths must agree about what a marker is,
@@ -328,7 +364,14 @@ def _amend_manifest(out_dir: Path, page: int, **fields) -> None:
 
 
 class Handler(BaseHTTPRequestHandler):
-    review: Review  # set by serve()
+    review: Review  # set by configure()
+    ingest: Ingest | None = None
+
+    def _ingest(self) -> Ingest:
+        # Bound to the project being served; a stale one from another project is not this run.
+        if Handler.ingest is None or Handler.ingest.out_dir != self.review.out_dir:
+            Handler.ingest = Ingest(self.review.out_dir)
+        return Handler.ingest
 
     def log_message(self, *args) -> None:  # noqa: D102 - silence per-request stderr noise
         pass
@@ -349,6 +392,59 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- routes -----------------------------------------------------------------
 
+    def _post_ingest(self, url) -> None:
+        ingest = self._ingest()
+        if url.path == "/api/ingest/stop":
+            ingest.stop()
+            self._json({"stopping": ingest.running})
+            return
+        if url.path == "/api/ingest/resume":
+            src = source_pdf(self.review.out_dir)
+            if src is None:
+                self._json({"error": "nothing to resume -- this project has no source PDF"}, 409)
+                return
+            try:
+                ingest.start(src, resume=True)
+            except IngestError as exc:
+                self._json({"error": str(exc)}, 409)
+                return
+            self._json({"started": True, "total": ingest.total}, 202)
+            return
+        if url.path != "/api/ingest":
+            self._json({"error": "not found"}, 404)
+            return
+
+        # Refusals first, before a byte is written. Importing into a project that already has
+        # pages is D5's Append / Replace-pages-from flow, not built yet; pouring a second PDF
+        # over pages that may carry the author's work is exactly what P3 exists to prevent.
+        if self.review.outcomes():
+            self._json({"error": "this project already has pages. Adding a PDF to an existing "
+                        "project will come with Append / Replace pages from... (DESIGN, "
+                        "in-app ingestion D5). For now, start a new project: "
+                        "handzoo-ui <new folder>"}, 409)
+            return
+        if ingest.running:
+            self._json({"error": "a run is already running in this project"}, 409)
+            return
+        if source_pdf(self.review.out_dir) is not None:
+            self._json({"error": "this project already has a source PDF whose run did not "
+                        "finish -- resume it rather than starting over"}, 409)
+            return
+        length = int(self.headers.get("Content-Length") or 0)
+        if not 0 < length <= MAX_UPLOAD:
+            self._json({"error": "send the PDF as the request body (at most 1 GiB)"}, 400)
+            return
+        q = parse_qs(url.query)
+        try:
+            exclude = parse_excluded(q.get("exclude", [""])[0])
+            pdf, total = store_upload(self.review.out_dir, q.get("name", [""])[0],
+                                      self.rfile.read(length))
+            ingest.start(pdf, exclude=exclude)
+        except (IngestError, ValueError) as exc:
+            self._json({"error": str(exc)}, 400)
+            return
+        self._json({"started": True, "total": total, "source": pdf.name}, 202)
+
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler's spelling
         url = urlparse(self.path)
         q = parse_qs(url.query)
@@ -356,7 +452,11 @@ class Handler(BaseHTTPRequestHandler):
         if url.path in ("/", "/index.html"):
             self._send((HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
         elif url.path == "/api/pages":
-            self._json({"dir": str(self.review.out_dir), "pages": _pages(self.review)})
+            ingest = self._ingest()
+            self._json({"dir": str(self.review.out_dir), "pages": _pages(self.review, ingest),
+                        "ingest": ingest.status()})
+        elif url.path == "/api/ingest":
+            self._json(self._ingest().status())
         elif url.path == "/api/text":
             page = int(q["page"][0])
             match = [o for o in self.review.outcomes() if o.page == page]
@@ -434,6 +534,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         url = urlparse(self.path)
+        if url.path.startswith("/api/ingest"):
+            self._post_ingest(url)
+            return
         if url.path not in ("/api/save", "/api/autosave", "/api/crop",
                             "/api/crop/confirm"):
             self._json({"error": "not found"}, 404)
@@ -653,13 +756,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(out_dir: Path, port: int = 8765, *, open_browser: bool = True) -> None:
-    """Serve the review UI for one run directory. Blocks until interrupted."""
-    Handler.review = Review(out_dir)
+    """Serve the review UI for one project directory. Blocks until interrupted."""
+    configure(out_dir)
     # 127.0.0.1, never 0.0.0.0: page images are unpublished manuscript content.
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     url = f"http://127.0.0.1:{port}/"
-    print(f"handzoo review UI: {url}\n  serving {out_dir}\n  local only — nothing leaves this "
-          "machine. ctrl-c to stop.")
+    fresh = "" if (out_dir / "manifest.jsonl").exists() else \
+        "\n  new project — choose a PDF in the browser to begin"
+    print(f"handzoo review UI: {url}\n  serving {out_dir}{fresh}\n  local only — nothing leaves "
+          "this machine. ctrl-c to stop.")
     if open_browser:
         import webbrowser
         webbrowser.open(url)
