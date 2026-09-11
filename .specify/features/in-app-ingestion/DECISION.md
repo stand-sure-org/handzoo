@@ -205,6 +205,9 @@ again under a new one.
 
 ## D6. Built: the store, append, and undo (2026-09-11)
 
+*Author, 2026-09-11: "choices seem reasonable" — both decisions below (undo's scope for an append,
+and page births) are confirmed, and in-surface ingestion was tried and "worked as expected".*
+
 **Store** (`core/store.py`): page texts, renders and source PDFs stored once by content hash and
 never modified; snapshots only ever added; `HEAD` names the newest. Which pages exist is one
 pointer, **`extent`**, applied in `read_manifest` alone. The first design used a manifest verdict
