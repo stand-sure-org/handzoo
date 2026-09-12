@@ -2895,6 +2895,51 @@ The pasted screenshots include the **mouse cursor**. The recognizer ignored it, 
 no reason to assume it always will — a UI artefact in the source is a mark on the page as far
 as any inventory pass is concerned.
 
+#### 11.2.6a Replacing a capture with a picture — the correspondence problem, and the way round it
+
+reMarkable's 2026-09 update can capture a region of a page *including the background* — the
+typeset text of a PDF being annotated — and paste it. Measured on the author's `capture-test.pdf`:
+it arrives as a **raster** (1162x323 px at 189 ppi, with a transparency mask) on an otherwise
+all-vector page, and its placement is recoverable from the source — 442x123 pt at (40, 534), 86%
+of the page width (`rasterize.pasted_regions`).
+
+**What it costs:** the recognizer transcribes what is inside the capture. On that page, 29% of the
+emitted phrases also appear on the page the capture was taken from. A capture of someone else's
+typeset text therefore comes back as a copy of it, in the author's `.tex`.
+
+**The author's question, which is the right one.** Cropping a region and inserting it as a figure
+already exists (§7.2) — but the author *places* it, at a marker or at the cursor. To have a
+capture **replace** its own transcription, something must know which span of the emitted text came
+from that rectangle. Nothing does. The model emits no coordinates; the inventory pass reports that
+marks exist and roughly where, not where a span begins and ends; and asking the model which lines
+came from a rectangle is a *description*, which is the untrustworthy side of the §3 boundary. A
+comment the model inserts is the same claim wearing a different hat.
+
+**The way round it is not to ask.** The tool chooses what the model sees. Split the page at the
+capture's edges, recognize the band above and the band below, and put the figure between them:
+reading order is then geometry, not a claim, and the capture is never shown to a recognizer at all.
+
+**Measured, same file, same model:**
+
+| what was recognized | phrases shared with the captured-from page |
+|---|---|
+| the whole page, capture visible | **29%** |
+| the bands above and below, capture hidden | **0%** |
+
+and the band above matches the full-page reading on 48 of its 64 phrases, so the rest of the page
+survives the split.
+
+**The limit, found in the same run.** The band *below* that capture was 58 px — about one line —
+and came back with 40 words sharing **zero** phrases with the full-page reading of the same page.
+Either the full read missed that line or the sliver invited invention; neither is a basis for
+emitting it. So a split is only honest when each band is big enough to be a page — a thin
+remainder must be reported as *not transcribed*, never quietly dropped and never invented. A
+capture that sits *inside* a line of writing, with text wrapping beside it, cannot be split this
+way at all; there the gate's advisory is the whole answer.
+
+**Not built.** What exists is the measurement: the rectangle, and the evidence that hiding it
+works.
+
 ### 11.2.4 Mixed printed and handwritten pages — it works, and it captures the wrong half
 
 First corpus with both: Leinster's *Basic Category Theory*, the author's exercise answers
