@@ -278,6 +278,50 @@ def _rgb(value: str) -> tuple[int, int, int] | None:
     return tuple(round(float(v) * 255 / 100) for v in parts)  # type: ignore[return-value]
 
 
+_SVG_IMAGE_DEF = re.compile(r'<image\b([^>]*)>')
+_SVG_USE = re.compile(r'<use\b([^>]*)>')
+
+
+def pasted_regions_from_svg(svg: str) -> tuple[dict[str, float], ...]:
+    """Where each pasted raster sits on the page, in points.
+
+    reMarkable's capture tool (2026-09) pastes a region of the page's *background* -- typeset
+    text included -- as a raster. `embedded_images` counts them; this says where they are, which
+    is what lets the author keep a capture as a picture rather than have it transcribed: the
+    region is the crop, with nothing guessed (DESIGN 7.2's rule, applied to a region the file
+    already knows).
+
+    The same image is referenced twice, once as its own transparency mask, so identical
+    placements collapse to one region.
+    """
+    sizes: dict[str, tuple[float, float]] = {}
+    for attrs in _SVG_IMAGE_DEF.findall(svg):
+        ident = re.search(r'id="([^"]*)"', attrs)
+        w = re.search(r'width="([0-9.]+)"', attrs)
+        h = re.search(r'height="([0-9.]+)"', attrs)
+        if ident and w and h:
+            sizes[ident.group(1)] = (float(w.group(1)), float(h.group(1)))
+    seen: dict[tuple, dict[str, float]] = {}
+    for attrs in _SVG_USE.findall(svg):
+        href = re.search(r'xlink:href="#([^"]*)"', attrs)
+        matrix = _SVG_MATRIX.search(attrs)
+        if not (href and matrix and href.group(1) in sizes):
+            continue
+        v = [float(n) for n in _SVG_NUM.findall(matrix.group(1))]
+        if len(v) < 6:
+            continue
+        a, _, _, d, e, f = v[:6]
+        w, h = sizes[href.group(1)]
+        key = (round(e, 3), round(f, 3), round(w * a, 3), round(h * d, 3))
+        seen.setdefault(key, {"x": e, "y": f, "width": w * a, "height": h * d})
+    return tuple(seen.values())
+
+
+def pasted_regions(pdf: Path, page: int) -> tuple[dict[str, float], ...]:
+    """Where each pasted raster sits on `page`, in points. See `pasted_regions_from_svg`."""
+    return pasted_regions_from_svg(_svg(pdf, page))
+
+
 def ink_paths(svg: str) -> list[InkPath]:
     """Every mark in a `pdftocairo` SVG, with its colour and its box.
 

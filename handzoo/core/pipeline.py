@@ -294,12 +294,20 @@ def _validate(recognition: Recognition, pdf: Path, page: int, *, mode: str,
         colour_gate.check(draft.text, colours=colours),
         reference_gate.check(draft.text),
         repetition_gate.check(draft.text),
-        pasted_gate.check(_pasted_count(pdf, page)),
+        pasted_gate.check(_pasted_count(pdf, page), regions=_pasted_regions(pdf, page)),
     )
     # Reuse the draft rather than normalising a second time. Deterministic today, but
     # nothing enforced that the two runs agreed, and a divergence would have meant the
     # gates judged text the caller never receives.
     return replace(draft, gates=gates)
+
+
+def _pasted_regions(pdf: Path, page: int) -> tuple[dict[str, float], ...]:
+    """Where the pasted images are, or nothing when the tool could not look."""
+    try:
+        return rasterize.pasted_regions(pdf, page)
+    except rasterize.RasterizeError:
+        return ()
 
 
 def _pasted_count(pdf: Path, page: int) -> int | None:
