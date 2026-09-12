@@ -2249,6 +2249,14 @@ better miner — with one amendment: when it is mined, mine LaTeX-aware tokens, 
 that exist stay invisible. `Defn` → `\label` is a candidate convention for the author, of the same
 family as the underline-as-label.
 
+**How much the lexicon is worth, measured the same day.** Across the 642 pages of one notebook
+recognized *with* the lexicon on, the author's private shorthands come back in the text: `Sps`
+on **214 of 642 pages** (367 times), `iff` on 55, `Thm` on 52, `Prop` on 37, `Defn` on 28, `wts`
+on 17, `wrt` on 13. Whether each one is right cannot be known without reading the ink beside it —
+but `Sps` is the token that became `\Rightarrow` and inverted a proof (§11.0.1a), and it is on a
+third of this author's pages. That is the leverage: the lexicon is one line of prompt against a
+token the model meets several hundred times per notebook.
+
 ### 11.0.1d The diagram-description path has weaker notation fidelity
 
 Separate finding, from the same investigation. Blackboard-bold `\mathbb{R}` is emitted
@@ -2385,16 +2393,20 @@ that cannot run on half a chapter is a gap the size of the chapter. And the run 
 **stopped at page 162 because the machine went into swap** — 60.8 GB of 61.4 GB swap used, load
 average 513, on 64 GB of RAM, with ~190 GB of compressed pages held. The recognizer's own
 preflight warns that a swapping host produces blank pages and stalls that read as page problems;
-these pages show no such signature (no errors, no short pages, median length steady at 812–1012
-characters across the run), but the rest of the notebook waits for a healthy machine.
+these pages showed no such signature (no errors, no short pages, median length steady across the
+run). **The machine recovered — the cause was another application, not the run — and the
+remaining 480 pages were read that evening: 642 pages, 0 recognizer errors, median 12.9 s per
+page, p90 34.4 s, worst 371 s (a runaway).** Verdicts: 226 pass, 342 unverified, 74 fail; the
+unverified count is dominated by the colour gate's blindness to a second pen (§5.4, fixed
+separately). The assembled chapter — 568 pages `\input`, 74 visible placeholders — **compiles
+clean to a 264-page PDF**, which is the largest end-to-end run the project has had.
 
-**Confirmed at scale the same day**, on 162 pages of a 642-page notebook ingested through the
-surface (the run was stopped early — see below): **4 runaway pages in 162, a 2.5% rate**, two of
-them over 50,000 characters, tripping at **1.5% and 2.3%** of their length. Across all 11 runaway
-pages now on disk, 279,087 characters were generated and 30,569 were needed before the page was
-already refusable: **89% of that generation was waste**. On this run the four pages cost roughly
-19 minutes of a 70-minute run; with an abort they would have cost under one. And 374 legitimate
-pages — 140 more than before — still never trip at any prefix.
+**Confirmed at scale the same day**, on a whole 642-page notebook ingested through the surface:
+**9 runaway pages in 642, a 1.4% rate**, the largest 58,816 characters, tripping the gate's own
+rule at **1.5–2.3%** of their length. Across every runaway page now on disk, **81% of what was
+generated came after the page was already refusable**. And **849 legitimate pages never trip at
+any prefix** — the false-alarm evidence is now 849 pages wide, against a gate whose limit was set
+on 86.
 
 So: stream the transcription pass, abort at the limit, retry once, and record the page as
 runaway if it trips again — the same verdict as now, minutes sooner, and *Stop* stops waiting on
