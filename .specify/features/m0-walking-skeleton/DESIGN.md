@@ -1260,6 +1260,30 @@ verdict (7.2) resolves this for free -- the crop is the image, so the green and 
 without anyone having to name them. That covers page 3's cone. It does not cover colour used
 inline in prose, which is the Naive Math R/G/B case.
 
+#### Measured 2026-09-11: a second pen made colour unreadable on 57% of a notebook
+
+Ingesting a 642-page notebook, the colour gate reported **not checked on 367 of 642 pages**, and
+`page_blocks` offered the crop tool **no regions at all** on the same pages. Neither said
+anything was wrong; neither could see anything.
+
+Both read the vector source, and both required a path to be *stroked* and to carry a
+`transform="matrix(...)"`. A second pen draws each mark as a **filled path with plain
+coordinates and no matrix**: on those pages the only stroked paths are the grey ruled guides,
+and the blue, red, purple and black ink is in `fill=` attributes nobody was reading. The gate was
+right to say *not checked* — §5.7 held — but it was blind for half a document and the silence
+read as ordinary.
+
+`rasterize.ink_paths` now reads both shapes, keeping the two rules that matter: guides are
+separated **by geometry, never by hue**, and the page's own near-white background is not ink.
+Measured on 60 sampled pages of that notebook: colour unreadable on 34 → **0**, with **2** new
+failures rather than a flood — pages genuinely carrying two inks and no colour command — and 559
+crop regions suggested where the filled pages had none.
+
+**What it cost to find:** the parsing lived inside a function that shells out to `pdftocairo`, so
+no test could reach it without a PDF that had the second pen's output — and every fixture in the
+suite came from the first. Extracting it as a pure function over SVG text is what makes both
+shapes testable at all.
+
 ### 6.0 Diagram disposition — three outcomes, not two
 
 v1.0 treated every diagram identically: crop, reference, `% TODO: author diagram`. That framing
