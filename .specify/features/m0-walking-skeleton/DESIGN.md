@@ -2466,6 +2466,33 @@ much image there is to encode.
 **And runaway is stochastic:** 2 of the 9 pages transcribed normally on the re-run. That is why a
 single retry after an abort is worth having, and why it cannot be relied on.
 
+**Does the model run away because it is stuck?** The author's hypothesis, 2026-09-12: a page
+loops because something resists deciphering, so an explicit way out — *mark it unreadable and
+move on* — should reduce it. Tested by appending one sentence to the transcription prompt and
+running the nine pages that ran away during the 642-page run, once per condition:
+
+| prompt | ran away | wall time |
+|---|---|---|
+| as-is | **7 of 9** | 17.6 min |
+| + "if a mark resists reading, write `[[DIAGRAM: unreadable region]]` and carry on" | **5 of 9** | 12.9 min |
+
+Two pages were rescued outright — 15,863 characters of repetition became 1,668 clean, and 25,154
+became 1,116. **This is not evidence yet.** Nine pages, one trial per condition, against a
+failure already measured as stochastic (two of those nine transcribe normally at random). 7→5 is
+inside that noise, and §11.0.1g's standard applies exactly: *one run per condition with
+contradictory results is indistinguishable from noise; the lexicon earned its place on 0/4 →
+4/4.* What would settle it is repetition — five trials per page per condition, about ninety runs
+and four hours on this host.
+
+The obvious risk was checked and is not visible: on six ordinary pages the hint produced **no
+"unreadable" markers at all** and transcriptions within 0–12% of the as-is length, so it is not
+trading runaway generation for quiet omission — on six pages.
+
+**And "ask the model why it slowed down" cannot be part of it.** That is a description of its own
+behaviour, the untrustworthy side of §3, exactly like asking which lines came from a rectangle
+(§11.2.6a). What an abort licenses is a *different attempt*, not an explanation: retry, and —
+if the trials above ever support it — retry with the way out.
+
 **Both, though — they guard different failures.** A per-attempt timeout catches *silence*: a
 hung or swapping host sending nothing, which is the blank-page mode the recognizer's preflight
 already warns about. The repetition abort catches *productive nonsense*, where tokens arrive
