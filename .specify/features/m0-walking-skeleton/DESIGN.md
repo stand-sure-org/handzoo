@@ -1341,6 +1341,36 @@ Verified against the brief's own `len` commutative square: 13 KB SVG, 18 paths, 
 Note this is a **DVI-route** dependency (`latex`, `dvisvgm`, `tikz-cd`), distinct from the
 `pdflatex` binary the compile gate uses.
 
+
+#### 6.0a Run-in ink: "math or drawing" is not always a fact, and the recognizer is not steady
+
+The author's observation, 2026-09-12: inline, run-in ink comes back sometimes as mathematics and
+sometimes as a drawing — and on some marks **neither answer is clearly right**, while on the rest
+a heuristic that could decide would carry an awful false-positive rate.
+
+Measured on the one corpus recognized twice, same PDF, same model, 44 pages:
+
+| between two runs of the same pages | differs |
+|---|---|
+| number of diagram markers on a page | **7 of 44** (16%) |
+| whether the page has a diagram *at all* | **2 of 44** (4.5%) |
+| count of math-mode openings | **12 of 44** (27%), median 17% apart |
+
+So the boundary is not stable even against itself. Two consequences, and they point opposite ways:
+
+- **Against routing on the classification.** Any mechanism that *acts* on "this ink is a diagram"
+  — fabricate-and-mark, crop-and-replace, a capture swapped for a figure — inherits an answer
+  that changes between runs on one page in six. The baseline already showed the stakes from the
+  other side: an inline glyph is a *term in the sentence* (§2), and stripping one turned two
+  consistent bullets into a contradiction.
+- **For keeping the human in it.** The crop verdict works today precisely because it does not
+  decide: the author points at the region and the tool cuts it. That is not a stopgap waiting for
+  a classifier; on ink where the right answer genuinely depends on what the author meant, it is
+  the correct design.
+
+What this rules out is a silent automatic route. What it leaves open is offering the author a
+choice the tool can execute exactly once pointed — which is what §11.2.6a's split would be.
+
 ### 6.1 Assembly — pages into sections into chapters
 
 M0 emits per-page files. It must not paint itself out of assembling them, so the file layout
@@ -2937,8 +2967,11 @@ remainder must be reported as *not transcribed*, never quietly dropped and never
 capture that sits *inside* a line of writing, with text wrapping beside it, cannot be split this
 way at all; there the gate's advisory is the whole answer.
 
-**Not built.** What exists is the measurement: the rectangle, and the evidence that hiding it
-works.
+**Not built, and deferred (author, 2026-09-12)** — explicitly *not* a no. The decision is held
+because it is downstream of image handling generally: whatever the crop path, the diagram
+verdict and the figure flow become, a capture-replacement built now would be reworked with them.
+And it shares its hardest dependency with them — see §6.0a: routing ink by *what kind of thing it
+is* rests on a judgement the recognizer does not make consistently.
 
 ### 11.2.4 Mixed printed and handwritten pages — it works, and it captures the wrong half
 
