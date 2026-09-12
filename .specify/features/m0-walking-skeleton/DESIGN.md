@@ -2458,8 +2458,23 @@ timeout is a request deadline, not the `timeout` command.)
 
 So: stream the transcription pass, abort at the limit, retry once, and record the page as
 runaway if it trips again — the same verdict as now, minutes sooner, and *Stop* stops waiting on
-it. **Not built.** First thing to verify when it is: that Ollama stops generating when the
-streaming client disconnects, rather than finishing into the void.
+it. **Not built**, but its two mechanical premises are now verified (2026-09-12, same host and
+model):
+
+- **Streaming returns tokens as they are produced** — `"stream": true` on the same `/api/chat`
+  call the recognizer already makes: first token at 2.7 s, then roughly one chunk per token.
+  Today the recognizer sets `"stream": false` and waits for the whole page, twice per page
+  (transcription, then the independent inventory pass).
+- **Hanging up actually stops the work.** A long generation cut off after 25 chunks freed the
+  model at once: the next request was served in 0.05 s, against a 0.13 s idle baseline. Had the
+  server kept generating into the void, that request would have queued behind it for many
+  seconds. So the abort saves real time, not just the caller's attention.
+
+**What it must not assume.** A turn is one page, and the model is not scanning it: the whole
+image is encoded at once and output order is whatever the model writes, learned rather than
+geometric — which is why right-to-left and vertical scripts work at all. So nothing may infer a
+mark's position from its offset in the output (the same wall §11.2.6a hits). The repetition rule
+is safe here precisely because it reads the emitted sequence and asks nothing about the page.
 
 ### 11.0.1g The ch22 read-through — author's findings, no log behind them
 
