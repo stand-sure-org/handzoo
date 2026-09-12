@@ -2247,6 +2247,40 @@ is a **typographic pattern rather than a string**, which a token-mapping learner
 represent at all. The correction log is the right place to mine and it does not yet hold enough
 to mine.
 
+#### 2026-09-11: re-mined with LaTeX-aware tokens — the tokenizer hid recurrence, but not lexicon material
+
+By then the log held 88 `edited` rows. Each carries the whole page before and after, and they
+fall on **24 distinct pages** (ch18 4, ch22 16, l11 4) — so "recurs on two pages" has 24 pages
+to recur across, in three notebooks. `authored` rows excluded, as §11.3.1 requires. Each row's
+diff mined three ways, counting distinct pages, not rows:
+
+| tokens | substitutions on ≥2 pages | additions / deletions on ≥2 pages | across ≥2 notebooks |
+|---|---|---|---|
+| whitespace (the original miner) | **0** | 1 / 1 | 0 |
+| LaTeX-aware (`\cmd` one token, punctuation split) | 2 | 4 / 4 | 3 |
+| LaTeX-aware, `$` and braces dropped | 2 | 1 / 0 | 1 |
+
+**The tokenizer was hiding recurrence.** Whitespace tokens reproduce the zero; `\underline{composition}`
+never matches as a whole. LaTeX-aware tokens find `\underline` restored on **4 pages across all
+three notebooks** — §11.0.1a's lost-emphasis class, the underline that is a label (§11.0.1b).
+
+**But what recurs is not lexicon material.** Every recurrence is a restored mark (`\underline`;
+`\\` line breaks, since made unnecessary by `parskip`), the author's own markup convention
+(`Defn` → `\label{defn:…}` on 4 ch22 pages), or a layout / crop edit (`array` → `center`,
+`\texttt` → `\includegraphics`). **No token substitution of the `Sps` → `\Rightarrow` kind recurs
+at all.** So the author's reading stands — the lexicon needs a larger *corrected* corpus, not a
+better miner — with one amendment: when it is mined, mine LaTeX-aware tokens, or the recurrences
+that exist stay invisible. `Defn` → `\label` is a candidate convention for the author, of the same
+family as the underline-as-label.
+
+**How much the lexicon is worth, measured the same day.** Across the 642 pages of one notebook
+recognized *with* the lexicon on, the author's private shorthands come back in the text: `Sps`
+on **214 of 642 pages** (367 times), `iff` on 55, `Thm` on 52, `Prop` on 37, `Defn` on 28, `wts`
+on 17, `wrt` on 13. Whether each one is right cannot be known without reading the ink beside it —
+but `Sps` is the token that became `\Rightarrow` and inverted a proof (§11.0.1a), and it is on a
+third of this author's pages. That is the leverage: the lexicon is one line of prompt against a
+token the model meets several hundred times per notebook.
+
 ### 11.0.1d The diagram-description path has weaker notation fidelity
 
 Separate finding, from the same investigation. Blackboard-bold `\mathbb{R}` is emitted
@@ -2354,6 +2388,54 @@ convention override a general one.
 **Category theory is the only corpus that exists.** Physics tiering is a reasonable guess with
 zero evidence behind it, and is marked as such for the same reason §8.1 marks the scan path:
 a design written against an imagined corpus is a design nobody has tested.
+
+### 11.0.1f Runaway generation — the third defect class
+
+Recorded in CLAUDE.md and in `validate/repetition_gate.py`, whose module note is the primary
+account; this section had been cited and never written. In short: pages carrying 23,000+
+characters of one repeated sentence, four of which passed every other gate, caught by counting
+8-word phrases — legitimate pages top out at 3 repeats, degenerate ones start at 122, and the
+gate refuses above 20.
+
+#### 2026-09-11: it could be caught while it is being written
+
+A runaway page costs minutes before the gate sees it: on the first in-surface run one took over
+two minutes (18 KB) and blocked *Stop* while it did. Replaying every page on disk word by word —
+as a streamed response would arrive — and applying the gate's own rule at each word:
+
+- **241 pages; the 234 legitimate ones never trip at any prefix.**
+- **All 7 runaway pages trip at 6–34% of their length** (one outlier at 67%, a short page). The
+  18 KB page would have been cut off at 6% — roughly ten seconds instead of two and a half minutes.
+- **Retry is not a cure.** ch18 pages 21 and 25 ran away in *both* independent runs of the chapter;
+  page 5 in only one. An abort makes a single retry cheap enough to be worth it, not reliable.
+- Two ch18 runaway pages still carry passing `.tex` names — written before the gate existed.
+
+**Two other things that run showed.** The **colour gate could not run on 83 of 162 pages** (51%),
+and the ASCII gate on 4 — which is what most of the 71 `unverified` verdicts are. Whether that is
+the document or the thrashing host it ran on (below) is unmeasured, and worth knowing: a gate
+that cannot run on half a chapter is a gap the size of the chapter. And the run itself was
+**stopped at page 162 because the machine went into swap** — 60.8 GB of 61.4 GB swap used, load
+average 513, on 64 GB of RAM, with ~190 GB of compressed pages held. The recognizer's own
+preflight warns that a swapping host produces blank pages and stalls that read as page problems;
+these pages showed no such signature (no errors, no short pages, median length steady across the
+run). **The machine recovered — the cause was another application, not the run — and the
+remaining 480 pages were read that evening: 642 pages, 0 recognizer errors, median 12.9 s per
+page, p90 34.4 s, worst 371 s (a runaway).** Verdicts: 226 pass, 342 unverified, 74 fail; the
+unverified count is dominated by the colour gate's blindness to a second pen (§5.4, fixed
+separately). The assembled chapter — 568 pages `\input`, 74 visible placeholders — **compiles
+clean to a 264-page PDF**, which is the largest end-to-end run the project has had.
+
+**Confirmed at scale the same day**, on a whole 642-page notebook ingested through the surface:
+**9 runaway pages in 642, a 1.4% rate**, the largest 58,816 characters, tripping the gate's own
+rule at **1.5–2.3%** of their length. Across every runaway page now on disk, **81% of what was
+generated came after the page was already refusable**. And **849 legitimate pages never trip at
+any prefix** — the false-alarm evidence is now 849 pages wide, against a gate whose limit was set
+on 86.
+
+So: stream the transcription pass, abort at the limit, retry once, and record the page as
+runaway if it trips again — the same verdict as now, minutes sooner, and *Stop* stops waiting on
+it. **Not built.** First thing to verify when it is: that Ollama stops generating when the
+streaming client disconnects, rather than finishing into the void.
 
 ### 11.0.1g The ch22 read-through — author's findings, no log behind them
 
