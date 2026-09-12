@@ -31,13 +31,16 @@ from .base import Failure, GateResult
 GATE = "pasted"
 
 
-def check(count: int | None) -> GateResult:
+def check(count: int | None, *, regions: tuple[dict[str, float], ...] = ()) -> GateResult:
     """Flag a page carrying pasted raster images.
 
     Args:
         count: images on the page, from `rasterize.embedded_images`. `None` when the check
             could not run — which is **not** the same as a clean page and does not report as
             one (DESIGN §5.7).
+        regions: where each capture sits, from `rasterize.pasted_regions`, so the finding can
+            say where rather than only that. Empty when the vector source could not be read;
+            the count alone still reports.
     """
     if count is None:
         return GateResult(GATE, checked=False, advisory=True,
@@ -45,8 +48,11 @@ def check(count: int | None) -> GateResult:
     if count == 0:
         return GateResult(GATE, advisory=True)
     plural = "s" if count > 1 else ""
+    where = "; ".join(f"{r['width']:.0f}x{r['height']:.0f} pt at ({r['x']:.0f}, {r['y']:.0f})"
+                      for r in regions)
+    where = f" Region{'s' if len(regions) > 1 else ''}: {where}." if regions else ""
     return GateResult(GATE, (Failure(
-        detail=(f"{count} pasted image{plural} on this page. If it is typeset text, the "
+        detail=(f"{count} pasted image{plural} on this page.{where} If it is typeset text, the "
                 f"transcription above may reproduce writing that is not yours — decide "
                 f"whether to keep it, crop it, or cut the page with --exclude. No other gate "
                 f"can see this: a raster has no stroke colour and no text layer."),),),
