@@ -2432,6 +2432,30 @@ generated came after the page was already refusable**. And **849 legitimate page
 any prefix** — the false-alarm evidence is now 849 pages wide, against a gate whose limit was set
 on 86.
 
+**Why not simply a timeout** (author's question, 2026-09-12). Because the distributions overlap.
+On the 642-page run, timed per page: runaway pages took **158-217 s**, while legitimate pages ran
+a median of 13 s, a p95 of 44 s — and the slowest legitimate page took **371 s**, longer than
+every runaway page on the document. There is no gap to put a threshold in:
+
+| timeout | legitimate pages killed | runaway caught |
+|---|---|---|
+| 60 s | 13 | 9 of 9 |
+| 120 s | 9 | 9 of 9 |
+| 180 s | 6 | 6 of 9 |
+| 240 s | 1 | **0 of 9** |
+
+The best of those trades nine real pages for nine bad ones, and the 371 s page would never
+complete under any threshold that catches a runaway — it would fail every time it was retried.
+The content rule catches all nine after 1.5-2.3% of their output, seconds in, with no false
+positive across 849 pages, because it measures what is being written rather than how long it
+takes.
+
+**Both, though — they guard different failures.** A per-attempt timeout catches *silence*: a
+hung or swapping host sending nothing, which is the blank-page mode the recognizer's preflight
+already warns about. The repetition abort catches *productive nonsense*, where tokens arrive
+perfectly fast. Neither sees the other's failure. (And the call is HTTP from Python, so the
+timeout is a request deadline, not the `timeout` command.)
+
 So: stream the transcription pass, abort at the limit, retry once, and record the page as
 runaway if it trips again — the same verdict as now, minutes sooner, and *Stop* stops waiting on
 it. **Not built.** First thing to verify when it is: that Ollama stops generating when the
