@@ -624,3 +624,27 @@ def test_a_second_action_on_a_page_is_timed_from_the_first(server) -> None:
     r = _post(base, "/api/save", {"page": 1, "mode": "fix", "text": "corrected twice\n",
                                   "seconds": 60})
     assert "restart_timer" in r and r["restart_timer"] is True
+
+
+def test_the_page_list_reads_the_pages_folder_once_not_once_per_page(tmp_path, monkeypatch) -> None:
+    """Measured on a 642-page ingest: the page list took ~2 s, 93% of it globbing `pages/` once
+    per page -- 642 scans of 642 files, on every 1.5 s poll. Quadratic in the page count, and
+    invisible on anything smaller than a whole notebook."""
+    from handzoo.adapters import ui_server
+    (tmp_path / "pages").mkdir()
+    rows = []
+    for n in range(1, 41):
+        (tmp_path / "pages" / f"p-{n:04d}-{n:02d}.png").write_bytes(b"\x89PNG")
+        (tmp_path / f"page-{n:04d}.tex").write_text("x\n", encoding="utf-8")
+        rows.append({"page": n, "output": str(tmp_path / f"page-{n:04d}.tex"),
+                     "verdict": "pass", "gates": {}, "findings": []})
+    (tmp_path / "manifest.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n",
+                                             encoding="utf-8")
+    scans = []
+    real_glob = Path.glob
+    monkeypatch.setattr(Path, "glob", lambda self, pat: scans.append(pat) or real_glob(self, pat))
+
+    listed = ui_server._pages(Review(tmp_path))
+
+    assert all(p["has_image"] for p in listed) and len(listed) == 40
+    assert len([p for p in scans if p.startswith("p-")]) <= 1, f"{len(scans)} scans for 40 pages"
