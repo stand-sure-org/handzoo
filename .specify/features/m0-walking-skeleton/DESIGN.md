@@ -2432,23 +2432,39 @@ generated came after the page was already refusable**. And **849 legitimate page
 any prefix** — the false-alarm evidence is now 849 pages wide, against a gate whose limit was set
 on 86.
 
-**Why not simply a timeout** (author's question, 2026-09-12). Because the distributions overlap.
-On the 642-page run, timed per page: runaway pages took **158-217 s**, while legitimate pages ran
-a median of 13 s, a p95 of 44 s — and the slowest legitimate page took **371 s**, longer than
-every runaway page on the document. There is no gap to put a threshold in:
+**Why not simply a timeout** (author's question, 2026-09-12). Because a legitimate page can look
+exactly like a runaway one on every clock.
 
-| timeout | legitimate pages killed | runaway caught |
+*An earlier version of this section answered with a table of timeout trade-offs derived from the
+run's file timestamps. Those numbers are withdrawn: the run was resumed at page 163 and spent its
+first segment on a host going into swap, so the durations measured the machine as much as the
+pages — the "slowest legitimate page, 371 s" was the resume boundary, and re-runs in 10.2 s.*
+
+Measured again back-to-back on an idle host, same model, streaming (9 pages that ran away during
+the run, and 12 that did not):
+
+| | runaway pages | legitimate pages |
 |---|---|---|
-| 60 s | 13 | 9 of 9 |
-| 120 s | 9 | 9 of 9 |
-| 180 s | 6 | 6 of 9 |
-| 240 s | 1 | **0 of 9** |
+| seconds | 128.7–170.0 (7 of 9; two did not reproduce) | 8.6–32.6 — **except page 157: 163.5** |
+| tokens | 4,171–6,212 | 203–601 — **except page 157: 6,534** |
+| tokens/s | 32.7–44.0 | 34.7–44.0 |
+| time to first token | 0.26–1.44 s | 3.59–17.23 s |
 
-The best of those trades nine real pages for nine bad ones, and the 371 s page would never
-complete under any threshold that catches a runaway — it would fail every time it was retried.
-The content rule catches all nine after 1.5-2.3% of their output, seconds in, with no false
-positive across 849 pages, because it measures what is being written rather than how long it
-takes.
+**Page 157 is the answer.** It is legitimate — 16 KB of real transcription, worst phrase repeat
+**1** against a limit of 20 — and it ran 163.5 s, 6,534 tokens, 41 tokens/s: inside the runaway
+band on duration, on token count and on rate. No threshold on any of those separates it from a
+page that is repeating one sentence six thousand times.
+
+**Two signals the author proposed, both confounded.** A *rate* collapse: not present — both
+classes generate near 40 tokens/s measured in the same session. (An earlier measurement of this
+showed 72–79 against 20–36 and was wrong: the two classes were measured in different sessions,
+and sustained load halves throughput.) A *TTFT* spike: it tracks **page height**, not trouble —
+the largest, 17.23 s, belongs to an ordinary page 3,355 px tall, while a runaway page 1,428 px
+tall starts in 0.32 s. On a corpus whose pages vary from 1,428 to 3,355 px, TTFT measures how
+much image there is to encode.
+
+**And runaway is stochastic:** 2 of the 9 pages transcribed normally on the re-run. That is why a
+single retry after an abort is worth having, and why it cannot be relied on.
 
 **Both, though — they guard different failures.** A per-attempt timeout catches *silence*: a
 hung or swapping host sending nothing, which is the blank-page mode the recognizer's preflight
