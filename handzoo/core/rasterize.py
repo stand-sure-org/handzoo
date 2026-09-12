@@ -250,6 +250,80 @@ there: the rules are 685.1pt wide and 0.0 tall; the grey ink is 6.5 x 8.2.
 """
 
 
+BACKGROUND_MIN = 231
+"""A fill this pale is the page, not ink. Counting it would make every page two-coloured."""
+
+
+@dataclass(frozen=True, slots=True)
+class InkPath:
+    """One mark the author made: its colour, and the box it occupies in page points."""
+
+    colour: tuple[int, int, int] | None
+    box: tuple[float, float, float, float]
+    filled: bool
+
+
+def _svg(pdf: Path, page: int) -> str:
+    _require(VECTOR_TOOL)
+    proc = subprocess.run(
+        [VECTOR_TOOL, "-svg", "-f", str(page), "-l", str(page), str(pdf), "/dev/stdout"],
+        capture_output=True, text=True, check=False)
+    return proc.stdout
+
+
+def _rgb(value: str) -> tuple[int, int, int] | None:
+    parts = [v.strip().rstrip("%") for v in value.split(",")]
+    if len(parts) != 3:
+        return None
+    return tuple(round(float(v) * 255 / 100) for v in parts)  # type: ignore[return-value]
+
+
+def ink_paths(svg: str) -> list[InkPath]:
+    """Every mark in a `pdftocairo` SVG, with its colour and its box.
+
+    **Two shapes of path, both ink, from two pens** -- measured across one 642-page notebook:
+
+    - *stroked*, carrying a `transform="matrix(...)"`, the colour in `stroke=`; and
+    - *filled*, carrying plain coordinates and **no matrix at all**, the colour in `fill=`.
+
+    Reading only the first made two readers blind on 367 of those 642 pages: the colour gate
+    reported *not checked* on 57% of the document, and `page_blocks` offered the crop tool no
+    regions there at all. Neither said anything was wrong, because neither could see anything.
+
+    Guide lines are separated from ink **by geometry, never by hue** (`RULE_MIN_WIDTH`), and the
+    page's own near-white background is not ink.
+    """
+    out: list[InkPath] = []
+    for attrs in _SVG_PATH_EL.findall(svg):
+        data = re.search(r'\sd="([^"]*)"', attrs)
+        if not data:
+            continue
+        stroke = re.search(r'stroke="rgb\(([^)]*)\)"', attrs)
+        fill = re.search(r'fill="rgb\(([^)]*)\)"', attrs)
+        colour = _rgb(stroke.group(1)) if stroke else (_rgb(fill.group(1)) if fill else None)
+        if colour is None:
+            continue
+        if fill and not stroke and min(colour) >= BACKGROUND_MIN:
+            continue                                   # the page, not a mark on it
+        matrix = _SVG_MATRIX.search(attrs)
+        a, b, c, d, e, f = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+        if matrix:
+            v = [float(n) for n in _SVG_NUM.findall(matrix.group(1))]
+            if len(v) < 6:
+                continue
+            a, b, c, d, e, f = v[:6]
+        co = [float(n) for n in _SVG_NUM.findall(data.group(1))]
+        pts = [(a * x + c * y + e, b * x + d * y + f) for x, y in zip(co[0::2], co[1::2])]
+        if len(pts) < 2:
+            continue
+        x0, x1 = min(p[0] for p in pts), max(p[0] for p in pts)
+        y0, y1 = min(p[1] for p in pts), max(p[1] for p in pts)
+        if x1 - x0 > RULE_MIN_WIDTH and y1 - y0 < RULE_MAX_HEIGHT:
+            continue                                   # ruled guide line, not ink
+        out.append(InkPath(colour=colour, box=(x0, y0, x1, y1), filled=bool(fill and not stroke)))
+    return out
+
+
 def ink_colours(pdf: Path, page: int) -> tuple[tuple[int, int, int], ...] | None:
     """Distinct ink colours on a page, read from the vector source.
 
@@ -263,30 +337,9 @@ def ink_colours(pdf: Path, page: int) -> tuple[tuple[int, int, int], ...] | None
         an empty tuple for those would read as "no colour to lose", which on a scan is exactly
         the wrong answer: it is where colour is hardest to recover, not where there is none.
     """
-    _require(VECTOR_TOOL)
-    proc = subprocess.run(
-        [VECTOR_TOOL, "-svg", "-f", str(page), "-l", str(page), str(pdf), "/dev/stdout"],
-        capture_output=True, text=True, check=False)
-
     counts: dict[tuple[int, int, int], int] = {}
-    for attrs in _SVG_PATH_EL.findall(proc.stdout):
-        colour = re.search(r'stroke="rgb\(([^)]*)\)"', attrs)
-        scale = re.search(r'transform="matrix\(([0-9.eE-]+)', attrs)
-        data = re.search(r'\sd="([^"]*)"', attrs)
-        if not (colour and scale and data):
-            continue
-        coords = [float(x) for x in _SVG_NUM.findall(data.group(1))]
-        xs, ys = coords[0::2], coords[1::2]
-        if len(xs) < 2:
-            continue
-        s = float(scale.group(1))
-        if (max(xs) - min(xs)) * s > RULE_MIN_WIDTH and (max(ys) - min(ys)) * s < RULE_MAX_HEIGHT:
-            continue  # ruled guide line, not ink
-        rgb = tuple(round(float(v.strip().rstrip("%")) * 255 / 100)
-                    for v in colour.group(1).split(","))
-        if len(rgb) == 3:
-            counts[rgb] = counts.get(rgb, 0) + 1
-
+    for path in ink_paths(_svg(pdf, page)):
+        counts[path.colour] = counts.get(path.colour, 0) + 1
     if not counts:
         return None
     return tuple(sorted(counts, key=lambda k: -counts[k]))
@@ -333,30 +386,7 @@ def page_blocks(pdf: Path, page: int, *, gap: float = BLOCK_GAP) -> tuple[Block,
     Bands rather than boxes because handwriting runs in lines: a diagram sitting between two
     paragraphs is separated vertically, and column detection would be guessing.
     """
-    _require(VECTOR_TOOL)
-    proc = subprocess.run(
-        [VECTOR_TOOL, "-svg", "-f", str(page), "-l", str(page), str(pdf), "/dev/stdout"],
-        capture_output=True, text=True, check=False)
-
-    found: list[tuple[float, float, float, float]] = []
-    for attrs in _SVG_PATH_EL.findall(proc.stdout):
-        data = re.search(r'\sd="([^"]*)"', attrs)
-        matrix = _SVG_MATRIX.search(attrs)
-        if not (data and matrix):
-            continue
-        v = [float(n) for n in _SVG_NUM.findall(matrix.group(1))]
-        if len(v) < 6:
-            continue
-        a, b, c, d, e, f = v[:6]
-        co = [float(n) for n in _SVG_NUM.findall(data.group(1))]
-        pts = [(a * x + c * y + e, b * x + d * y + f) for x, y in zip(co[0::2], co[1::2])]
-        if len(pts) < 2:
-            continue
-        x0, x1 = min(p[0] for p in pts), max(p[0] for p in pts)
-        y0, y1 = min(p[1] for p in pts), max(p[1] for p in pts)
-        if x1 - x0 > RULE_MIN_WIDTH and y1 - y0 < RULE_MAX_HEIGHT:
-            continue  # ruled guide line, not ink
-        found.append((x0, y0, x1, y1))
+    found = [p.box for p in ink_paths(_svg(pdf, page))]
 
     if not found:
         return ()

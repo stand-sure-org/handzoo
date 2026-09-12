@@ -194,3 +194,48 @@ def test_page_size_reads_the_page_asked_for_not_the_first_one() -> None:
         # each page reports its own height rather than the document's first.
         assert abs(h1 - 300) < 3 and abs(h2 - 900) < 5, (h1, h2)
         assert abs(rasterize.page_size(pdf)[1] - h1) < 1, "defaults to the first page"
+
+
+# --------------------------------------------------- ink paths: two pen shapes, both real
+
+STROKED = ('<path fill="none" stroke-width="0.5" stroke="rgb(56.86%, 85.48%, 44.31%)" '
+           'stroke-opacity="1" transform="matrix(1,0,0,1,0,0)" d="M 10 20 L 16 28 "/>')
+RULE = ('<path fill="none" stroke-width="0.5" stroke="rgb(75.29%, 75.29%, 75.29%)" '
+        'transform="matrix(1,0,0,1,0,0)" d="M 5 40 L 500 40 "/>')
+FILLED = ('<path fill-rule="evenodd" fill="rgb(18.82%, 29.01%, 87.84%)" fill-opacity="1" '
+          'd="M 12 60 L 18 66 L 13 70 Z "/>')
+BACKGROUND = '<path fill-rule="nonzero" fill="rgb(100%, 100%, 100%)" d="M 0 0 L 514 0 L 514 685 Z "/>'
+
+
+def test_ink_is_read_from_filled_paths_as_well_as_stroked() -> None:
+    """Measured on a 642-page notebook: 367 pages draw ink as *filled* paths carrying plain
+    coordinates and no transform matrix -- a different pen. Reading only stroked paths with a
+    matrix made the colour gate report "not checked" on 57% of the document, and left the crop
+    tool with no regions to suggest there."""
+    paths = rasterize.ink_paths(STROKED + FILLED)
+    assert [p.colour for p in paths] == [(145, 218, 113), (48, 74, 224)]
+    assert [p.filled for p in paths] == [False, True]
+
+
+def test_a_ruled_guide_line_is_not_ink_and_the_page_itself_is_not_ink() -> None:
+    """Guides are separated by geometry, never by hue (the grey-ink lesson). The page's own
+    near-white background is not ink either -- counting it would make every page two-coloured."""
+    assert rasterize.ink_paths(RULE + BACKGROUND) == []
+
+
+def test_a_filled_page_still_offers_crop_regions(tmp_path, monkeypatch) -> None:
+    """The crop tool suggested nothing on those 367 pages."""
+    monkeypatch.setattr(rasterize, "_svg", lambda pdf, page: RULE + FILLED + BACKGROUND)
+    blocks = rasterize.page_blocks(tmp_path / "x.pdf", 1)
+    assert len(blocks) == 1 and blocks[0].region["width"] > 0
+
+
+def test_a_filled_page_reports_its_ink_colours(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(rasterize, "_svg", lambda pdf, page: RULE + FILLED + BACKGROUND)
+    assert rasterize.ink_colours(tmp_path / "x.pdf", 1) == ((48, 74, 224),)
+
+
+def test_a_page_with_no_ink_still_reports_not_checked(tmp_path, monkeypatch) -> None:
+    """None means "could not be determined", and must not become "no colour to lose" (§5.7)."""
+    monkeypatch.setattr(rasterize, "_svg", lambda pdf, page: RULE + BACKGROUND)
+    assert rasterize.ink_colours(tmp_path / "x.pdf", 1) is None
