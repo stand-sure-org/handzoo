@@ -93,6 +93,20 @@ class Review:
         return pristine_path(self.out_dir, page)
 
 
+def _image_index(out_dir: Path) -> dict[int, Path]:
+    """Every page's image, from one scan of `pages/` -- by the same rule as `Review.image` (the
+    first match in sorted order). The page list asked `Review.image` once per page: on a
+    642-page ingest that was 642 scans of 642 files, ~2 s, on every 1.5 s poll."""
+    index: dict[int, Path] = {}
+    folder = out_dir / "pages"
+    if folder.is_dir():
+        for img in sorted(folder.glob("p-*.png")):
+            parts = img.stem.split("-")
+            if len(parts) > 1 and parts[1].isdigit():
+                index.setdefault(int(parts[1]), img)
+    return index
+
+
 def _pages(review: Review, ingest: Ingest | None = None) -> list[dict]:
     """The page list, with each page's worst gate state.
 
@@ -112,6 +126,7 @@ def _pages(review: Review, ingest: Ingest | None = None) -> list[dict]:
                         "transcribed": "typed", "keep-unreviewed": "passed over",
                         }.get(r.verdict, r.verdict)
     out = []
+    images = _image_index(review.out_dir)
     rows = review.outcomes()
     for o in rows:
         findings = o.findings or []
@@ -134,7 +149,7 @@ def _pages(review: Review, ingest: Ingest | None = None) -> list[dict]:
                     "findings": findings, "reviewed": o.page in done,
                     "did": done.get(o.page, ""),
                     "diagram_only": diagram_only, "error": o.error or "",
-                    "has_image": review.image(o.page) is not None})
+                    "has_image": o.page in images})
 
     # Pages the run has not reached. Without these the list would show a 3-page project in the
     # middle of a 40-page run, and a stopped run's missing pages would simply not exist.
@@ -158,7 +173,7 @@ def _pages(review: Review, ingest: Ingest | None = None) -> list[dict]:
                  else "queued" if running else "unrecognized")
         out.append({"page": n, "state": state, "verdict": "", "findings": [],
                     "reviewed": False, "did": "", "diagram_only": False, "error": "",
-                    "has_image": review.image(n) is not None})
+                    "has_image": n in images})
     return sorted(out, key=lambda e: e["page"])
 
 
