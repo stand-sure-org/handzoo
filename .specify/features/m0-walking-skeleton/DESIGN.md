@@ -2462,10 +2462,92 @@ generated came after the page was already refusable**. And **849 legitimate page
 any prefix** — the false-alarm evidence is now 849 pages wide, against a gate whose limit was set
 on 86.
 
+**Why not simply a timeout** (author's question, 2026-09-12). Because a legitimate page can look
+exactly like a runaway one on every clock.
+
+*An earlier version of this section answered with a table of timeout trade-offs derived from the
+run's file timestamps. Those numbers are withdrawn: the run was resumed at page 163 and spent its
+first segment on a host going into swap, so the durations measured the machine as much as the
+pages — the "slowest legitimate page, 371 s" was the resume boundary, and re-runs in 10.2 s.*
+
+Measured again back-to-back on an idle host, same model, streaming (9 pages that ran away during
+the run, and 12 that did not):
+
+| | runaway pages | legitimate pages |
+|---|---|---|
+| seconds | 128.7–170.0 (7 of 9; two did not reproduce) | 8.6–32.6 — **except page 157: 163.5** |
+| tokens | 4,171–6,212 | 203–601 — **except page 157: 6,534** |
+| tokens/s | 32.7–44.0 | 34.7–44.0 |
+| time to first token | 0.26–1.44 s | 3.59–17.23 s |
+
+**Page 157 is the answer.** It is legitimate — 16 KB of real transcription, worst phrase repeat
+**1** against a limit of 20 — and it ran 163.5 s, 6,534 tokens, 41 tokens/s: inside the runaway
+band on duration, on token count and on rate. No threshold on any of those separates it from a
+page that is repeating one sentence six thousand times.
+
+**Two signals the author proposed, both confounded.** A *rate* collapse: not present — both
+classes generate near 40 tokens/s measured in the same session. (An earlier measurement of this
+showed 72–79 against 20–36 and was wrong: the two classes were measured in different sessions,
+and sustained load halves throughput.) A *TTFT* spike: it tracks **page height**, not trouble —
+the largest, 17.23 s, belongs to an ordinary page 3,355 px tall, while a runaway page 1,428 px
+tall starts in 0.32 s. On a corpus whose pages vary from 1,428 to 3,355 px, TTFT measures how
+much image there is to encode.
+
+**And runaway is stochastic:** 2 of the 9 pages transcribed normally on the re-run. That is why a
+single retry after an abort is worth having, and why it cannot be relied on.
+
+**Does the model run away because it is stuck?** The author's hypothesis, 2026-09-12: a page
+loops because something resists deciphering, so an explicit way out — *mark it unreadable and
+move on* — should reduce it. Tested by appending one sentence to the transcription prompt and
+running the nine pages that ran away during the 642-page run, once per condition:
+
+| prompt | ran away | wall time |
+|---|---|---|
+| as-is | **7 of 9** | 17.6 min |
+| + "if a mark resists reading, write `[[DIAGRAM: unreadable region]]` and carry on" | **5 of 9** | 12.9 min |
+
+Two pages were rescued outright — 15,863 characters of repetition became 1,668 clean, and 25,154
+became 1,116. **This is not evidence yet.** Nine pages, one trial per condition, against a
+failure already measured as stochastic (two of those nine transcribe normally at random). 7→5 is
+inside that noise, and §11.0.1g's standard applies exactly: *one run per condition with
+contradictory results is indistinguishable from noise; the lexicon earned its place on 0/4 →
+4/4.* What would settle it is repetition — five trials per page per condition, about ninety runs
+and four hours on this host.
+
+The obvious risk was checked and is not visible: on six ordinary pages the hint produced **no
+"unreadable" markers at all** and transcriptions within 0–12% of the as-is length, so it is not
+trading runaway generation for quiet omission — on six pages.
+
+**And "ask the model why it slowed down" cannot be part of it.** That is a description of its own
+behaviour, the untrustworthy side of §3, exactly like asking which lines came from a rectangle
+(§11.2.6a). What an abort licenses is a *different attempt*, not an explanation: retry, and —
+if the trials above ever support it — retry with the way out.
+
+**Both, though — they guard different failures.** A per-attempt timeout catches *silence*: a
+hung or swapping host sending nothing, which is the blank-page mode the recognizer's preflight
+already warns about. The repetition abort catches *productive nonsense*, where tokens arrive
+perfectly fast. Neither sees the other's failure. (And the call is HTTP from Python, so the
+timeout is a request deadline, not the `timeout` command.)
+
 So: stream the transcription pass, abort at the limit, retry once, and record the page as
 runaway if it trips again — the same verdict as now, minutes sooner, and *Stop* stops waiting on
-it. **Not built.** First thing to verify when it is: that Ollama stops generating when the
-streaming client disconnects, rather than finishing into the void.
+it. **Not built**, but its two mechanical premises are now verified (2026-09-12, same host and
+model):
+
+- **Streaming returns tokens as they are produced** — `"stream": true` on the same `/api/chat`
+  call the recognizer already makes: first token at 2.7 s, then roughly one chunk per token.
+  Today the recognizer sets `"stream": false` and waits for the whole page, twice per page
+  (transcription, then the independent inventory pass).
+- **Hanging up actually stops the work.** A long generation cut off after 25 chunks freed the
+  model at once: the next request was served in 0.05 s, against a 0.13 s idle baseline. Had the
+  server kept generating into the void, that request would have queued behind it for many
+  seconds. So the abort saves real time, not just the caller's attention.
+
+**What it must not assume.** A turn is one page, and the model is not scanning it: the whole
+image is encoded at once and output order is whatever the model writes, learned rather than
+geometric — which is why right-to-left and vertical scripts work at all. So nothing may infer a
+mark's position from its offset in the output (the same wall §11.2.6a hits). The repetition rule
+is safe here precisely because it reads the emitted sequence and asks nothing about the page.
 
 ### 11.0.1g The ch22 read-through — author's findings, no log behind them
 
