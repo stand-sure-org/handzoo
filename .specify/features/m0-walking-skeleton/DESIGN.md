@@ -1341,6 +1341,36 @@ Verified against the brief's own `len` commutative square: 13 KB SVG, 18 paths, 
 Note this is a **DVI-route** dependency (`latex`, `dvisvgm`, `tikz-cd`), distinct from the
 `pdflatex` binary the compile gate uses.
 
+
+#### 6.0a Run-in ink: "math or drawing" is not always a fact, and the recognizer is not steady
+
+The author's observation, 2026-09-12: inline, run-in ink comes back sometimes as mathematics and
+sometimes as a drawing — and on some marks **neither answer is clearly right**, while on the rest
+a heuristic that could decide would carry an awful false-positive rate.
+
+Measured on the one corpus recognized twice, same PDF, same model, 44 pages:
+
+| between two runs of the same pages | differs |
+|---|---|
+| number of diagram markers on a page | **7 of 44** (16%) |
+| whether the page has a diagram *at all* | **2 of 44** (4.5%) |
+| count of math-mode openings | **12 of 44** (27%), median 17% apart |
+
+So the boundary is not stable even against itself. Two consequences, and they point opposite ways:
+
+- **Against routing on the classification.** Any mechanism that *acts* on "this ink is a diagram"
+  — fabricate-and-mark, crop-and-replace, a capture swapped for a figure — inherits an answer
+  that changes between runs on one page in six. The baseline already showed the stakes from the
+  other side: an inline glyph is a *term in the sentence* (§2), and stripping one turned two
+  consistent bullets into a contradiction.
+- **For keeping the human in it.** The crop verdict works today precisely because it does not
+  decide: the author points at the region and the tool cuts it. That is not a stopgap waiting for
+  a classifier; on ink where the right answer genuinely depends on what the author meant, it is
+  the correct design.
+
+What this rules out is a silent automatic route. What it leaves open is offering the author a
+choice the tool can execute exactly once pointed — which is what §11.2.6a's split would be.
+
 ### 6.1 Assembly — pages into sections into chapters
 
 M0 emits per-page files. It must not paint itself out of assembling them, so the file layout
@@ -2894,6 +2924,54 @@ beneath the image it belongs to; counting those would report every figure twice.
 The pasted screenshots include the **mouse cursor**. The recognizer ignored it, and there is
 no reason to assume it always will — a UI artefact in the source is a mark on the page as far
 as any inventory pass is concerned.
+
+#### 11.2.6a Replacing a capture with a picture — the correspondence problem, and the way round it
+
+reMarkable's 2026-09 update can capture a region of a page *including the background* — the
+typeset text of a PDF being annotated — and paste it. Measured on the author's `capture-test.pdf`:
+it arrives as a **raster** (1162x323 px at 189 ppi, with a transparency mask) on an otherwise
+all-vector page, and its placement is recoverable from the source — 442x123 pt at (40, 534), 86%
+of the page width (`rasterize.pasted_regions`).
+
+**What it costs:** the recognizer transcribes what is inside the capture. On that page, 29% of the
+emitted phrases also appear on the page the capture was taken from. A capture of someone else's
+typeset text therefore comes back as a copy of it, in the author's `.tex`.
+
+**The author's question, which is the right one.** Cropping a region and inserting it as a figure
+already exists (§7.2) — but the author *places* it, at a marker or at the cursor. To have a
+capture **replace** its own transcription, something must know which span of the emitted text came
+from that rectangle. Nothing does. The model emits no coordinates; the inventory pass reports that
+marks exist and roughly where, not where a span begins and ends; and asking the model which lines
+came from a rectangle is a *description*, which is the untrustworthy side of the §3 boundary. A
+comment the model inserts is the same claim wearing a different hat.
+
+**The way round it is not to ask.** The tool chooses what the model sees. Split the page at the
+capture's edges, recognize the band above and the band below, and put the figure between them:
+reading order is then geometry, not a claim, and the capture is never shown to a recognizer at all.
+
+**Measured, same file, same model:**
+
+| what was recognized | phrases shared with the captured-from page |
+|---|---|
+| the whole page, capture visible | **29%** |
+| the bands above and below, capture hidden | **0%** |
+
+and the band above matches the full-page reading on 48 of its 64 phrases, so the rest of the page
+survives the split.
+
+**The limit, found in the same run.** The band *below* that capture was 58 px — about one line —
+and came back with 40 words sharing **zero** phrases with the full-page reading of the same page.
+Either the full read missed that line or the sliver invited invention; neither is a basis for
+emitting it. So a split is only honest when each band is big enough to be a page — a thin
+remainder must be reported as *not transcribed*, never quietly dropped and never invented. A
+capture that sits *inside* a line of writing, with text wrapping beside it, cannot be split this
+way at all; there the gate's advisory is the whole answer.
+
+**Not built, and deferred (author, 2026-09-12)** — explicitly *not* a no. The decision is held
+because it is downstream of image handling generally: whatever the crop path, the diagram
+verdict and the figure flow become, a capture-replacement built now would be reworked with them.
+And it shares its hardest dependency with them — see §6.0a: routing ink by *what kind of thing it
+is* rests on a judgement the recognizer does not make consistently.
 
 ### 11.2.4 Mixed printed and handwritten pages — it works, and it captures the wrong half
 
