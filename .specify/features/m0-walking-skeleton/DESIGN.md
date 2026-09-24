@@ -1371,6 +1371,48 @@ So the boundary is not stable even against itself. Two consequences, and they po
 What this rules out is a silent automatic route. What it leaves open is offering the author a
 choice the tool can execute exactly once pointed — which is what §11.2.6a's split would be.
 
+#### 6.0a(ii) The other face: stable, and stably lossy (the ladder, 2026-09-24)
+
+The instability above is not the only failure. On the author's *Book of Why* p4 — Pearl's ladder
+of causation, three rungs labelled **Imagining / Doing / Seeing** beside three callout boxes,
+**Counterfactuals / Intervention / Association** — the model:
+
+- **got the correspondence right**, pairing each rung with its box in order. That is a *spatial*
+  reading across the page, not merely reading order: the D4 bet (§2) earning its keep on a page
+  where a bbox segmenter would have had nothing to work with;
+- **silently turned the drawing into a table.** No `[[DIAGRAM]]` marker anywhere, so the ladder
+  itself is gone. The ladder *is* the argument on that page — rungs you climb, each strictly
+  above the last — and a two-column table says "these correspond", which is true and weaker;
+- **passed all eight gates.** Coverage is satisfied *by the table rows*: the content is present,
+  the form that carried the meaning is not, and nothing distinguishes those.
+
+A tell that the structure was improvised: the tabular declares `{|c|c|c|}` and every row has two
+cells.
+
+**And it is not a coin flip.** Five runs at the production temperature (0.1) produced the table
+five times, byte-identical at 592 characters. §6.0a's ch18 numbers show the call *flipping*
+between runs on 16% of pages; this page shows the opposite failure, which is harder to catch:
+**stable, and stably lossy**. An unstable answer announces itself on a re-run; this one never
+will.
+
+**Why, on the author's reading:** the figure was drawn with reMarkable's *shape* tool — crisp
+rails, rectangular callouts — so it looks like a table. That makes the shape tool a **fourth
+corpus structure**, beside pure handwriting, printed backgrounds (§11.2.4) and pasted rasters
+(§11.2.6): crisp geometry reads as structure. The practical implication is perverse — a figure
+drawn freehand is likelier to be *kept* as a figure than the same figure drawn with the ruler.
+Untested; it needs the author to draw one both ways.
+
+**Naming the picture does not rescue it.** Appending *"This page shows Pearl's Ladder of
+Causation"* to the prompt, five runs at 0.1: two came back as rambling prose (1,450+ characters
+against 592), two as the same table, one with a diagram marker. It changes the output without
+reliably improving it — §11.0.1g's standard, met again. At 0.7 the as-is prompt produced four
+different shapes in five runs (table ×2, diagram+table, itemize, prose), so the picture does
+occasionally survive a hotter sample — at the cost of everything else being a lottery.
+
+*n = 5 per condition, one page, one model.*
+
+
+
 ### 6.1 Assembly — pages into sections into chapters
 
 M0 emits per-page files. It must not paint itself out of assembling them, so the file layout
