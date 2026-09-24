@@ -2538,6 +2538,49 @@ much image there is to encode.
 **And runaway is stochastic:** 2 of the 9 pages transcribed normally on the re-run. That is why a
 single retry after an abort is worth having, and why it cannot be relied on.
 
+#### Temperature: the retry should be hotter, and the default should not (2026-09-24)
+
+The author asked whether `temperature = 0.1` is too restrictive. Swept 0.0 / 0.1 / 0.4 / 0.7,
+three runs each, over six pages chosen for variety, scored by the gates rather than by taste:
+
+| page | 0.0 | 0.1 | 0.4 | 0.7 |
+|---|---|---|---|---|
+| ordinary prose ×2 | identical outputs; compiles | 2–3 distinct | 3 distinct | 3 distinct, one drifts to a list |
+| **dense** (16 KB) | full text, 3/3; never compiles | full text ×2 | **~400 chars**, compiles 3/3 | **~420 chars**, compiles 3/3 |
+| **runaway** | loops 3/3 | loops 3/3 | loops 2/3 | **loops 0/3** |
+| diagrams | marks them, 3/3 | marks them | marks them | marks them |
+| ladder | table ×3 | table ×3 | table ×3 | table ×3 |
+
+**Three findings, and one of them is a trap.**
+
+**0.0 is deterministic and 0.1 is not.** Three runs at 0.0 give byte-identical output; 0.1 gives
+two or three different ones, with no compile-rate advantage. So the current setting buys
+variation without buying anything for it — and determinism is worth something here: a frozen
+regression corpus, and run-to-run comparisons that mean something (§11.0.1f's own ch18-vs-ch18-v2
+numbers exist because two runs differed).
+
+**The trap: on the dense page, higher temperature "fixes" the compile failure by not
+transcribing the page.** 16,227 characters at 0.0 → ~400 at 0.4 and 0.7, compiling 3/3. That is
+2.5% of the page, and it is the silent-omission failure (§5.4) wearing a green tick. **Compile
+rate alone is not a score**; a metric that rewards emptiness will get it.
+
+**But escalation cures the loop.** On the page that ran away 3/3 at both 0.0 and 0.1, temperature
+0.7 produced clean transcriptions three times out of three — 1.4–2.0 KB, worst phrase repeat 1–2,
+all compiling, in ~20 s against 130–170 s of looping. That is exactly the remedy §5.4 notes
+olmOCR uses (retry with temperature escalation), now measured in this corpus.
+
+**So the design is:** keep the default cold — 0.0 for determinism — and escalate **only on the
+retry after a repetition abort**. And because the same escalation is what empties the dense page,
+a retry must be judged by the **full** gates, not merely by "it stopped repeating": coverage is
+the instrument that catches a retry which stopped looping by transcribing nothing, and it can
+run there, because a retry happens inside a run where the inventory exists.
+
+**Temperature is not the lever for structure.** The ladder is a table at every temperature, and
+the diagram page marks its diagrams at every temperature (§6.0a(ii)).
+
+*n = 3 per cell, one page per class, one model.*
+
+
 **Does the model run away because it is stuck?** The author's hypothesis, 2026-09-12: a page
 loops because something resists deciphering, so an explicit way out — *mark it unreadable and
 move on* — should reduce it. Tested by appending one sentence to the transcription prompt and
