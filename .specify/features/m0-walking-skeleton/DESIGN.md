@@ -3406,6 +3406,37 @@ the walker descends into braced arguments, except for macros whose braces hold a
 a path (`\label`, `\ref`, `\includegraphics`), where rewriting a character silently breaks a
 reference instead of a word.
 
+### 11.4a What the timing is for after M0 (author's question, 2026-09-24)
+
+Timing exists to answer the exit criterion: correction cheaper than transcription, or the
+project has negative value. That is a question about *building*. Asked what it is for a user
+later, three answers, ranked by how much they are worth:
+
+**1. The same go/no-go, but theirs.** §11.0.1 forbids publishing the ratio because the
+denominator is a property of the person — their hand, their typing speed, the stochastic
+resolution they do when reading their own ambiguity. The same reasoning says a new user cannot
+learn from *our* number whether the tool helps *them*. Measuring is the only way they find out,
+and it takes two pages: one corrected, one typed. So the instrument stays, re-cast as a
+**first-run calibration** rather than a product claim — the honest form of a number this project
+has already refused to advertise.
+
+**2. Planning.** "480 pages left, about ten hours at your pace" is worth knowing before starting
+a 642-page notebook, and it decides whether the work is one sitting or twenty.
+
+**3. Speculative — per-page triage.** If correction cost could be predicted from a page's
+features (findings, diagram markers, ink density), the surface could say *this one is faster to
+retype than to fix*, which is the most useful thing timing could ever do. It cannot be built
+yet: 88 rows across 24 pages is not a model, and §11.0.1c's re-mine showed how thin that corpus
+is. Worth revisiting when a corrected corpus is an order of magnitude larger.
+
+**What it must not become.** A precise-looking number. It is contaminated by polish (§11.3.1),
+by interruptions, and by mode — and `mode` was unrecorded on the earliest rows, so those cannot
+be compared to anything. It is also data about how fast a person works, which puts it under the
+same rule as the path hash (§8.1): local, visible, purgeable, and never anybody else's business.
+
+**Already applied, in the surface.** A page the *surface* opens is timed from the author's first
+touch of it, not from launch — otherwise the first save after a coffee records the coffee.
+
 ### 11.2 Measured against Mathpix (ch17, 13 pages, 2026-08-21)
 
 The author ran the same chapter through Mathpix. Both directions of the result matter, and the
