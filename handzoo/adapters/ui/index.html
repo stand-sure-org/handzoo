@@ -46,6 +46,8 @@
   .toggles button[aria-pressed="true"] { color:var(--ink); border-color:var(--accent); }
   .imgwrap { flex:1; min-height:0; overflow:auto; background:#fff; display:flex; }
   .pane img { margin:auto; max-width:100%; max-height:100%; object-fit:contain; padding:.4rem; }
+  /* No page chosen yet: an empty pane, not a broken-image icon. */
+  .pane img:not([src]) { display:none; }
   .imgwrap.zoom { align-items:flex-start; }
   .imgwrap img { width:calc(100% * var(--scale, 1)); }
   .imgwrap.zoom img { max-width:none; max-height:none; }
@@ -223,6 +225,10 @@
 <script>
 const $ = id => document.getElementById(id);
 let pages = [], current = null, opened = 0, original = "";
+// A page the surface opened by itself is timed from the author's first touch of it, not
+// from launch: `opened` feeds the correction arm, and time spent away from the machine is
+// not time spent correcting.
+let awaitingTouch = false;
 const MARKS = { ok: "✓", flag: "⚠", fail: "✗", queued: "·", recognizing: "◌",
                 unrecognized: "○", excluded: "✂" };
 // Pages with no text yet: the ink can be shown, nothing can be saved.
@@ -275,6 +281,8 @@ async function load() {
     for (const b of $("nav").children)
       if (b.dataset.diagram === "1") b.style.display = "none";
   if (current !== null) mark(current);
+  // Open the first page rather than leaving three empty panes and a path (the author's nit).
+  if (current === null && pages.length && !fresh) select(pages[0].page, { auto: true });
 }
 
 function mark(page) {
@@ -303,7 +311,7 @@ function renderFindings(page) {
 }
 
 function showPending(p) {
-  current = p.page; original = "";
+  current = p.page; original = ""; awaitingTouch = false;
   $("tex").value = "";
   $("tex").placeholder = p.state === "excluded" ? "cut by you — never sent to the model"
     : p.state === "recognizing" ? "being read now — it will appear here when it lands"
@@ -317,7 +325,7 @@ function showPending(p) {
   mark(p.page); say("");
 }
 
-async function select(page) {
+async function select(page, { auto = false } = {}) {
   await flush();               // never carry an unsaved edit onto the next page
   const p = pages.find(x => x.page === page);
   if (p && PENDING.has(p.state)) { showPending(p); return; }
@@ -330,13 +338,20 @@ async function select(page) {
   $("img").src = "/api/image?page=" + page;
   renderFindings(page);
   $("fix").disabled = $("author").disabled = $("accept").disabled = false;
-  // Timing starts when the page is opened, matching --fix's protocol.
+  // Timing starts when the page is opened, matching --fix's protocol -- unless the surface
+  // opened it, in which case it starts when the author first touches it.
   opened = performance.now();
+  awaitingTouch = auto;
   dirty = false; $("saveState").textContent = ""; $("ack").textContent = "";
   mark(page);
   say("");
   loadTypeset(page);
   loadRegions(page);
+}
+
+// The author has arrived at this page: start its clock if the surface opened it for them.
+function touched() {
+  if (awaitingTouch) { opened = performance.now(); awaitingTouch = false; }
 }
 
 const escapeHtml = s => s.replace(/[&<>"]/g, c =>
@@ -586,7 +601,9 @@ async function flush() {
     body: JSON.stringify({ page: current, text: $("tex").value })
   });
 }
+$("tex").addEventListener("focus", touched);
 $("tex").addEventListener("input", () => {
+  touched();
   dirty = true;
   $("saveState").textContent = "unsaved";
   clearTimeout(pending);
@@ -730,8 +747,8 @@ $("importForm").onsubmit = async e => {
   load();
 };
 
-$("accept").onclick = () => save("accept");
-$("fix").onclick = () => save("fix");
-$("author").onclick = () => save("author");
+$("accept").onclick = () => { touched(); save("accept"); };
+$("fix").onclick = () => { touched(); save("fix"); };
+$("author").onclick = () => { touched(); save("author"); };
 load();
 </script>
