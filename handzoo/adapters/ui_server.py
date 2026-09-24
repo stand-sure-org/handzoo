@@ -32,9 +32,10 @@ from urllib.parse import parse_qs, urlparse
 
 from ..core import project, rasterize, store
 from ..core.assemble import assemble
-from ..core.corrections import Correction, CorrectionLog, pristine_path
+from ..core.corrections import Correction, CorrectionLog, current, pristine_path
 from ..core.normalize import chapter_preamble
 from ..core.pipeline import PageOutcome, append_manifest, parse_excluded, read_manifest
+from ..core.validate.base import ADVISORY_GATES
 from ..core.validate import (ascii_gate, colour_gate, compile_gate, delimiter_gate,
                              reference_gate, repetition_gate)
 
@@ -107,6 +108,47 @@ def _image_index(out_dir: Path) -> dict[int, Path]:
     return index
 
 
+REVIEW_STATE = {"keep-reviewed": "accepted", "keep-unreviewed": "kept-unread",
+                "edited": "worked", "cropped": "worked", "authored": "worked",
+                "flagged": "flagged", "skipped": "skipped", "transcribed": "typed"}
+"""What the *author* has done with a page, which is a different question from what the gates
+found. The tick belongs to "Looks right" alone: every page of a 642-page run passed its gates
+and not one had been read. `keep-unreviewed` is accepted-without-inspection and must never
+render as acceptance -- it is evidence of nothing (DESIGN 11.0.1h)."""
+
+
+def _gate_state(outcome: PageOutcome, findings: list[dict]) -> str:
+    """clean | not-checked | advisory | failed -- what the machine can say about the page.
+
+    *not-checked* is its own answer and not a quiet pass: a gate that could not run (colour on
+    a second pen, compile on a fragment) covered 342 of 642 pages on one run, and 5.7 exists
+    so that never reads as clean.
+    """
+    if not outcome.done or (outcome.verdict == "fail" and not findings):
+        return "failed"                      # the recognizer returned nothing to judge
+    if any(f.get("gate") not in ADVISORY_GATES for f in findings):
+        return "failed"
+    if findings:
+        return "advisory"
+    return "not-checked" if "skipped" in outcome.gates.values() else "clean"
+
+
+def _diagram_markers(outcome: PageOutcome) -> int:
+    """Diagram markers still standing in the emitted text -- the crops outstanding.
+
+    Counted, not merely noticed: cropping one of two diagrams is not finishing the page. The
+    old rule read the *prose* of the findings instead, so a colour finding that explained
+    itself with the word "diagram" labelled the page diagram-only (measured on l3 p4), while a
+    page carrying two real markers and no findings was not labelled at all.
+    """
+    if not outcome.output:
+        return 0
+    path = Path(outcome.output)
+    if not path.exists():
+        return 0
+    return len(_MARKER.findall(path.read_text(encoding="utf-8", errors="replace")))
+
+
 def _pages(review: Review, ingest: Ingest | None = None) -> list[dict]:
     """The page list, with each page's worst gate state.
 
@@ -119,7 +161,10 @@ def _pages(review: Review, ingest: Ingest | None = None) -> list[dict]:
     # distinction `keep-unreviewed` exists to protect. The latest verdict per page is both
     # shorter to read and honest about which it was.
     done: dict[int, str] = {}
-    for r in review.log().read():
+    verdicts: dict[int, str] = {}
+    for r in current(review.out_dir):
+        verdicts[r.page] = r.verdict
+    for r in current(review.out_dir):
         done[r.page] = {"keep-reviewed": "accepted", "edited": "edited",
                         "cropped": "cropped", "authored": "rewritten",
                         "flagged": "flagged", "skipped": "skipped",
@@ -139,16 +184,18 @@ def _pages(review: Review, ingest: Ingest | None = None) -> list[dict]:
             # A page the recognizer never returned has no findings, so it used to fall through
             # to "ok" -- a tick beside a page with no text at all.
             state = "fail"
-        # A page whose *only* complaint is an invented drawing needs the crop tool, not the
-        # editor. Marking it lets a text-only pass skip it without opening it -- opening it
-        # would put its content on screen and cost the page as a transcription subject.
-        diagram_only = bool(findings) and all(
-            "fabricated" in f.get("detail", "") or "diagram" in f.get("detail", "").lower()
-            for f in findings)
+        markers = _diagram_markers(o)
+        hard = [f for f in findings if f.get("gate") not in ADVISORY_GATES]
         out.append({"page": o.page, "state": state, "verdict": o.verdict,
                     "findings": findings, "reviewed": o.page in done,
                     "did": done.get(o.page, ""),
-                    "diagram_only": diagram_only, "error": o.error or "",
+                    "review": REVIEW_STATE.get(verdicts.get(o.page, ""), ""),
+                    "gate": _gate_state(o, findings),
+                    "hints": {"diagrams": markers,
+                              "capture": sum(f.get("gate") == "pasted" for f in findings)},
+                    # The only work left here is a crop -- the author's "fast review" hint.
+                    "diagram_only": bool(markers) and not hard,
+                    "error": o.error or "",
                     "has_image": o.page in images})
 
     # Pages the run has not reached. Without these the list would show a 3-page project in the
@@ -172,7 +219,9 @@ def _pages(review: Review, ingest: Ingest | None = None) -> list[dict]:
                  else "recognizing" if running and n == ingest.current
                  else "queued" if running else "unrecognized")
         out.append({"page": n, "state": state, "verdict": "", "findings": [],
-                    "reviewed": False, "did": "", "diagram_only": False, "error": "",
+                    "reviewed": False, "did": "", "review": "", "gate": "",
+                    "hints": {"diagrams": 0, "capture": 0},
+                    "diagram_only": False, "error": "",
                     "has_image": n in images})
     return sorted(out, key=lambda e: e["page"])
 

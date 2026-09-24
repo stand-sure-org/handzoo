@@ -27,6 +27,10 @@
                                     box-shadow:inset 3px 0 var(--accent); }
   .st { display:inline-block; width:1.1em; }
   .ok{color:var(--ok)} .flag{color:var(--flag)} .fail{color:var(--fail)}
+  .todo{color:var(--ink)} .work{color:var(--accent)} .dim{color:var(--dim)}
+  .badge { font-size:11px; }
+  .badge.advisory{color:var(--flag)} .badge.failed{color:var(--fail)}
+  .badge.not-checked{color:var(--dim)}
   .done { color:var(--dim); font-size:11px; }
   section { flex:1; display:flex; min-width:0; min-height:0; }
   .pane { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; }
@@ -229,8 +233,25 @@ let pages = [], current = null, opened = 0, original = "";
 // from launch: `opened` feeds the correction arm, and time spent away from the machine is
 // not time spent correcting.
 let awaitingTouch = false;
-const MARKS = { ok: "✓", flag: "⚠", fail: "✗", queued: "·", recognizing: "◌",
-                unrecognized: "○", excluded: "✂" };
+// Three things are true of a page at once, so a row says three things: what you did with it,
+// what the gates found, and what work is left. The tick belongs to "Looks right" alone -- it
+// used to mean "no gate complained", which every page of a
+// 642-page run satisfied while none had been read.
+const LIFE = { queued: ["·", "queued", "queued"],
+               recognizing: ["◌", "being read now", "reading"],
+               unrecognized: ["○", "not recognized — resume the run", "queued"],
+               excluded: ["✂", "cut by you — never sent to a model", "queued"] };
+const REVIEW = { "": ["☐", "to do", "todo"],
+                 accepted: ["✓", "you said Looks right", "ok"],
+                 "kept-unread": ["~", "kept without reading — evidence of nothing", "dim"],
+                 worked: ["✎", "worked on, not accepted yet", "work"],
+                 flagged: ["⚑", "you flagged it", "flag"],
+                 skipped: ["⏭", "deferred", "dim"],
+                 typed: ["⌨", "typed from blank, for the exit criterion", "dim"] };
+const GATE = { clean: ["", ""],
+               "not-checked": ["?", "a gate could not run — not the same as clean"],
+               advisory: ["⚠", "flagged for a look; the page is not refused"],
+               failed: ["✗", "a gate refuses this page"] };
 // Pages with no text yet: the ink can be shown, nothing can be saved.
 const PENDING = new Set(["queued", "recognizing", "unrecognized", "excluded"]);
 
@@ -268,10 +289,20 @@ async function load() {
   $("nav").innerHTML = "";
   for (const p of pages) {
     const b = document.createElement("button");
-    const mark = MARKS[p.state] || "✗";
-    b.innerHTML = `<span class="st ${p.state}">${mark}</span> p${p.page}` +
-                  (p.diagram_only ? ` <span class="done">◨ diagram</span>` : "") +
-                  (p.did ? ` <span class="done">${p.did}</span>` : "");
+    const life = LIFE[p.state];
+    // Accepted, and a gate now refuses it: loud, because the tick would say the opposite.
+    const broken = !life && p.gate === "failed" && p.review === "accepted";
+    const [mark, why, cls] = life ? life
+      : broken ? ["⚠", "you accepted this and a gate now refuses it", "fail"]
+      : (REVIEW[p.review] || REVIEW[""]);
+    const [badge, bwhy] = life ? ["", ""] : (GATE[p.gate] || ["", ""]);
+    const hints = p.hints || { diagrams: 0, capture: 0 };
+    b.innerHTML = `<span class="st ${cls}" title="${why}">${mark}</span> p${p.page}` +
+      (badge ? ` <span class="badge ${p.gate}" title="${bwhy}">${badge}</span>` : "") +
+      (hints.diagrams ? ` <span class="done" title="crops outstanding">◨ ${hints.diagrams}` +
+                        ` diagram${hints.diagrams > 1 ? "s" : ""}</span>` : "") +
+      (hints.capture ? ` <span class="done" title="a pasted capture — yours to decide">⧉</span>` : "") +
+      (p.did ? ` <span class="done">${p.did}</span>` : "");
     if (p.diagram_only) b.dataset.diagram = "1";
     b.onclick = () => select(p.page);
     b.dataset.page = p.page;
