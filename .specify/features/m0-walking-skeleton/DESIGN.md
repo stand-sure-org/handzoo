@@ -3830,6 +3830,92 @@ specified one. A useful reminder that the failure mode is not peculiar to VLMs.
 larger decision — build a desktop or web review app — which should be made on its own merits
 first.
 
+### 12.5 What a row says: three things are true of a page at once (author, 2026-09-24)
+
+The page list used one icon for everything, and the icon was the gates: a green tick meant *no
+gate complained*. On a 642-page run that is every page, none of them read. The author's ruling:
+**the tick belongs to "Looks right" alone**, and the states have to be run out properly.
+
+They are three independent axes, which is why one icon could never carry them:
+
+| axis | states |
+|---|---|
+| **the page's life** | queued · being read · not recognized · cut (`--exclude`) |
+| **what the gates say** | clean · **not checked** · advisory · failed |
+| **what the author did** | to do · looks right · kept unread · worked (edited/cropped/rewritten) · flagged · skipped · typed-from-blank |
+
+plus **work remaining** as chips, which can co-occur with any of the above: crops outstanding
+(counted), and a pasted capture to decide about.
+
+**Four things this settles.**
+
+*Navigation cannot infer completion.* A page with two diagram markers where the author cropped
+one is not finished, so the chip counts markers rather than noting their presence, and only an
+acceptance ends a page. Working on a page (`edited`, `cropped`, `authored`) reads as *worked*,
+not done.
+
+*Flag is the un-check.* Verdicts are an append-only log and the newest row wins, so flagging an
+accepted page returns it to the queue without erasing the acceptance — and accepting after a
+flag re-accepts. The mechanism already existed; it is now an affordance the author can rely on.
+
+*Accepted-then-broken is loud.* A correction that fails re-gating leaves the page quarantined;
+the row shows a warning rather than the tick it earned earlier.
+
+*"Not checked" is a state of its own* — 342 of 642 pages on one run, mostly colour. §5.7 is the
+reason it can never render as clean, and the author's reason is sharper than the rule: *we have
+no control over the model a user runs against*, so the gate report is the only thing standing
+between them and silent corruption. Gate state therefore stays visible on every row, including
+pages nobody has reviewed.
+
+**And the chip is computed from structure, not prose.** It used to mean *every finding's text
+mentions "diagram" or "fabricated"* — so l3 p4, whose **colour** finding explains itself with
+"arrows belonging to a diagram against arrows belonging to a cone", was labelled diagram-only,
+where *hide diagram-only* would have hidden a colour failure; and l3 p1, carrying two real
+markers and no findings, was not labelled at all. Matching a sentence instead of a fact, which
+is the mistake `tikzpicture` taught once already.
+
+### 12.6 Which gates survive acceptance (author, 2026-09-24)
+
+Seeing `?` on pages he had edited, the author asked which gate could not run — and then the
+better question: *once a page is accepted, which flags still matter operationally?*
+
+**The rule that answers it: a gate survives acceptance only if what it checks is invisible in
+the thing the author read.**
+
+| survives | why |
+|---|---|
+| `compile` | about the build, not the text. An accepted page that does not compile still cannot be `\input` |
+| `colour` | about the **source**, not the text. The author's own case: shading *instead of* a boundary line means an open set — read the transcription, judge it right, and the mathematics is simply absent from it |
+| `pasted` | about provenance. Accepting a transcription does not settle whether it reproduces someone else's typeset text |
+
+| superseded | why |
+|---|---|
+| `coverage` | a claim that the page's marks are accounted for — the author has just read the page |
+| `repetition` | runaway generation is unmistakable to a reader |
+| `reference` | a convention about marking a numbered claim; the author saw it |
+| `ascii`, `delimiters` | they break the build, and `compile` catches that |
+
+So the surface reports *not checked* on an accepted page **only** for the three that survive.
+Two things follow, and both were bugs:
+
+**Colour and pasted are now re-run on save.** They read the source page, which an edit to the
+text does not change — the save path had been calling colour with `colours=None`, so five saved
+pages of the author's l3 run reported *not checked* for a question the file could answer.
+Re-gated: all five come back **pass**.
+
+**Coverage is now recorded as `skipped` rather than dropped.** It genuinely cannot re-run — it
+needs the run's inventory, which is not persisted — but it used to vanish from the gates map on
+save, and an absent gate reads as a quiet pass. §5.7 for the fourth time in this codebase.
+
+*What this makes unnecessary:* persisting the inventory so coverage could re-run after an edit.
+It would only serve pages the author has already read, where their eyes are the better evidence.
+
+**Still operational after acceptance, and not gates today:** a `[TODO diagram: …]` marker left
+in an accepted page ships into the typeset chapter (none today across 56 accepted pages — the
+workflow crops first), and a referenced figure file deleted after the crop breaks the chapter
+build rather than the page's own (none today). `assemble` trusts the manifest; the chapter
+compile is what catches both.
+
 ### 12.4 The ordering this implies
 
 1. **Round-trip fidelity test** — mechanical, no UI, and it decides the format question.

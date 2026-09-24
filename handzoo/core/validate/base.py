@@ -9,6 +9,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+ADVISORY_GATES = frozenset({"reference", "pasted"})
+"""Gates that flag for a human and never refuse the page (`GateResult.advisory`).
+
+Named here because the manifest records only a gate's *name* against its findings, so a reader
+deciding whether a page is broken has nothing else to go on. The surface had no list and
+treated a pasted capture -- a decision to make, not a defect -- as a failure.
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class Failure:

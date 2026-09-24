@@ -8,6 +8,8 @@ could not produce. These go over HTTP.
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -16,7 +18,7 @@ from urllib.request import Request, urlopen
 import pytest
 
 from handzoo.adapters.ui_server import MODES, Handler, Review
-from handzoo.core.pipeline import read_manifest
+from handzoo.core.pipeline import PageOutcome, read_manifest
 
 
 @pytest.fixture
@@ -380,14 +382,16 @@ def test_a_diagram_only_page_is_marked_so_a_text_pass_can_skip_it(tmp_path: Path
     disqualifies a page as a `--transcribe` subject later (§11.1.1).
     """
     (tmp_path / "pages").mkdir()
-    (tmp_path / "page-0001.tex").write_text("a\n", encoding="utf-8")
-    (tmp_path / "page-0002.tex").write_text("b\n", encoding="utf-8")
+    # The work is the marker standing in the text, not a sentence in a finding: a colour
+    # finding that merely *mentions* diagrams used to earn this label (l3 p4).
+    marker = "\\texttt{[TODO diagram: two blobs with arrows]}\n"
+    (tmp_path / "page-0001.tex").write_text(marker, encoding="utf-8")
+    (tmp_path / "page-0002.tex").write_text(marker, encoding="utf-8")
     rows = [
-        {"page": 1, "output": str(tmp_path / "page-0001.tex"), "verdict": "fail", "gates": {},
-         "findings": [{"gate": "coverage", "detail": "recognizer fabricated a drawing here"}]},
+        {"page": 1, "output": str(tmp_path / "page-0001.tex"), "verdict": "pass", "gates": {},
+         "findings": []},
         {"page": 2, "output": str(tmp_path / "page-0002.tex"), "verdict": "fail", "gates": {},
-         "findings": [{"gate": "coverage", "detail": "recognizer fabricated a drawing here"},
-                      {"gate": "delimiters", "detail": "math mode never closed"}]},
+         "findings": [{"gate": "delimiters", "detail": "math mode never closed"}]},
     ]
     (tmp_path / "manifest.jsonl").write_text(
         "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
@@ -648,3 +652,138 @@ def test_the_page_list_reads_the_pages_folder_once_not_once_per_page(tmp_path, m
 
     assert all(p["has_image"] for p in listed) and len(listed) == 40
     assert len([p for p in scans if p.startswith("p-")]) <= 1, f"{len(scans)} scans for 40 pages"
+
+
+# ----------------------------------------------------------- what a row says about a page
+
+
+def _row(tmp_path: Path, *, findings=None, gates=None, text="body\n", verdict="pass",
+         log=()):
+    (tmp_path / "pages").mkdir(exist_ok=True)
+    (tmp_path / "pages" / "p-0001-01.png").write_bytes(b"\x89PNG")
+    (tmp_path / "page-0001.tex").write_text(text, encoding="utf-8")
+    (tmp_path / "manifest.jsonl").write_text(json.dumps({
+        "page": 1, "output": str(tmp_path / "page-0001.tex"), "verdict": verdict,
+        "gates": gates or {"compile": "pass"}, "findings": findings or []}) + "\n",
+        encoding="utf-8")
+    if log:
+        from handzoo.core.corrections import Correction, CorrectionLog
+        for v in log:
+            CorrectionLog.for_run(tmp_path).append(Correction(
+                page=1, verdict=v, source_image="p.png", before="a", after="b"))
+    from handzoo.adapters import ui_server
+    return ui_server._pages(Review(tmp_path))[0]
+
+
+def test_the_tick_means_the_author_accepted_it_not_that_a_gate_was_quiet(tmp_path) -> None:
+    """The author's ruling: a green tick is *"Looks right"*, not "no gate complained". Every
+    page of a 642-page run passed its gates; none of them had been read."""
+    assert _row(tmp_path)["review"] == ""                       # clean gates, nobody looked
+    assert _row(tmp_path, log=["keep-reviewed"])["review"] == "accepted"
+
+
+def test_kept_unread_is_not_the_same_claim_as_to_do(tmp_path) -> None:
+    """"I chose not to read this" and "I have not got to it" are different claims, and
+    `keep-unreviewed` must never render as acceptance — it is evidence of nothing."""
+    assert _row(tmp_path, log=["keep-unreviewed"])["review"] == "kept-unread"
+
+
+@pytest.mark.parametrize("verdict", ["edited", "cropped", "authored"])
+def test_working_on_a_page_is_not_finishing_it(tmp_path, verdict: str) -> None:
+    """Cropping one of two diagrams is not completing the page; only the author says done."""
+    assert _row(tmp_path, log=[verdict])["review"] == "worked"
+
+
+def test_flagging_an_accepted_page_takes_the_tick_back(tmp_path) -> None:
+    """Flag is the un-check: verdicts are a log and the newest wins, so the acceptance stays
+    in the record while the page stops reading as done."""
+    assert _row(tmp_path, log=["keep-reviewed", "flagged"])["review"] == "flagged"
+    assert _row(tmp_path, log=["flagged", "keep-reviewed"])["review"] == "accepted"
+
+
+def test_a_gate_that_could_not_run_is_its_own_state(tmp_path) -> None:
+    """342 of 642 pages on one run. It is not clean and it is not failing, and §5.7 exists so
+    it can never read as the first."""
+    assert _row(tmp_path, gates={"compile": "pass", "colour": "skipped"})["gate"] == "not-checked"
+    assert _row(tmp_path)["gate"] == "clean"
+
+
+def test_an_advisory_finding_does_not_read_as_a_broken_page(tmp_path) -> None:
+    """The reference gate flags a convention; the pasted gate flags a decision. Neither refuses
+    the page, and a capture used to put a red cross on the row."""
+    ref = [{"gate": "reference", "detail": "'Prop 1.2' is unmarked", "line": 1}]
+    pasted = [{"gate": "pasted", "detail": "1 pasted image on this page.", "line": None}]
+    hard = [{"gate": "compile", "detail": "Missing $ inserted.", "line": 3}]
+    assert _row(tmp_path, findings=ref)["gate"] == "advisory"
+    assert _row(tmp_path, findings=pasted)["gate"] == "advisory"
+    assert _row(tmp_path, findings=hard, verdict="fail")["gate"] == "failed"
+
+
+def test_the_diagram_chip_counts_markers_instead_of_reading_findings_prose(tmp_path) -> None:
+    r"""Measured on the author's l3 run: page 4's *colour* finding explains itself with "arrows
+    belonging to a diagram against arrows belonging to a cone", and the old rule -- every
+    finding's text mentions "diagram" -- labelled the page diagram-only, where *hide
+    diagram-only* would have hidden a colour failure. And page 1, carrying two real markers and
+    no findings, was not labelled at all."""
+    prose = [{"gate": "colour", "detail": "2 inks on the page ... arrows belonging to a diagram "
+                                          "against arrows belonging to a cone ...", "line": None}]
+    marked = ("\\texttt{[TODO diagram: a blob with dots]}\n"
+              "\\texttt{[TODO diagram: two blobs with arrows]}\n")
+    assert _row(tmp_path, findings=prose, verdict="fail")["diagram_only"] is False
+    row = _row(tmp_path, text=marked)
+    assert row["hints"]["diagrams"] == 2, "cropping one of two must not look like finishing"
+    assert row["diagram_only"] is True
+
+
+def test_a_capture_is_reported_as_work_to_decide(tmp_path) -> None:
+    pasted = [{"gate": "pasted", "detail": "1 pasted image on this page.", "line": None}]
+    assert _row(tmp_path, findings=pasted)["hints"]["capture"] == 1
+
+
+@pytest.mark.skipif(not shutil.which("pdflatex") or not shutil.which("pdftocairo"),
+                    reason="pdflatex/poppler not installed")
+def test_saving_a_page_checks_its_colour_instead_of_shrugging(tmp_path: Path) -> None:
+    """Re-gating on save called the colour gate with `colours=None` -- "could not be
+    determined" -- though the row records the source PDF and the ink on a page does not change
+    when the author edits the text. On the author's l3 run, five saved pages read "not checked"
+    for a question the file could answer."""
+    from handzoo.adapters.ui_server import _revalidate
+    (tmp_path / "src.tex").write_text(
+        "\\documentclass{article}\\usepackage{tikz}\\pagestyle{empty}\\begin{document}"
+        "\\tikz\\draw[red] (0,0)--(3,2);\\tikz\\draw[blue] (0,0)--(2,3);\\end{document}\n",
+        encoding="utf-8")
+    subprocess.run(["pdflatex", "-interaction=nonstopmode", "src.tex"], cwd=tmp_path,
+                   capture_output=True, check=False)
+    outcome = PageOutcome(page=1, output=str(tmp_path / "page-0001.tex"), verdict="pass",
+                          gates={}, source=str(tmp_path / "src.pdf"))
+    _, _, gates = _revalidate("two inks on the page, none in the text\n",
+                              tmp_path / "page-0001.tex", outcome)
+    assert json.loads(gates)["colour"] in ("pass", "fail"), gates
+
+
+def test_saving_a_page_says_coverage_could_not_be_rechecked(server) -> None:
+    """Coverage needs the run's inventory, which no longer exists -- so after an edit it is
+    *not checked*, and the record has to say so. It used to vanish from the gates map
+    entirely, and silence reads as clean (§5.7, the fourth time in this codebase)."""
+    base, run = server
+    _post(base, "/api/save", {"page": 2, "mode": "fix", "text": "corrected words\n"})
+    (row,) = [o for o in read_manifest(run) if o.page == 2]
+    assert row.gates["coverage"] == "skipped", row.gates
+
+
+def test_acceptance_supersedes_the_gates_that_read_the_text(tmp_path) -> None:
+    """The author's question: once a page is accepted, which gates still matter? Only those
+    checking something *invisible in what they read* -- the build, the source's colour, and a
+    pasted capture's provenance. Coverage, repetition and reference are claims about the text,
+    and the author has just read it."""
+    unchecked = {"compile": "pass", "coverage": "skipped", "repetition": "skipped"}
+    assert _row(tmp_path, gates=unchecked)["gate"] == "not-checked"          # nobody looked yet
+    assert _row(tmp_path, gates=unchecked, log=["keep-reviewed"])["gate"] == "clean"
+
+
+def test_colour_unchecked_still_counts_after_acceptance(tmp_path) -> None:
+    """Shading that carries the mathematics -- an unclosed region is open because the boundary
+    line is *not* drawn -- is not in the text the author read, so accepting the page cannot
+    stand in for checking it."""
+    row = _row(tmp_path, gates={"compile": "pass", "colour": "skipped"}, log=["keep-reviewed"])
+    assert row["gate"] == "not-checked"

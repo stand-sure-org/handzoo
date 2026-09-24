@@ -32,11 +32,12 @@ from urllib.parse import parse_qs, urlparse
 
 from ..core import project, rasterize, store
 from ..core.assemble import assemble
-from ..core.corrections import Correction, CorrectionLog, pristine_path
+from ..core.corrections import Correction, CorrectionLog, current, pristine_path
 from ..core.normalize import chapter_preamble
 from ..core.pipeline import PageOutcome, append_manifest, parse_excluded, read_manifest
+from ..core.validate.base import ADVISORY_GATES
 from ..core.validate import (ascii_gate, colour_gate, compile_gate, delimiter_gate,
-                             reference_gate, repetition_gate)
+                             pasted_gate, reference_gate, repetition_gate)
 
 from .ingest import MAX_UPLOAD, Ingest, IngestError, source_pdf, store_upload
 
@@ -107,6 +108,60 @@ def _image_index(out_dir: Path) -> dict[int, Path]:
     return index
 
 
+REVIEW_STATE = {"keep-reviewed": "accepted", "keep-unreviewed": "kept-unread",
+                "edited": "worked", "cropped": "worked", "authored": "worked",
+                "flagged": "flagged", "skipped": "skipped", "transcribed": "typed"}
+"""What the *author* has done with a page, which is a different question from what the gates
+found. The tick belongs to "Looks right" alone: every page of a 642-page run passed its gates
+and not one had been read. `keep-unreviewed` is accepted-without-inspection and must never
+render as acceptance -- it is evidence of nothing (DESIGN 11.0.1h)."""
+
+
+SURVIVES_ACCEPTANCE = frozenset({"compile", "colour", "pasted"})
+"""Gates still worth reporting once the author has accepted a page (author, 2026-09-24).
+
+A gate survives acceptance only if what it checks is **invisible in the thing they read**: the
+build (`compile`), the source's ink (`colour` — shading that carries the mathematics is not in
+the text), and a capture's provenance (`pasted`). Coverage, repetition and reference are claims
+about the text, and the author has just read it; their eyes beat the heuristic.
+"""
+
+
+def _gate_state(outcome: PageOutcome, findings: list[dict], accepted: bool = False) -> str:
+    """clean | not-checked | advisory | failed -- what the machine can say about the page.
+
+    *not-checked* is its own answer and not a quiet pass: a gate that could not run (colour on
+    a second pen, compile on a fragment) covered 342 of 642 pages on one run, and 5.7 exists
+    so that never reads as clean.
+    """
+    if not outcome.done or (outcome.verdict == "fail" and not findings):
+        return "failed"                      # the recognizer returned nothing to judge
+    if any(f.get("gate") not in ADVISORY_GATES for f in findings):
+        return "failed"
+    if findings:
+        return "advisory"
+    unchecked = {g for g, v in outcome.gates.items() if v == "skipped"}
+    if accepted:
+        unchecked &= SURVIVES_ACCEPTANCE
+    return "not-checked" if unchecked else "clean"
+
+
+def _diagram_markers(outcome: PageOutcome) -> int:
+    """Diagram markers still standing in the emitted text -- the crops outstanding.
+
+    Counted, not merely noticed: cropping one of two diagrams is not finishing the page. The
+    old rule read the *prose* of the findings instead, so a colour finding that explained
+    itself with the word "diagram" labelled the page diagram-only (measured on l3 p4), while a
+    page carrying two real markers and no findings was not labelled at all.
+    """
+    if not outcome.output:
+        return 0
+    path = Path(outcome.output)
+    if not path.exists():
+        return 0
+    return len(_MARKER.findall(path.read_text(encoding="utf-8", errors="replace")))
+
+
 def _pages(review: Review, ingest: Ingest | None = None) -> list[dict]:
     """The page list, with each page's worst gate state.
 
@@ -119,7 +174,10 @@ def _pages(review: Review, ingest: Ingest | None = None) -> list[dict]:
     # distinction `keep-unreviewed` exists to protect. The latest verdict per page is both
     # shorter to read and honest about which it was.
     done: dict[int, str] = {}
-    for r in review.log().read():
+    verdicts: dict[int, str] = {}
+    for r in current(review.out_dir):
+        verdicts[r.page] = r.verdict
+    for r in current(review.out_dir):
         done[r.page] = {"keep-reviewed": "accepted", "edited": "edited",
                         "cropped": "cropped", "authored": "rewritten",
                         "flagged": "flagged", "skipped": "skipped",
@@ -139,16 +197,19 @@ def _pages(review: Review, ingest: Ingest | None = None) -> list[dict]:
             # A page the recognizer never returned has no findings, so it used to fall through
             # to "ok" -- a tick beside a page with no text at all.
             state = "fail"
-        # A page whose *only* complaint is an invented drawing needs the crop tool, not the
-        # editor. Marking it lets a text-only pass skip it without opening it -- opening it
-        # would put its content on screen and cost the page as a transcription subject.
-        diagram_only = bool(findings) and all(
-            "fabricated" in f.get("detail", "") or "diagram" in f.get("detail", "").lower()
-            for f in findings)
+        markers = _diagram_markers(o)
+        hard = [f for f in findings if f.get("gate") not in ADVISORY_GATES]
         out.append({"page": o.page, "state": state, "verdict": o.verdict,
                     "findings": findings, "reviewed": o.page in done,
                     "did": done.get(o.page, ""),
-                    "diagram_only": diagram_only, "error": o.error or "",
+                    "review": REVIEW_STATE.get(verdicts.get(o.page, ""), ""),
+                    "gate": _gate_state(o, findings,
+                                        accepted=verdicts.get(o.page) == "keep-reviewed"),
+                    "hints": {"diagrams": markers,
+                              "capture": sum(f.get("gate") == "pasted" for f in findings)},
+                    # The only work left here is a crop -- the author's "fast review" hint.
+                    "diagram_only": bool(markers) and not hard,
+                    "error": o.error or "",
                     "has_image": o.page in images})
 
     # Pages the run has not reached. Without these the list would show a 3-page project in the
@@ -172,7 +233,9 @@ def _pages(review: Review, ingest: Ingest | None = None) -> list[dict]:
                  else "recognizing" if running and n == ingest.current
                  else "queued" if running else "unrecognized")
         out.append({"page": n, "state": state, "verdict": "", "findings": [],
-                    "reviewed": False, "did": "", "diagram_only": False, "error": "",
+                    "reviewed": False, "did": "", "review": "", "gate": "",
+                    "hints": {"diagrams": 0, "capture": 0},
+                    "diagram_only": False, "error": "",
                     "has_image": n in images})
     return sorted(out, key=lambda e: e["page"])
 
@@ -334,7 +397,8 @@ def typeset_png(out_dir: Path, outcome: PageOutcome) -> tuple[Path | None, str]:
     return png, ""
 
 
-def _revalidate(text: str, target: Path) -> tuple[bool, list[dict], str]:
+def _revalidate(text: str, target: Path,
+                outcome: PageOutcome | None = None) -> tuple[bool, list[dict], str]:
     """Re-run the gates on what the author actually saved.
 
     A `.fail.tex` name is one a build cannot pick up by accident. Once the defect is fixed,
@@ -347,15 +411,33 @@ def _revalidate(text: str, target: Path) -> tuple[bool, list[dict], str]:
     exists only during a run (see `PageOutcome.findings`). So a page quarantined *solely* for
     coverage cannot be released here — which is the honest outcome, since nothing available
     at this point can confirm the marks are accounted for. It is reported as still failing
-    rather than promoted on faith (DESIGN §5.7).
+    rather than promoted on faith (DESIGN §5.7). It is also **recorded as `skipped`**: it used
+    to vanish from the gates map on save, and an absent gate reads as a quiet pass.
+
+    Colour and pasted *are* re-run, from the source page — which an edit to the text does not
+    change. They used to be given up on (`colours=None`), so five saved pages of the author's
+    l3 run reported "not checked" for a question the file could answer.
     """
     standalone = "\\begin{document}" in text
+    source = Path(outcome.source) if outcome and outcome.source else None
+    colours = pasted = None
+    if source is not None and source.exists():
+        page = outcome.pdf_page
+        try:
+            colours = rasterize.ink_colours(source, page)
+        except rasterize.RasterizeError:
+            colours = None
+        try:
+            pasted = rasterize.embedded_images(source, page)
+        except rasterize.RasterizeError:
+            pasted = None
     gates = [
         ascii_gate.check(text, fragment=not standalone),
         delimiter_gate.check(text),
         reference_gate.check(text),
         repetition_gate.check(text),
-        colour_gate.check(text, colours=None),
+        colour_gate.check(text, colours=colours),
+        pasted_gate.check(pasted, regions=_pasted_regions_for(source, outcome)),
     ]
     gates.append(compile_gate.check(text, base_dir=target.parent) if standalone
                  else compile_gate.check_fragment(text, preamble=chapter_preamble([text]),
@@ -369,7 +451,18 @@ def _revalidate(text: str, target: Path) -> tuple[bool, list[dict], str]:
                 for f in g.failures]
     state = {g.gate: ("pass" if g.passed else "skipped" if not g.checked else "fail")
              for g in gates}
+    # Not re-runnable here, and silence would read as a pass.
+    state["coverage"] = "skipped"
     return (not findings), findings + advisory, json.dumps(state)
+
+
+def _pasted_regions_for(source: Path | None, outcome: PageOutcome | None):
+    if source is None or outcome is None or not source.exists():
+        return ()
+    try:
+        return rasterize.pasted_regions(source, outcome.pdf_page)
+    except rasterize.RasterizeError:
+        return ()
 
 
 def _amend_manifest(out_dir: Path, page: int, **fields) -> None:
@@ -752,7 +845,7 @@ class Handler(BaseHTTPRequestHandler):
             released = False
             if target.name.endswith(".fail.tex") and _fabrications_cleared(
                     match[0].findings or [], after):
-                clean, findings, gates = _revalidate(after, target)
+                clean, findings, gates = _revalidate(after, target, match[0])
                 if clean:
                     freed = target.with_name(target.name.replace(".fail.tex", ".tex"))
                     target.rename(freed)
@@ -855,7 +948,7 @@ class Handler(BaseHTTPRequestHandler):
         revalidated = quarantined = False
         if mode == "fix":
             was_quarantined = target.name.endswith(".fail.tex")
-            clean, findings, gates = _revalidate(after, target)
+            clean, findings, gates = _revalidate(after, target, match[0])
             if clean and was_quarantined:
                 released = target.with_name(target.name.replace(".fail.tex", ".tex"))
                 target.rename(released)
