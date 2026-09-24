@@ -180,6 +180,48 @@ measures output-distribution agreement entropy rather than token match, improvin
 detection F1 by 42% over VLM-as-judge, training-free. `qwen3-vl:8b-instruct` + `olmOCR-2-7B`
 is the natural pairing, and it targets the substitution class nothing else catches.
 
+### The olmOCR-2 A/B, run at last (2026-09-24)
+
+`PLAN.md` carried *"olmOCR-2-7B … strongest handwriting signal found. Not yet run"* since August.
+Run now, on seven pages chosen because we know what is on them, one pass each, our prompt,
+temperature 0.1, same Ollama runtime (`hf.co/richardyoung/olmOCR-2-7B-1025-GGUF`, Q8, 9.5 GB).
+
+**It is not a drop-in replacement, for one decisive reason.** On l3 p1 — a page with two
+hand-drawn figures — olmOCR transcribed the text and **silently dropped both drawings**: no
+marker, no mention, 267 characters against our 637. That is constraint #4/#5, the failure this
+project exists to refuse, and it is what an OCR model is *for*: text off a page. Our model marked
+both. On the ladder (§6.0a(ii)) olmOCR listed the rungs and the callouts as flat lines, losing the
+rung↔box **pairing** our model got right — so our table is a lossy reading of a structure it
+understood, and olmOCR's list is no reading of it at all.
+
+Three more differences, each measured:
+
+| | ours | olmOCR-2 |
+|---|---|---|
+| output shape | fragment | a whole document — `\documentclass`, `\usepackage` — which the fragment gate rejects |
+| the author's underline (a *label*, §11.0.1b) | `\underline{order}` | `\emph{order}` — renotation, constraint #5 |
+| runaway pages | loops on valenza p31 (15.9 KB) | **clean there** (1.5 KB) — and loops on valenza p280 (13.2 KB), where ours is fine |
+
+**And the result worth the download.** On l11 p10 — the page where `\forall A` became `\neq A`,
+turning reflexivity into a contradiction (§11.2.7):
+
+- ours emitted `A \leq A \neq A` — the substitution, again;
+- olmOCR emitted `A \leq A \ \# A` — it read the same `∀` as a **hash**.
+
+Neither is right, and **they are wrong differently, at exactly that token.** That is Consensus
+Entropy in miniature (this document, above): disagreement localises the defect without either
+model having to be correct — and unlike the Gemini second opinion (§5.5.6) it costs nothing off
+this machine, which constraint #7 cares about more than accuracy.
+
+A strict *"transcribe exactly, never correct the mathematics"* instruction was tested in the same
+run and changed nothing on the substitution page — and on l3 p1 it *lost* one of the two diagram
+markers. §11.0.1g's standard again: a prompt hint that changes things without improving them.
+
+**So: not a replacement, a second voice.** The next step is not swapping models; it is measuring
+whether disagreement between these two concentrates on the defects we know about.
+
+*n = 1 pass per page per condition, seven pages, our prompt rather than olmOCR's own.*
+
 ### Runtime alternatives — BaseRT assessed and declined (2026-08-20)
 
 Real product, not a garbled name: a native-Metal inference runtime for Apple Silicon

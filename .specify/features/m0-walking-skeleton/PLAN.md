@@ -127,7 +127,7 @@ Waves 1 and 2 run concurrently with each other and with 0.2/0.3. Wave 3 is the f
 | `qwen3-vl:4b` vs `:8b` comparison | **Closed and superseded.** The decisive variable was Thinking vs Instruct, not size — see D5. |
 | `brew install tectonic` | Deferred. `pdflatex` is present and hardcoded; tectonic is a CI-reproducibility swap |
 | `qwen2-math` as semantic checker | M1+. The only identified mechanism against semantic substitution |
-| olmOCR-2-7B / Nanonets-OCR2-3B / `q8_0` A/B | Recommended by research; strongest handwriting signal found. Not yet run. |
+| olmOCR-2-7B A/B | **Run 2026-09-24** — not a replacement (silently drops hand-drawn figures), but it fails *differently*: see DECISION. Nanonets-OCR2-3B and `q8_0` still unrun. |
 | Consensus-Entropy cross-check (two comparable VLMs) | The correct version of the ensemble idea; Tesseract/Jaccard was rejected on measurement. |
 
 ## Exit criterion
