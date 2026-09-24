@@ -8,6 +8,8 @@ could not produce. These go over HTTP.
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -16,7 +18,7 @@ from urllib.request import Request, urlopen
 import pytest
 
 from handzoo.adapters.ui_server import MODES, Handler, Review
-from handzoo.core.pipeline import read_manifest
+from handzoo.core.pipeline import PageOutcome, read_manifest
 
 
 @pytest.fixture
@@ -736,3 +738,52 @@ def test_the_diagram_chip_counts_markers_instead_of_reading_findings_prose(tmp_p
 def test_a_capture_is_reported_as_work_to_decide(tmp_path) -> None:
     pasted = [{"gate": "pasted", "detail": "1 pasted image on this page.", "line": None}]
     assert _row(tmp_path, findings=pasted)["hints"]["capture"] == 1
+
+
+@pytest.mark.skipif(not shutil.which("pdflatex") or not shutil.which("pdftocairo"),
+                    reason="pdflatex/poppler not installed")
+def test_saving_a_page_checks_its_colour_instead_of_shrugging(tmp_path: Path) -> None:
+    """Re-gating on save called the colour gate with `colours=None` -- "could not be
+    determined" -- though the row records the source PDF and the ink on a page does not change
+    when the author edits the text. On the author's l3 run, five saved pages read "not checked"
+    for a question the file could answer."""
+    from handzoo.adapters.ui_server import _revalidate
+    (tmp_path / "src.tex").write_text(
+        "\\documentclass{article}\\usepackage{tikz}\\pagestyle{empty}\\begin{document}"
+        "\\tikz\\draw[red] (0,0)--(3,2);\\tikz\\draw[blue] (0,0)--(2,3);\\end{document}\n",
+        encoding="utf-8")
+    subprocess.run(["pdflatex", "-interaction=nonstopmode", "src.tex"], cwd=tmp_path,
+                   capture_output=True, check=False)
+    outcome = PageOutcome(page=1, output=str(tmp_path / "page-0001.tex"), verdict="pass",
+                          gates={}, source=str(tmp_path / "src.pdf"))
+    _, _, gates = _revalidate("two inks on the page, none in the text\n",
+                              tmp_path / "page-0001.tex", outcome)
+    assert json.loads(gates)["colour"] in ("pass", "fail"), gates
+
+
+def test_saving_a_page_says_coverage_could_not_be_rechecked(server) -> None:
+    """Coverage needs the run's inventory, which no longer exists -- so after an edit it is
+    *not checked*, and the record has to say so. It used to vanish from the gates map
+    entirely, and silence reads as clean (§5.7, the fourth time in this codebase)."""
+    base, run = server
+    _post(base, "/api/save", {"page": 2, "mode": "fix", "text": "corrected words\n"})
+    (row,) = [o for o in read_manifest(run) if o.page == 2]
+    assert row.gates["coverage"] == "skipped", row.gates
+
+
+def test_acceptance_supersedes_the_gates_that_read_the_text(tmp_path) -> None:
+    """The author's question: once a page is accepted, which gates still matter? Only those
+    checking something *invisible in what they read* -- the build, the source's colour, and a
+    pasted capture's provenance. Coverage, repetition and reference are claims about the text,
+    and the author has just read it."""
+    unchecked = {"compile": "pass", "coverage": "skipped", "repetition": "skipped"}
+    assert _row(tmp_path, gates=unchecked)["gate"] == "not-checked"          # nobody looked yet
+    assert _row(tmp_path, gates=unchecked, log=["keep-reviewed"])["gate"] == "clean"
+
+
+def test_colour_unchecked_still_counts_after_acceptance(tmp_path) -> None:
+    """Shading that carries the mathematics -- an unclosed region is open because the boundary
+    line is *not* drawn -- is not in the text the author read, so accepting the page cannot
+    stand in for checking it."""
+    row = _row(tmp_path, gates={"compile": "pass", "colour": "skipped"}, log=["keep-reviewed"])
+    assert row["gate"] == "not-checked"

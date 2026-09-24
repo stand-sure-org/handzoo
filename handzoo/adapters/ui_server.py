@@ -37,7 +37,7 @@ from ..core.normalize import chapter_preamble
 from ..core.pipeline import PageOutcome, append_manifest, parse_excluded, read_manifest
 from ..core.validate.base import ADVISORY_GATES
 from ..core.validate import (ascii_gate, colour_gate, compile_gate, delimiter_gate,
-                             reference_gate, repetition_gate)
+                             pasted_gate, reference_gate, repetition_gate)
 
 from .ingest import MAX_UPLOAD, Ingest, IngestError, source_pdf, store_upload
 
@@ -117,7 +117,17 @@ and not one had been read. `keep-unreviewed` is accepted-without-inspection and 
 render as acceptance -- it is evidence of nothing (DESIGN 11.0.1h)."""
 
 
-def _gate_state(outcome: PageOutcome, findings: list[dict]) -> str:
+SURVIVES_ACCEPTANCE = frozenset({"compile", "colour", "pasted"})
+"""Gates still worth reporting once the author has accepted a page (author, 2026-09-24).
+
+A gate survives acceptance only if what it checks is **invisible in the thing they read**: the
+build (`compile`), the source's ink (`colour` — shading that carries the mathematics is not in
+the text), and a capture's provenance (`pasted`). Coverage, repetition and reference are claims
+about the text, and the author has just read it; their eyes beat the heuristic.
+"""
+
+
+def _gate_state(outcome: PageOutcome, findings: list[dict], accepted: bool = False) -> str:
     """clean | not-checked | advisory | failed -- what the machine can say about the page.
 
     *not-checked* is its own answer and not a quiet pass: a gate that could not run (colour on
@@ -130,7 +140,10 @@ def _gate_state(outcome: PageOutcome, findings: list[dict]) -> str:
         return "failed"
     if findings:
         return "advisory"
-    return "not-checked" if "skipped" in outcome.gates.values() else "clean"
+    unchecked = {g for g, v in outcome.gates.items() if v == "skipped"}
+    if accepted:
+        unchecked &= SURVIVES_ACCEPTANCE
+    return "not-checked" if unchecked else "clean"
 
 
 def _diagram_markers(outcome: PageOutcome) -> int:
@@ -190,7 +203,8 @@ def _pages(review: Review, ingest: Ingest | None = None) -> list[dict]:
                     "findings": findings, "reviewed": o.page in done,
                     "did": done.get(o.page, ""),
                     "review": REVIEW_STATE.get(verdicts.get(o.page, ""), ""),
-                    "gate": _gate_state(o, findings),
+                    "gate": _gate_state(o, findings,
+                                        accepted=verdicts.get(o.page) == "keep-reviewed"),
                     "hints": {"diagrams": markers,
                               "capture": sum(f.get("gate") == "pasted" for f in findings)},
                     # The only work left here is a crop -- the author's "fast review" hint.
@@ -383,7 +397,8 @@ def typeset_png(out_dir: Path, outcome: PageOutcome) -> tuple[Path | None, str]:
     return png, ""
 
 
-def _revalidate(text: str, target: Path) -> tuple[bool, list[dict], str]:
+def _revalidate(text: str, target: Path,
+                outcome: PageOutcome | None = None) -> tuple[bool, list[dict], str]:
     """Re-run the gates on what the author actually saved.
 
     A `.fail.tex` name is one a build cannot pick up by accident. Once the defect is fixed,
@@ -396,15 +411,33 @@ def _revalidate(text: str, target: Path) -> tuple[bool, list[dict], str]:
     exists only during a run (see `PageOutcome.findings`). So a page quarantined *solely* for
     coverage cannot be released here — which is the honest outcome, since nothing available
     at this point can confirm the marks are accounted for. It is reported as still failing
-    rather than promoted on faith (DESIGN §5.7).
+    rather than promoted on faith (DESIGN §5.7). It is also **recorded as `skipped`**: it used
+    to vanish from the gates map on save, and an absent gate reads as a quiet pass.
+
+    Colour and pasted *are* re-run, from the source page — which an edit to the text does not
+    change. They used to be given up on (`colours=None`), so five saved pages of the author's
+    l3 run reported "not checked" for a question the file could answer.
     """
     standalone = "\\begin{document}" in text
+    source = Path(outcome.source) if outcome and outcome.source else None
+    colours = pasted = None
+    if source is not None and source.exists():
+        page = outcome.pdf_page
+        try:
+            colours = rasterize.ink_colours(source, page)
+        except rasterize.RasterizeError:
+            colours = None
+        try:
+            pasted = rasterize.embedded_images(source, page)
+        except rasterize.RasterizeError:
+            pasted = None
     gates = [
         ascii_gate.check(text, fragment=not standalone),
         delimiter_gate.check(text),
         reference_gate.check(text),
         repetition_gate.check(text),
-        colour_gate.check(text, colours=None),
+        colour_gate.check(text, colours=colours),
+        pasted_gate.check(pasted, regions=_pasted_regions_for(source, outcome)),
     ]
     gates.append(compile_gate.check(text, base_dir=target.parent) if standalone
                  else compile_gate.check_fragment(text, preamble=chapter_preamble([text]),
@@ -418,7 +451,18 @@ def _revalidate(text: str, target: Path) -> tuple[bool, list[dict], str]:
                 for f in g.failures]
     state = {g.gate: ("pass" if g.passed else "skipped" if not g.checked else "fail")
              for g in gates}
+    # Not re-runnable here, and silence would read as a pass.
+    state["coverage"] = "skipped"
     return (not findings), findings + advisory, json.dumps(state)
+
+
+def _pasted_regions_for(source: Path | None, outcome: PageOutcome | None):
+    if source is None or outcome is None or not source.exists():
+        return ()
+    try:
+        return rasterize.pasted_regions(source, outcome.pdf_page)
+    except rasterize.RasterizeError:
+        return ()
 
 
 def _amend_manifest(out_dir: Path, page: int, **fields) -> None:
@@ -801,7 +845,7 @@ class Handler(BaseHTTPRequestHandler):
             released = False
             if target.name.endswith(".fail.tex") and _fabrications_cleared(
                     match[0].findings or [], after):
-                clean, findings, gates = _revalidate(after, target)
+                clean, findings, gates = _revalidate(after, target, match[0])
                 if clean:
                     freed = target.with_name(target.name.replace(".fail.tex", ".tex"))
                     target.rename(freed)
@@ -904,7 +948,7 @@ class Handler(BaseHTTPRequestHandler):
         revalidated = quarantined = False
         if mode == "fix":
             was_quarantined = target.name.endswith(".fail.tex")
-            clean, findings, gates = _revalidate(after, target)
+            clean, findings, gates = _revalidate(after, target, match[0])
             if clean and was_quarantined:
                 released = target.with_name(target.name.replace(".fail.tex", ".tex"))
                 target.rename(released)
