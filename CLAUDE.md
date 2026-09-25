@@ -288,14 +288,17 @@ at **122**, and the limit of 20 sits ~40x from either side. It does not claim a 
 free of invention — only free of invention that *repeats*.
 
 **That boundary is now measured, and it has a fixture.** `book-of-why` p6 carries **94 content
-words describing a drawing** — "a flowchart with nodes C, D and B, the arrow from C to D is
-labeled A=true" — where the page has ordinary prose. ASCII-clean, balanced, non-repeating,
-**every gate passes**. Its sibling p7 ran the same fabrication to 5,296 words and
-`repetition_gate` refuses it. So: our invention is caught exactly when it repeats, and p6 is
-what it looks like when it does not. A second local transcript detects that class and **nothing
-else** (0 of 13 substitution and omission sites at every threshold) — but only 2 of 6 invention
-sites on pages the gates already pass, because 4 of them are a single token. **Not a gate, on
-n=3.** See DESIGN §5.5.6b.
+words of the recognizer narrating its own handling of the page** — prose explaining that the
+drawing is hand-drawn and has therefore been included as an image, with the page's variables
+woven through it. The author deleted all 94. Re-gated it is ASCII-clean, balanced and
+**non-repeating**, so `repetition_gate` cannot see it (compile, coverage, colour and pasted were
+not re-run against that exact text). Its sibling p7 ran a fabrication to 5,296 words and
+`repetition_gate` **does** refuse it. So: our invention is caught when it repeats, and p6 is
+what it looks like when it does not — and the fabrication is not always about the mathematics,
+since here the model wrote about *itself* into the document. A second local transcript reaches
+2 of 6 invention sites on pages the gates already pass (4 of the 6 misses are a single token);
+its apparent specificity against substitution and omission is mostly an artefact of counting
+*our* tokens. **Not a gate, on n=3.** See DESIGN §5.5.6b.
 
 ## Polish is not correction (DESIGN §11.3.1)
 

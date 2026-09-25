@@ -238,8 +238,10 @@ def already_refused(text: str) -> bool:
 def invention(pages: list[dict], transcripts: Path, threshold: int) -> None:
     """Does a long one-sided run against the second transcript mark invention specifically?
 
-    Measured 2026-09-25 (§5.5.6b): on pages no existing gate refuses, 2 of 6 invention sites,
-    and **0 of 9** substitution or omission sites -- specific, and far too partial to gate on.
+    Measured 2026-09-25 (§5.5.6b): on pages no existing gate refuses, 2 of 6 invention sites.
+    It fires on none of the 9 substitution or omission sites there -- but that is largely
+    circular, because an omission contributes none of *our* tokens and a substitution is short
+    by `classify`'s own definition. Far too partial to gate on either way.
     """
     from handzoo.core.validate import ascii_gate  # noqa: F401  (import cost lives here)
     tally: dict = defaultdict(lambda: defaultdict(int))

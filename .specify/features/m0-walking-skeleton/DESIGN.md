@@ -1080,12 +1080,17 @@ and a projected window cannot be trusted on single tokens.
 | it did not | 5 | `b/w`→`btw`, `22.9`→`22.4`, `e`→`ge`, and two it simply lacked |
 | ambiguous | 2 | single letters (`f` against `g`) in a page full of both |
 
-**And the split is by defect class, which is the finding.** Six of the seven are one event:
-our recognizer invented a **flowchart description as body text** — "nodes labeled…, the arrow
-from C to D is unlabeled…" — where the page carries ordinary prose. olmOCR transcribed the
-prose. That is the same class as §5.5.6's ch17 catch, which was also an invention, and it is a
-class no gate holds: `repetition_gate` catches invention that *repeats* (§11.0.1f), and this
-one does not repeat.
+**And the split is by defect class, which is the finding.** Six of the seven are one document:
+our recognizer wrote prose about the drawing into the body text, and olmOCR transcribed what
+the page actually says. That is the same class as §5.5.6's ch17 catch, which was also an
+invention.
+
+**Corrected 2026-09-25, and it matters:** five of those six are one page whose emitted text
+**`repetition_gate` already refuses** — the fabrication ran to 5,296 content words. Only one of
+the seven hits is on a page that passes the gates. So the original claim here, that this is "a
+class no gate holds", was true of the class and false of the evidence: the evidence was mostly
+a page we already catch. What survives is a single gate-passing instance, which is what
+§5.5.6b sets out to test and is also why that test is underpowered.
 
 Where the defect is instead a **token-level substitution** — a shorthand expanded, a
 proposition number changed, a letter swapped — the second model is usually wrong too, and the
@@ -1157,13 +1162,21 @@ stopped them:
 **Verdict under the written rule: no gate.** 2 of 6 is 0.33 against a 0.7 bar. Restricted to
 multi-token invention it is 2 of 3, which is still under the bar and is n = 3.
 
-**But the shape of the failure is worth keeping, and it is the exact inverse of §5.5.6a.**
-Across every threshold at or above 2, the detector fires on **0 of 13** substitution and
-omission sites while catching invention. It is not a weak general detector; it is a *specific*
-and *partial* one. What limits it is reach, not noise: **4 of the 12 invention sites are a
-single token**, which no length threshold can see — that is a flaw in the label set I
-pre-registered, not a result. The pages the gates already refuse are where its recall looks
-good (5/6), and those are precisely the pages where it is worth nothing.
+**The shape of the failure, with the part that is circular removed.** At thresholds of 2 and
+above the detector fires on **0 of the 11** substitution and omission sites while still catching
+invention — but most of that is built into the method and must not be reported as a finding: an
+**omission contributes none of our tokens**, so a detector counting our tokens can only reach
+one by accident, and a **substitution is short by the classifier's own definition**. It is the
+same length bias that was pre-registered as a limit on recall, reappearing as flattering
+specificity. (At T = 1 it is not even specific: 3 of 7 substitutions and 1 of 4 omissions.)
+
+**What is left that is not circular** is small and is the only specificity evidence worth
+quoting: **1 of 24** accepted pages fires, and **0 of 5** unanchored pages do.
+
+What limits recall is reach: **4 of the 12 invention sites are a single token**, which no length
+threshold can see — a flaw in the label set I pre-registered, not a result. And the pages where
+its recall looks good (5 of 6) are the pages an existing gate already refuses, which is where a
+new detector is worth nothing.
 
 **The one false positive was hand-read, and it is real but explicable.** ch22 p22 fires on two
 spans inside an `align*` block: both models read the same four rows and emitted them in a
@@ -1176,24 +1189,33 @@ The detector raised **0 flags on all five, and made no false positives there**; 
 present are 1 and 2 tokens, below reach. Two things follow, both small-n and both worth
 recording:
 
-- those five pages carry **12 substitution sites** against **7 across the 31 corrected pages** —
-  roughly 2.4 per page unanchored against 0.2 per page anchored. That is a direct measurement of
-  what §11.0 warned about: correction happens *after reading our output*, and the correction log
-  therefore under-counts substitution badly. It is evidence about the labels, not the detector.
+- a word-level diff against those transcripts shows far more substitution sites per page than
+  the correction log does. **That number is not reportable and is deliberately not given here.**
+  Two of the five "ours" texts are `.fail.tex` — a quarantined population, not a comparable one;
+  the transcripts are in the author's own working format (markdown headings, `% insert snippet`)
+  rather than ours, so style counts as substitution; and §11.0 already records that on two of
+  these pages *the human arm was the less accurate one*, so some of the difference is the
+  transcript's. The hypothesis that the correction log under-counts substitution remains
+  plausible and **cannot be read from this data**.
 - invention on those pages was short. The long fabrications are attested elsewhere, not here.
 
 **What was demonstrated along the way, and matters more than the detector.** `book-of-why` p6
-is a clean instance of the dangerous class: **94 content words describing a drawing** — "a
-flowchart with nodes C, D and B, the arrow from C to D is labeled A=true" — where the page
-carries ordinary prose. It is ASCII-clean, balanced, non-repeating, and **passes every gate**.
-Its sibling p7 ran the same fabrication to 5,296 content words, and `repetition_gate` **does**
-refuse that one. So the boundary is now measured: our invention is caught exactly when it
-repeats, and p6 is what it looks like when it does not.
+carries **94 content words of the recognizer narrating its own handling of the page** — prose
+explaining that the drawing is hand-drawn, cannot be rendered directly, and has therefore been
+included as an image, with the page's own variable names woven through it. The author deleted
+all 94. Re-gated, that text is **ASCII-clean, balanced, and non-repeating**, so
+`repetition_gate` cannot see it; compile, coverage, colour and pasted were *not* re-run against
+this exact text and no claim is made about them. Its sibling p7 ran a fabrication to 5,296
+content words and `repetition_gate` **does** refuse that one.
+
+So the boundary is now measured rather than asserted: **our invention is caught when it repeats,
+and p6 is what it looks like when it does not.** It is also a reminder that the fabrication is
+not always about the mathematics — here the model wrote *about itself* into the document.
 
 **Standing conclusion.** No gate on n = 3. The class is real, named, and now has a fixture
 (`book-of-why` p6). The detector that would catch it needs either reach below three tokens —
-which this one cannot have without flagging 46% of every page, measured — or a different
-signal entirely.
+which this one cannot have, since at T = 1 it fires on **11 of the 24 accepted pages** — or a
+different signal entirely.
 
 **Compare text, not markup.** The naive form fails: diffing the emitted `.tex` surfaces
 formatting (`\item` against `\\`, `\section` against `\section*`) and buries the finding. Words
