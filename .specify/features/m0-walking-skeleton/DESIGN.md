@@ -1011,17 +1011,21 @@ Two real findings out of four flags, on a page every gate passed. The dropped `1
 constraint 5 violation that no gate saw and no human noticed, including me, across a chapter I
 had already read and shipped.
 
-#### 5.5.6a A *local* second voice is not that detector — measured 2026-09-25, 31 corrected pages
+#### 5.5.6a olmOCR-2 as a local second voice — measured 2026-09-25, 31 corrected pages
 
 The evidence above is one page against a frontier model. This is the same idea run against a
 **local peer** — olmOCR-2-7B (Q8, 9.5 GB, on this machine) — over every page in the corpus
 where the author's own correction says what the defects were. It does not work, and the shape
 of the failure says why.
 
-**Pre-registered, and the rule was written to the scratchpad before any number was computed:**
+**Pre-registered, and the rule was written to disk before any number was computed:**
 "concentrates" required the recall of author-edit sites to be **>= 2x** a shifted-null recall,
 with a bootstrap CI over *pages* excluding 1.0. Anything between 1 and 2 was to be reported as
-*weak and not worth a gate*. Nothing below was renegotiated afterwards.
+*weak and not worth a gate*. The rule was not renegotiated afterwards. The **scorer** was
+changed after looking at the flags on three pages and before any overlap was computed: a bug
+that lowercased the diagram sentinel into the word "diagram", plus equalizing math delimiters
+and dropping environment names, both of which are house style rather than disagreement about
+the page.
 
 **The design.** Three texts per page — what we emitted (`Correction.before`), what the author
 made it (`after`), and olmOCR's transcription put through **the same emitter**, so normalizer
@@ -1032,10 +1036,16 @@ Preamble, generated declarations and `%` comments are cut; diagram markers and
 diagram description and leaving them in manufactures a hit. Scored at two levels: LaTeX tokens,
 where `\mathcal` against `\mathbb` is visible, and content words, where markup taste is not.
 
-**Page selection is where the labels are won or lost.** 55 pages survived: 31 the author
-corrected, 24 the author read and accepted. Dropped: 11 carrying an `authored` row (polish is
-not correction, §11.3.1 — including it would label taste as defect), 5 whose edit chain did not
-join up, 20 whose only verdicts were `cropped`, `skipped` or `transcribed`.
+**Page selection is where the labels are won or lost.** Of **98** pages carrying any verdict,
+55 survived: 31 the author corrected, 24 the author read and accepted. Dropped:
+
+| n | why |
+|---|---|
+| 20 | a `cropped` verdict. GOLD, and excluded anyway: a crop changes the text by adding a figure the second model cannot produce |
+| 11 | carries an `authored` row — polish is not correction (§11.3.1); including it labels the author's taste as our defect |
+| 5 | the edit chain did not join up, so first-`before` against last-`after` is not one correction |
+| 5 | mixed with `skipped` or `flagged` — verdicts that judge nothing |
+| 2 | `transcribed`: the control arm, which never looked at our output |
 
 | | LaTeX tokens | content words |
 |---|---|---|
@@ -1059,19 +1069,40 @@ the same sweep (1.73, 1.70, 1.68, 1.79), which is a small real effect — and it
 reproduces this section's own "compare text, not markup", now with a number on it: stripping
 markup convention cuts flagged share from 36% to 11% and raises the ratio.
 
-**The measurement that settles it: at a flagged defect site, was the second model right?** Of
-the 14 sites where a disagreement landed on something the author actually corrected, olmOCR
-carried the author's text at **4**. So a flag usually means *the two models disagree and
-neither one has the page* — it cannot be turned into a correction, only into "look here", and
-"look here" already covers 11% of every page. (Long replaced spans align only approximately, so
-4/14 is a floor rather than a point estimate; it is not a floor that rescues the idea.)
+**Post-hoc, and hand-read: at a flagged defect site, was the second model right?** All 14
+content-word sites where a disagreement landed on something the author corrected were read
+individually, because automatic alignment of long replaced spans was wrong in both directions
+and a projected window cannot be trusted on single tokens.
+
+| | n | |
+|---|---|---|
+| the second model had the author's text | **7** | 6 of them on one document |
+| it did not | 5 | `b/w`→`btw`, `22.9`→`22.4`, `e`→`ge`, and two it simply lacked |
+| ambiguous | 2 | single letters (`f` against `g`) in a page full of both |
+
+**And the split is by defect class, which is the finding.** Six of the seven are one event:
+our recognizer invented a **flowchart description as body text** — "nodes labeled…, the arrow
+from C to D is unlabeled…" — where the page carries ordinary prose. olmOCR transcribed the
+prose. That is the same class as §5.5.6's ch17 catch, which was also an invention, and it is a
+class no gate holds: `repetition_gate` catches invention that *repeats* (§11.0.1f), and this
+one does not repeat.
+
+Where the defect is instead a **token-level substitution** — a shorthand expanded, a
+proposition number changed, a letter swapped — the second model is usually wrong too, and the
+flag is two models missing the page in different ways.
+
+So the honest reading is narrower than either "it works" or "it does not": **site-level, it is
+diluted past usefulness** (11% of every page flagged, 1.68x chance), **and inside that dilution
+the hits concentrate on fabricated prose.** Nothing here licenses a gate. What it does license
+is a hypothesis with a name: the second voice is worth testing against *invention*
+specifically, which is a rarer and far more checkable target than "substitution".
 
 **Nor does it triage pages** (post-hoc, not pre-registered): flagged share separates corrected
 from accepted pages at AUC 0.52 (LaTeX, p = 0.37) and 0.60 (words, p = 0.096).
 
-**What this does and does not license.** It is a result about *this pairing* — two locally-runnable
-VLMs of similar scale, and plausibly of overlapping training data, which is precisely the
-independence the detector needs and may not have. The n=1 positive above used a frontier model
+**What this does and does not license.** It is a result about *this pairing, under these
+conditions* — two locally-runnable VLMs of similar scale, and plausibly of overlapping training
+data, which is precisely the independence the detector needs and may not have. The n=1 positive above used a frontier model
 from a different provider, and **that pairing is untouched by this** — it is also the one that
 costs the local-first guarantee (constraint #7), so the question it raises is a price, not a
 capability. What is now measured is that the **free** version of the detector does not pay.
@@ -1080,9 +1111,11 @@ capability. What is now measured is that the **free** version of the detector do
 read our output first and is anchored by it, so defects that survive correction are invisible
 to this test by construction (§11.0). "Accepted" pages are *accepted*, never *clean* — this
 project's own notes cite 20-30% inspector miss rates. 23 content-word sites is a small number
-and the CIs are wide. And whether the historical runs had lexicon tokens appended is recorded
-nowhere, so the two arms' prompts are known to differ only in that they were both the standing
-`TRANSCRIBE_PROMPT` with no lexicon on the olmOCR side.
+and the CIs are wide. **And olmOCR was not run at its best:** it was given our standing `TRANSCRIBE_PROMPT` rather
+than the prompt format it was fine-tuned on, so this is plausibly off-distribution for it, and
+the weights are a community Q8 GGUF rather than the reference ones. Nor is it recorded anywhere
+whether the historical qwen runs had lexicon tokens appended, so the two arms' prompts cannot be
+stated to have been equal — only that the olmOCR side had no lexicon.
 
 **Cost, for scale:** 55 pages at ~15s each on the local GPU, and nothing left the machine.
 
