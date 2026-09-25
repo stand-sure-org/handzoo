@@ -239,3 +239,101 @@ def test_a_page_with_no_ink_still_reports_not_checked(tmp_path, monkeypatch) -> 
     """None means "could not be determined", and must not become "no colour to lose" (§5.7)."""
     monkeypatch.setattr(rasterize, "_svg", lambda pdf, page: RULE + BACKGROUND)
     assert rasterize.ink_colours(tmp_path / "x.pdf", 1) is None
+
+
+# ------------------------------------ masked ink: the highlighter, the shader, and white
+
+def _masked(mask_id: str, d: str, colour: str, opacity: str = "1") -> str:
+    """How reMarkable's highlighter, marker and shader reach the file, attribute for attribute.
+
+    The *shape* is a white-stroked stencil inside a `<mask>`; the *colour* is a page-sized
+    `<rect>` painted through it. Both the mask and the group wrap their content in a
+    `translate(51.4, 68.5)` that the page's own root group cancels -- so the mark's real place
+    is the path's own matrix, and accumulating the enclosing transforms would move it.
+    """
+    return (f'<mask id="{mask_id}"><g transform="translate(51.4, 68.5)">'
+            f'<path fill="none" stroke-width="9.515418" stroke="rgb(100%, 100%, 100%)" '
+            f'stroke-opacity="1" transform="matrix(1, 0, 0, -1, 0, 685)" d="{d}"/></g></mask>'
+            f'<g id="compositing-group-{mask_id}" mask="url(#{mask_id})">'
+            f'<g transform="translate(51.4, 68.5)">'
+            f'<rect x="-51.4" y="-68.5" width="616.8" height="822" fill="rgb({colour})" '
+            f'fill-opacity="{opacity}"/></g></g>')
+
+
+HIGHLIGHT = _masked("m1", "M 100 100 L 200 200 ", "100%, 33.332825%, 81.175232%")
+SHADE = _masked("m2", "M 300 300 L 380 360 ", "0%, 0%, 0%", "0.25098")
+# A mask made of page-sized rects rather than strokes: an opacity layer in the compositing
+# tree, not a mark. 36 of the 108 masks on the author's test page are these.
+ALPHA_LAYER = (
+    '<g id="cg-0"><rect x="-51.4" y="-68.5" width="616.8" height="822" '
+    'fill="rgb(100%, 100%, 100%)" fill-opacity="1"/></g>'
+    '<mask id="m3"><use xlink:href="#cg-0"/></mask>'
+    '<g mask="url(#m3)"><g transform="translate(51.4, 68.5)">'
+    '<rect x="-51.4" y="-68.5" width="616.8" height="822" fill="rgb(0%, 0%, 0%)" '
+    'fill-opacity="1"/></g></g>')
+# A white pen stroke inside the highlighted region -- painted, not a stencil.
+WHITE_ON_PINK = ('<path fill="none" stroke-width="1.9" stroke="rgb(100%, 100%, 100%)" '
+                 'stroke-opacity="1" transform="matrix(1, 0, 0, -1, 0, 685)" '
+                 'd="M 120 120 L 130 130 "/>')
+# And white on bare paper: a filled path, the shape the hidden scribble arrives in.
+WHITE_ON_PAPER = ('<path fill-rule="nonzero" fill="rgb(100%, 100%, 100%)" fill-opacity="1" '
+                  'd="M 400 400 L 410 410 Z "/>')
+
+
+def test_ink_painted_through_a_mask_is_ink_and_the_stencil_is_not() -> None:
+    """Measured on the author's white-test page: a highlighter, a marker and a shader put their
+    colour on a `<rect>` painted through a stencil, and the only `<path>` elements involved are
+    the stencil, stroked white. Reading paths alone therefore did both halves wrong at once --
+    it reported *white* ink the page does not have (`l3` p4: "black and white"), and missed
+    every colour the author actually used."""
+    colours = rasterize.ink_colours_from_svg(HIGHLIGHT + FILLED)
+    assert (255, 85, 207) in colours, "the highlighter's pink"
+    assert (48, 74, 224) in colours, "the pen it was drawn over"
+    assert (255, 255, 255) not in colours, "the stencil is a shape, not a mark"
+
+
+def test_a_masked_mark_is_the_colour_the_reader_sees() -> None:
+    """The shader is black at a quarter opacity, and nothing on the page is a grey rect. Reading
+    the nominal fill would file the author's shading under the same colour as their pen -- which
+    is the distinction the colour gate exists to keep. Composited over the paper it is
+    (191, 191, 191), and that is exactly what the rendered page's pixels are."""
+    assert rasterize.ink_colours_from_svg(SHADE) == ((191, 191, 191),)
+
+
+def test_an_opacity_layer_is_not_a_mark() -> None:
+    """A third of the masks on that page are page-sized rects masked by page-sized rects -- the
+    compositing tree, not ink. Counting them would put a full-page black mark on every page that
+    uses a highlighter, and the crop tool would offer the whole sheet as a region."""
+    assert rasterize.ink_paths(ALPHA_LAYER) == []
+
+
+def test_a_masked_mark_is_where_its_stencil_is() -> None:
+    """`page_blocks` feeds the crop tool, and a block is only useful if it is in the right
+    place: the mark's box comes from the stencil, never from the page-sized rect that colours
+    it, and from the path's own matrix, never from the transforms wrapped around it."""
+    blocks = rasterize.blocks_from_svg(HIGHLIGHT)
+    assert len(blocks) == 1
+    assert blocks[0].region == {"x": 100, "y": 485, "width": 100, "height": 100}
+
+
+def test_white_over_colour_is_ink_and_white_on_paper_is_the_paper() -> None:
+    """The author made a page with both, deliberately: white marks inside the pink highlighter,
+    which a reader sees, and a white scribble on white paper, which nobody sees -- not a reader
+    and not a recognizer. They arrive in different shapes, and that is what separates them: the
+    visible marks are *stroked* white, the invisible scribble is 111 white *fills*, which are
+    the shape the page's own background arrives in (`BACKGROUND_MIN`).
+
+    So the second is dropped for being background, not for being invisible. A white mark painted
+    somewhere nobody can see it would still be reported; no page has produced one.
+    """
+    colours = rasterize.ink_colours_from_svg(HIGHLIGHT + WHITE_ON_PINK + WHITE_ON_PAPER)
+    assert (255, 255, 255) in colours and (255, 85, 207) in colours
+    assert len(rasterize.ink_paths(HIGHLIGHT + WHITE_ON_PAPER)) == 1, "the scribble is not ink"
+
+
+def test_an_svg_that_cannot_be_read_says_so() -> None:
+    """Rule 6. Reading the file is now parsing, which can fail where a regex only found
+    nothing -- and "could not look" must not arrive as "nothing to lose"."""
+    assert rasterize.ink_paths("<svg><path d=") is None
+    assert rasterize.ink_colours_from_svg("<svg><path d=") is None
+    assert rasterize.blocks_from_svg("<svg><path d=") == ()

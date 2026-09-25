@@ -1284,6 +1284,85 @@ no test could reach it without a PDF that had the second pen's output — and ev
 suite came from the first. Extracting it as a pure function over SVG text is what makes both
 shapes testable at all.
 
+#### Measured 2026-09-25: a third shape — the highlighter is a stencil, and the stencil was read as white ink
+
+The author made a page carrying a highlighter, a shader, a marker, three pens, **white marks
+inside the highlighted region**, and **a white scribble on white paper** — and asked what we do
+with it. The reader said *blue, black, green, red and white*. Of the page's 39 white strokes, **35 were
+stencils** — shape, not ink — and it was those that put white in the answer; the other 4 are real
+marks over the highlighter. And the two colours a reader sees first, the pink blob and the grey
+shade, were invisible to us entirely.
+
+Both halves are the same defect. reMarkable's highlighter, marker and shader do not export as
+coloured paths:
+
+```xml
+<mask id="mask-2"><g transform="translate(51.4, 68.5)">
+  <path stroke="rgb(100%, 100%, 100%)" transform="matrix(1, 0, 0, -1, 0, 685)" d="M 159 598 …"/>
+</g></mask>
+<g mask="url(#mask-2)"><g transform="translate(51.4, 68.5)">
+  <rect x="-51.4" y="-68.5" width="616.8" height="822" fill="rgb(100%, 33.3%, 81.2%)"/>
+</g></g>
+```
+
+The **shape** is a white-stroked stencil inside a `<mask>`; the **colour** is a page-sized
+`<rect>` painted through it. A reader of `<path>` elements therefore finds only the stencil,
+and reports its white — ink the page does not carry. On `l3` p4 that came out as *"2 distinct
+ink colours … rgb(0,0,0), rgb(255,255,255)"*, while the page's actual highlighter went unseen.
+A false positive and a false negative from one cause, which is why it survived: the gate was
+firing, so it looked like it was working.
+
+**Three things the fix has to get right, each measured on that page:**
+
+1. **Geometry from the stencil, never from the rect**, which is always the whole sheet. Colour
+   feeds a gate, but the same boxes feed `page_blocks` and the crop tool *acts* on them: a
+   block in the wrong place is worse than no block.
+2. **Only the path's own matrix.** The stencil sits inside `translate(51.4, 68.5)` and the root
+   group that draws it carries `translate(-51.4, -68.5)`; the two cancel. Accumulating ancestor
+   transforms — the obvious way to write it — moves every masked mark 51pt across and 68pt down.
+3. **An opacity layer is not a mark.** 36 of the page's 108 masks are page-sized rects masked by
+   page-sized rects: the compositing tree, not ink. Counting them puts a full-page black mark on
+   every page that used a highlighter, and offers the whole sheet as a crop region.
+
+**Colour is composited over the paper by `fill-opacity`.** The shader is black at `0.25098`, and
+nothing on the page is a grey rect. Reporting the nominal black would file the author's shading
+under the same colour as their pen — the distinction this gate exists to keep. The arithmetic is
+checkable against the raster and was checked: 0.251 black gives (191, 191, 191), 0.251 of
+(30, 26, 26) gives (199, 198, 198), and those are exactly the two greys the rendered page
+contains.
+
+**Swept before and after across every local corpus and the repo's own fixtures — 832 pages,
+12 changed** (11 in the
+642-page notebook, plus `l3` p4). All 12 lost a false white; **none gained white**, none became
+unreadable, and **the colour gate's verdict flipped on no page in either direction** — which
+matters because `colour` is in `SURVIVES_ACCEPTANCE`, so a flip would have re-opened pages the
+author had already accepted. Every newly reported colour was checked against the rendered
+pixels of its own page: 14 new colours, 14 present, 0 invented — and for the two greys, where a
+near-match would prove little against antialiased black, the check was tightened to the mark's
+own box, where (199, 199, 198) is the dominant pixel, 15,985 of them on p617.
+
+##### The two whites, and why only one is ink
+
+The author's fixture was built to separate them, and they come out right for *different*
+reasons — which is worth stating plainly rather than claiming a visibility test we do not have:
+
+| | in the file | reported? |
+|---|---|---|
+| white marks inside the pink | 4 **stroked** white paths, drawn over the highlighter | **yes** — real marks |
+| the hidden scribble | 111 white **fills** on bare paper | no — `BACKGROUND_MIN` |
+
+The second is dropped for arriving in the shape the page's own background arrives in, **not**
+for being invisible. A white mark painted somewhere nobody can see it would still be reported;
+no page has produced one, so no rule was written for one. The contextual rule this invites —
+*near-white is ink only where it overlaps colour* — would have changed nothing on the fixture,
+which is the same reason the `\mathcal` prompt hint was not shipped (§11.0.1g). If an eraser
+stroke ever turns up as a white-painted masked group, that is the measured instance.
+
+**Reading the file is now parsing, which can fail where a regex only found nothing.** So
+`ink_paths` returns **None** for an SVG it cannot read, the colour gate reports *not checked*,
+and `page_blocks` offers nothing — rule 6, with a test on the failure path itself rather than on
+the happy one.
+
 ### 6.0 Diagram disposition — three outcomes, not two
 
 v1.0 treated every diagram identically: crop, reference, `% TODO: author diagram`. That framing
