@@ -35,7 +35,7 @@ from . import store
 LOG_NAME = "corrections.jsonl"
 
 Verdict = Literal["keep-reviewed", "keep-unreviewed", "edited", "cropped", "flagged",
-                  "skipped", "transcribed", "authored"]
+                  "skipped", "transcribed", "authored", "final"]
 """What the human did.
 
 `keep-reviewed` — looked at it and accepted it.
@@ -46,6 +46,10 @@ Verdict = Literal["keep-reviewed", "keep-unreviewed", "edited", "cropped", "flag
                    seconds-per-crop is most of the exit criterion, not a footnote in it.
 `flagged`        — wrong, and the human could not or would not fix it now.
 `skipped`        — deferred. Same evidentiary weight as `keep-unreviewed`: none.
+`final`          — the author's judgement that a page they *worked on* needs no more attention.
+                   A tick on the surface, like `keep-reviewed`, and deliberately **not** the same
+                   row: "the tool got this right" is evidence about the recognizer, "I fixed it
+                   and it is done" is a fact about the page (DESIGN §12.7).
 `transcribed`    — typed the page from blank, against the image alone. **Not a verdict on the
                    emitted document at all** — it is the control arm of the exit criterion, and
                    ground truth for the page. Deliberately outside GOLD: folding it in would
@@ -96,7 +100,7 @@ def protected_pages(out_dir: Path) -> dict[int, str]:
     """
     kept: dict[int, str] = {}
     for row in current(out_dir):
-        if row.verdict in GOLD | AUTHORING:
+        if row.verdict in GOLD | AUTHORING | {"final"}:
             kept[row.page] = "carries your corrections"
     births = store.born(out_dir)
     snapshots = out_dir / PRISTINE

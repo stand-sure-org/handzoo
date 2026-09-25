@@ -81,8 +81,13 @@
   textarea { flex:1; border:0; padding:.9rem; font:13px/1.6 ui-monospace,SFMono-Regular,monospace;
              background:var(--panel); color:var(--ink); resize:none; }
   textarea:focus { outline:2px solid var(--accent); outline-offset:-2px; }
-  footer { border-top:1px solid var(--line); padding:.55rem 1rem; display:flex; gap:.6rem;
-           align-items:center; flex-wrap:wrap; }
+  .acts { border-top:1px solid var(--line); padding:.5rem .7rem; display:flex; gap:.5rem;
+          align-items:center; flex-wrap:wrap; }
+  .why { padding:0 .7rem .5rem; }
+  /* Read-only is the resting state: a page is not edited by accident. */
+  textarea[readonly] { background:var(--bg); color:var(--dim); }
+  .pane.editing textarea { outline:2px solid var(--accent); outline-offset:-2px; }
+  .pane.editing .phead { color:var(--accent); }
   button.act { padding:.4rem .8rem; border:1px solid var(--line); border-radius:5px;
                background:var(--panel); color:inherit; font:inherit; cursor:pointer; }
   button.act:hover:not(:disabled) { border-color:var(--accent); }
@@ -212,19 +217,20 @@
         <span class="sizer"><button data-scale="tex" data-d="-1">−</button>
         <span id="s-tex">100%</span><button data-scale="tex" data-d="1">+</button></span></div>
       <div class="findings" id="findings"></div>
-      <textarea id="tex" spellcheck="false" placeholder="select a page"></textarea>
+      <textarea id="tex" spellcheck="false" readonly placeholder="select a page"></textarea>
+      <div class="acts">
+        <button class="act" id="accept" disabled>Looks right</button>
+        <button class="act" id="fix" disabled>Fix transcription</button>
+        <button class="act" id="author" disabled>Edit my notes</button>
+        <button class="act" id="flag" disabled>Flag</button>
+        <span id="ack"></span>
+      </div>
+      <div class="why" id="why"><b>Looks right</b> records that you read it and it is correct —
+        evidence no gate can produce. Only <b>fix</b> measures the tool.</div>
     </div>
   </section>
 </main>
 
-<footer>
-  <button class="act" id="accept" disabled>Looks right</button>
-  <button class="act" id="fix" disabled>Fix transcription</button>
-  <button class="act" id="author" disabled>Edit my notes</button>
-  <span id="ack"></span>
-  <span class="why"><b>Looks right</b> records that you read it and it is correct — evidence no
-  gate can produce. Only <b>fix</b> measures the tool.</span>
-</footer>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -232,7 +238,8 @@ let pages = [], current = null, opened = 0, original = "";
 // A page the surface opened by itself is timed from the author's first touch of it, not
 // from launch: `opened` feeds the correction arm, and time spent away from the machine is
 // not time spent correcting.
-let awaitingTouch = false;
+let awaitingTouch = false;   // kept only for the accept clock; modes time themselves
+let mode = null, modeStart = 0;
 // Three things are true of a page at once, so a row says three things: what you did with it,
 // what the gates found, and what work is left. The tick belongs to "Looks right" alone -- it
 // used to mean "no gate complained", which every page of a
@@ -341,6 +348,56 @@ function renderFindings(page) {
        statement that the page is correct.</div>`;
 }
 
+// The surface is a state machine (DESIGN 12.7): reading, fixing, authoring. A mode is entered
+// *before* typing -- which is what makes the fix/author split structural rather than a label
+// chosen afterwards -- and it brackets the measured interval, so reading time is not counted as
+// correcting time.
+function setMode(m) {
+  touched();                 // entering a mode is the author arriving at the page
+  mode = m;
+  modeStart = m ? performance.now() : 0;
+  $("tex").readOnly = !m;
+  $("pane-tex").classList.toggle("editing", !!m);
+  $("fix").textContent = m === "fix" ? "Finish fix" : "Fix transcription";
+  $("author").textContent = m === "author" ? "Finish" : "Edit my notes";
+  if (!m) { clearTimeout(pending); pending = null; }
+  refreshActions();
+}
+
+function refreshActions() {
+  const p = pages.find(x => x.page === current);
+  const none = !p || PENDING.has(p.state);
+  const worked = p && ["worked", "final", "accepted"].includes(p.review);
+  $("fix").disabled = none || mode === "author";
+  $("author").disabled = none || mode === "fix";
+  // Offered exactly while the text on disk is still the tool's output: accepting one's own
+  // correction would file it in the corpus as the recognizer's work (DESIGN 12.7).
+  $("accept").disabled = none || !!mode || worked;
+  $("accept").title = worked ? "you have worked on this page — use Done to finish it" : "";
+  $("flag").disabled = none || !!mode;
+}
+
+// Ending a mode records the work, or records nothing at all when there is none: a zero-diff row
+// would pollute the taxonomy and drag the timing medians (author's ruling).
+async function endMode() {
+  if (!mode) return;
+  const m = mode, seconds = (performance.now() - modeStart) / 1000, text = $("tex").value;
+  setMode(null);
+  if (text === original) { ack("· nothing changed — nothing recorded"); return; }
+  await record(m, text, seconds);
+}
+
+// Finishing a fix is not finishing the page -- the author may be out of time, and the page may
+// hold a second diagram. So Done is a separate act, offered where the eye already is.
+function offerDone() {
+  const b = document.createElement("button");
+  b.className = "act"; b.textContent = "Done";
+  b.title = "this page needs no more attention";
+  b.onclick = async () => { await record("final", $("tex").value, 0); };
+  $("ack").appendChild(document.createTextNode(" "));
+  $("ack").appendChild(b);
+}
+
 function showPending(p) {
   current = p.page; original = ""; awaitingTouch = false;
   $("tex").value = "";
@@ -352,15 +409,17 @@ function showPending(p) {
   if (p.has_image) $("img").src = "/api/image?page=" + p.page; else $("img").removeAttribute("src");
   $("findings").innerHTML = "";
   $("pdf").removeAttribute("src"); $("err").hidden = true;
-  $("fix").disabled = $("author").disabled = $("accept").disabled = true;
+  refreshActions();
   mark(p.page); say("");
 }
 
 async function select(page, { auto = false } = {}) {
+  await endMode();             // leaving is ending: flush and record (author's ruling)
   await flush();               // never carry an unsaved edit onto the next page
   const p = pages.find(x => x.page === page);
   if (p && PENDING.has(p.state)) { showPending(p); return; }
-  $("tex").readOnly = false; $("tex").placeholder = "select a page";
+  $("tex").readOnly = !mode;   // the mode owns this, not the act of opening a page
+  $("tex").placeholder = "select a page";
   const r = await fetch("/api/text?page=" + page);
   if (!r.ok) { say("no output on disk for page " + page); return; }
   const d = await r.json();
@@ -368,7 +427,7 @@ async function select(page, { auto = false } = {}) {
   $("tex").value = d.text;
   $("img").src = "/api/image?page=" + page;
   renderFindings(page);
-  $("fix").disabled = $("author").disabled = $("accept").disabled = false;
+  refreshActions();
   // Timing starts when the page is opened, matching --fix's protocol -- unless the surface
   // opened it, in which case it starts when the author first touches it.
   opened = performance.now();
@@ -388,18 +447,12 @@ function touched() {
 const escapeHtml = s => s.replace(/[&<>"]/g, c =>
   ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
 
-async function save(mode) {
+async function record(mode, text, seconds, extra = {}) {
   if (current === null) return;
-  const text = $("tex").value;
-  if (text === original && mode !== "accept") {
-    ack('· nothing changed — use "Looks right"', true);
-    say('nothing changed — use "Looks right" if it is correct');
-    return;
-  }
-  const seconds = (performance.now() - opened) / 1000;
   const r = await (await fetch("/api/save", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ page: current, mode, text, seconds, ui_mode: "web-side-by-side" })
+    body: JSON.stringify({ page: current, mode, text, seconds, ui_mode: "web-side-by-side",
+                           ...extra })
   })).json();
   if (r.error) { say("error: " + r.error); return; }
   original = text; dirty = false; $("saveState").textContent = "";
@@ -407,11 +460,13 @@ async function save(mode) {
              : r.revalidated ? " — re-gated clean, quarantine released" : "";
   ack(r.saved ? `✓ ${r.verdict}${note}` : `· ${r.reason || "unchanged"}`, !r.saved);
   say(r.saved ? `saved as ${r.verdict} — ${seconds.toFixed(1)}s${note}` : (r.reason || "unchanged"));
-  // A second action on this page is timed from here, not from when the page was opened.
-  if (r.restart_timer) opened = performance.now();
+  opened = performance.now();
   await load();            // pages[] carries the new findings...
   renderFindings(current); // ...and the panel has to be told about them
   loadTypeset(current);
+  refreshActions();
+  // Work landed and the page is not finished yet: offer the one act that finishes it.
+  if (r.saved && ["edited", "authored", "cropped"].includes(r.verdict)) offerDone();
 }
 
 // Pane sizing. Persisted per pane: a comfortable size on one screen is not comfortable on
@@ -510,6 +565,9 @@ async function loadRegions(page) {
 }
 
 async function doCrop(page, points) {
+  // A crop *is* a correction (it records `cropped`, a GOLD verdict), and placing it needs the
+  // cursor in the tex pane -- so cutting enters fixing rather than being a side channel.
+  if (!mode) setMode("fix");
   say("cutting…");
   const r = await fetch("/api/crop", {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -537,12 +595,18 @@ $("cropkeep").onclick = async () => {
   });
   if (!r.ok) { say("could not place it: " + await r.text()); return; }
   const d = await r.json();
+  // The crop wrote its own `cropped` row; ending the mode here must not add an `edited` one.
+  mode = null; modeStart = 0; $("tex").readOnly = true;
+  $("pane-tex").classList.remove("editing");
+  $("fix").textContent = "Fix transcription"; $("author").textContent = "Edit my notes";
   $("cropbar").hidden = true; pendingCrop = null;
   await load(); renderFindings(current);
   say(`figure placed — ${d.remaining} marker(s) left` +
       (d.released ? ", page released from quarantine" : ""));
   await select(current);
-  load();
+  await load();
+  refreshActions();
+  offerDone();               // the crop is work; the page still has to be called finished
 };
 $("cropdrop").onclick = () => { clearSelection(); say(""); };
 
@@ -640,7 +704,7 @@ async function flush() {
   clearTimeout(pending); pending = null; dirty = false;
   await fetch("/api/autosave", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ page: current, text: $("tex").value })
+    body: JSON.stringify({ page: current, mode, text: $("tex").value })
   });
 }
 $("tex").addEventListener("focus", touched);
@@ -653,8 +717,8 @@ $("tex").addEventListener("input", () => {
                        1500);
 });
 window.addEventListener("beforeunload", () => {
-  if (dirty) navigator.sendBeacon("/api/autosave",
-    new Blob([JSON.stringify({ page: current, text: $("tex").value })],
+  if (dirty && mode) navigator.sendBeacon("/api/autosave",
+    new Blob([JSON.stringify({ page: current, mode, text: $("tex").value })],
              { type: "application/json" }));
 });
 
@@ -789,8 +853,12 @@ $("importForm").onsubmit = async e => {
   load();
 };
 
-$("accept").onclick = () => { touched(); save("accept"); };
-$("fix").onclick = () => { touched(); save("fix"); };
-$("author").onclick = () => { touched(); save("author"); };
+$("accept").onclick = () => record("accept", $("tex").value, (performance.now() - opened) / 1000);
+$("fix").onclick = () => (mode === "fix" ? endMode() : setMode("fix"));
+$("author").onclick = () => (mode === "author" ? endMode() : setMode("author"));
+$("flag").onclick = () => {
+  const why = prompt("What is wrong with this page? (optional)") ?? "";
+  record("flag", $("tex").value, 0, { reason: why });
+};
 load();
 </script>
