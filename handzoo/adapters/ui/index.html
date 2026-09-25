@@ -417,11 +417,22 @@ async function save(mode) {
 // Pane sizing. Persisted per pane: a comfortable size on one screen is not comfortable on
 // the next, and re-setting it every session is the kind of friction that stops a review run.
 const scales = JSON.parse(localStorage.getItem("hz-scales") || '{"ink":1,"set":1,"tex":1}');
+// `fit` on the ink pane, kept independent of scale: it is how you see a page at its natural
+// size without changing the zoom you chose.
+const manualZoom = { ink: false, set: false };
 function applyScale(k) {
   const v = scales[k];
   $("s-" + k).textContent = Math.round(v * 100) + "%";
   if (k === "tex") $("tex").style.fontSize = (13 * v) + "px";
-  else document.querySelector("#pane-" + k + " .imgwrap").style.setProperty("--scale", v);
+  else {
+    const wrap = document.querySelector("#pane-" + k + " .imgwrap");
+    wrap.style.setProperty("--scale", v);
+    // Above 100% the image has to be allowed out of the pane, or "+" does nothing at all:
+    // `.pane img` clamps to the pane and only `.zoom` lifts that clamp. The typeset pane had
+    // no way to lift it -- the ink pane's `fit` button is the only thing that ever did -- so
+    // it could shrink and never grow.
+    wrap.classList.toggle("zoom", v > 1 || manualZoom[k]);
+  }
   try { localStorage.setItem("hz-scales", JSON.stringify(scales)); } catch (e) {}
 }
 for (const b of document.querySelectorAll(".sizer button[data-scale]")) {
@@ -440,7 +451,7 @@ $("hide-diag").onclick = () => {
     b.style.display = (on && b.dataset.diagram === "1") ? "none" : "";
 };
 
-$("zoomb").onclick = () => $("imgwrap").classList.toggle("zoom");
+$("zoomb").onclick = () => { manualZoom.ink = !manualZoom.ink; applyScale("ink"); };
 $("reset").onclick = () => loadTypeset(current);
 
 for (const [btn, pane] of [["t-ink","pane-ink"],["t-set","pane-set"],["t-tex","pane-tex"]]) {
