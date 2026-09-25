@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -235,7 +236,6 @@ def ink_profile(pdf: Path, page: int, *, bands: int = 10) -> InkProfile:
     return InkProfile(points=total, bands=tuple(c / total for c in counts))
 
 
-_SVG_PATH_EL = re.compile(r"<path\s+([^>]*?)/>", re.S)
 _SVG_NUM = re.compile(r"-?\d+\.?\d*(?:[eE][-+]?\d+)?")
 
 RULE_MIN_WIDTH = 300.0
@@ -269,6 +269,9 @@ def _svg(pdf: Path, page: int) -> str:
         [VECTOR_TOOL, "-svg", "-f", str(page), "-l", str(page), str(pdf), "/dev/stdout"],
         capture_output=True, text=True, check=False)
     return proc.stdout
+
+
+_SVG_RGB = re.compile(r"rgb\(([^)]*)\)")
 
 
 def _rgb(value: str) -> tuple[int, int, int] | None:
@@ -322,49 +325,167 @@ def pasted_regions(pdf: Path, page: int) -> tuple[dict[str, float], ...]:
     return pasted_regions_from_svg(_svg(pdf, page))
 
 
-def ink_paths(svg: str) -> list[InkPath]:
-    """Every mark in a `pdftocairo` SVG, with its colour and its box.
+def _parse(svg: str) -> ET.Element | None:
+    """The SVG as a tree, or None when it cannot be read.
 
-    **Two shapes of path, both ink, from two pens** -- measured across one 642-page notebook:
+    Tests and callers hand this fragments as often as whole documents, so a fragment is wrapped
+    before it is given up on. `None` is "could not look" and never "found nothing" (5.7).
+    """
+    wrapped = ('<svg xmlns="http://www.w3.org/2000/svg" '
+               f'xmlns:xlink="http://www.w3.org/1999/xlink">{svg}</svg>')
+    for text in (svg, wrapped):
+        try:
+            return ET.fromstring(text)
+        except ET.ParseError:
+            continue
+    return None
 
-    - *stroked*, carrying a `transform="matrix(...)"`, the colour in `stroke=`; and
-    - *filled*, carrying plain coordinates and **no matrix at all**, the colour in `fill=`.
 
-    Reading only the first made two readers blind on 367 of those 642 pages: the colour gate
-    reported *not checked* on 57% of the document, and `page_blocks` offered the crop tool no
-    regions there at all. Neither said anything was wrong, because neither could see anything.
+def _tag(element: ET.Element) -> str:
+    return element.tag.rsplit("}", 1)[-1]
+
+
+HREF = "{http://www.w3.org/1999/xlink}href"
+_MATRIX = re.compile(r"matrix\(([^)]*)\)")
+
+
+def _transform(attrs: dict) -> tuple[float, float, float, float, float, float] | None:
+    """The path's **own** matrix, and deliberately not the transforms wrapped around it.
+
+    Measured on the author's white-test page: a stencil sits inside `<g translate(51.4, 68.5)>`
+    and the root group that draws it carries `translate(-51.4, -68.5)`, so the two cancel.
+    Accumulating ancestors would move every masked mark 51pt across the page and 68pt down --
+    and a block in the wrong place is worse than no block, because the crop tool acts on it.
+    """
+    matrix = _MATRIX.search(attrs.get("transform", ""))
+    if not matrix:
+        return (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+    v = [float(n) for n in _SVG_NUM.findall(matrix.group(1))]
+    return tuple(v[:6]) if len(v) >= 6 else None  # type: ignore[return-value]
+
+
+def _box(data: str, attrs: dict) -> tuple[float, float, float, float] | None:
+    m = _transform(attrs)
+    if m is None:
+        return None
+    a, b, c, d, e, f = m
+    co = [float(n) for n in _SVG_NUM.findall(data)]
+    pts = [(a * x + c * y + e, b * x + d * y + f) for x, y in zip(co[0::2], co[1::2])]
+    if len(pts) < 2:
+        return None
+    x0, x1 = min(p[0] for p in pts), max(p[0] for p in pts)
+    y0, y1 = min(p[1] for p in pts), max(p[1] for p in pts)
+    if x1 - x0 > RULE_MIN_WIDTH and y1 - y0 < RULE_MAX_HEIGHT:
+        return None                                    # ruled guide line, not ink
+    return (x0, y0, x1, y1)
+
+
+def _over_paper(colour: tuple[int, int, int], opacity: float) -> tuple[int, int, int]:
+    """What the reader sees: the fill composited over the white page.
+
+    The shader is black at `fill-opacity="0.25098"` and nothing on the page is a grey rect.
+    Reporting the nominal black would file the author's shading under the same colour as her
+    pen, which is the distinction the colour gate exists to keep. Verified against the rendered
+    pixels: 0.251 black gives (191, 191, 191) and 0.251 of (30, 26, 26) gives (199, 198, 198),
+    which are the two greys the raster actually contains.
+    """
+    return tuple(round(c * opacity + 255 * (1 - opacity)) for c in colour)  # type: ignore
+
+
+def _painted(element: ET.Element) -> InkPath | None:
+    """A mark drawn directly: colour from its own stroke or fill, box from its own coordinates."""
+    attrs = element.attrib
+    data = attrs.get("d")
+    if not data:
+        return None
+    stroke = _SVG_RGB.match(attrs.get("stroke", ""))
+    fill = _SVG_RGB.match(attrs.get("fill", ""))
+    colour = _rgb(stroke.group(1)) if stroke else (_rgb(fill.group(1)) if fill else None)
+    if colour is None:
+        return None
+    if fill and not stroke and min(colour) >= BACKGROUND_MIN:
+        return None                                    # the page, not a mark on it
+    box = _box(data, attrs)
+    return None if box is None else InkPath(colour=colour, box=box,
+                                            filled=bool(fill and not stroke))
+
+
+def _stencil(mask: ET.Element, index: dict[str, ET.Element], depth: int = 0) -> list[ET.Element]:
+    """The paths that give a mask its shape, following `<use>` into the rest of the file."""
+    found: list[ET.Element] = []
+    if depth > 4:
+        return found
+    for element in mask.iter():
+        if _tag(element) == "path" and element.get("d"):
+            found.append(element)
+        elif _tag(element) == "use":
+            target = index.get((element.get(HREF) or "").lstrip("#"))
+            if target is not None:
+                found += _stencil(target, index, depth + 1)
+    return found
+
+
+def _through_mask(group: ET.Element, index: dict[str, ET.Element]) -> list[InkPath]:
+    """The marks a masked compositing group paints: its colour, in its stencil's shape.
+
+    A mask whose shape is page-sized rects rather than strokes is an opacity layer in the
+    compositing tree -- a third of the masks on the author's test page are -- and has no marks
+    in it. Its geometry never comes from the rect, which is always the whole page.
+    """
+    name = re.search(r"url\(#([^)]*)\)", group.get("mask") or "")
+    mask = index.get(name.group(1)) if name else None
+    if mask is None:
+        return []
+    stencil = _stencil(mask, index)
+    if not stencil:
+        return []
+    colour = None
+    for element in group.iter():
+        if _tag(element) not in ("rect", "path"):
+            continue
+        fill = _SVG_RGB.match(element.get("fill", ""))
+        opacity = float(element.get("fill-opacity", "1") or 1)
+        if fill and opacity > 0 and (rgb := _rgb(fill.group(1))) is not None:
+            colour = _over_paper(rgb, opacity)
+            break
+    if colour is None or min(colour) >= BACKGROUND_MIN:
+        return []
+    boxes = [_box(p.get("d", ""), p.attrib) for p in stencil]
+    return [InkPath(colour=colour, box=box, filled=True) for box in boxes if box is not None]
+
+
+def ink_paths(svg: str) -> list[InkPath] | None:
+    """Every mark in a `pdftocairo` SVG, with its colour and its box. None if it cannot be read.
+
+    **Three shapes of mark, all ink** -- measured across one 642-page notebook and the author's
+    white-test page:
+
+    - *stroked*, carrying a `transform="matrix(...)"`, the colour in `stroke=`;
+    - *filled*, carrying plain coordinates and **no matrix at all**, the colour in `fill=`; and
+    - *masked*, where the shape is a white-stroked stencil inside a `<mask>` and the colour is a
+      page-sized `<rect>` painted through it. This is what the highlighter, the marker and the
+      shader all export as.
+
+    Reading only the first made two readers blind on 367 of those 642 pages. Reading only paths
+    got the third wrong in both directions at once: the stencil's white was reported as ink the
+    page does not have (`l3` p4: "black and white"), and the colour the author actually used was
+    never seen at all.
 
     Guide lines are separated from ink **by geometry, never by hue** (`RULE_MIN_WIDTH`), and the
     page's own near-white background is not ink.
     """
+    root = _parse(svg)
+    if root is None:
+        return None
+    index = {e.get("id"): e for e in root.iter() if e.get("id")}
+    stencils = {id(p) for e in root.iter() if _tag(e) == "mask" for p in e.iter()}
     out: list[InkPath] = []
-    for attrs in _SVG_PATH_EL.findall(svg):
-        data = re.search(r'\sd="([^"]*)"', attrs)
-        if not data:
-            continue
-        stroke = re.search(r'stroke="rgb\(([^)]*)\)"', attrs)
-        fill = re.search(r'fill="rgb\(([^)]*)\)"', attrs)
-        colour = _rgb(stroke.group(1)) if stroke else (_rgb(fill.group(1)) if fill else None)
-        if colour is None:
-            continue
-        if fill and not stroke and min(colour) >= BACKGROUND_MIN:
-            continue                                   # the page, not a mark on it
-        matrix = _SVG_MATRIX.search(attrs)
-        a, b, c, d, e, f = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
-        if matrix:
-            v = [float(n) for n in _SVG_NUM.findall(matrix.group(1))]
-            if len(v) < 6:
-                continue
-            a, b, c, d, e, f = v[:6]
-        co = [float(n) for n in _SVG_NUM.findall(data.group(1))]
-        pts = [(a * x + c * y + e, b * x + d * y + f) for x, y in zip(co[0::2], co[1::2])]
-        if len(pts) < 2:
-            continue
-        x0, x1 = min(p[0] for p in pts), max(p[0] for p in pts)
-        y0, y1 = min(p[1] for p in pts), max(p[1] for p in pts)
-        if x1 - x0 > RULE_MIN_WIDTH and y1 - y0 < RULE_MAX_HEIGHT:
-            continue                                   # ruled guide line, not ink
-        out.append(InkPath(colour=colour, box=(x0, y0, x1, y1), filled=bool(fill and not stroke)))
+    for element in root.iter():
+        if _tag(element) == "path" and id(element) not in stencils:
+            if (mark := _painted(element)) is not None:
+                out.append(mark)
+        elif _tag(element) == "g" and element.get("mask"):
+            out += _through_mask(element, index)
     return out
 
 
@@ -381,8 +502,16 @@ def ink_colours(pdf: Path, page: int) -> tuple[tuple[int, int, int], ...] | None
         an empty tuple for those would read as "no colour to lose", which on a scan is exactly
         the wrong answer: it is where colour is hardest to recover, not where there is none.
     """
+    return ink_colours_from_svg(_svg(pdf, page))
+
+
+def ink_colours_from_svg(svg: str) -> tuple[tuple[int, int, int], ...] | None:
+    """Distinct ink colours in one SVG, most-used first. See `ink_colours`."""
+    paths = ink_paths(svg)
+    if paths is None:
+        return None
     counts: dict[tuple[int, int, int], int] = {}
-    for path in ink_paths(_svg(pdf, page)):
+    for path in paths:
         counts[path.colour] = counts.get(path.colour, 0) + 1
     if not counts:
         return None
@@ -430,7 +559,13 @@ def page_blocks(pdf: Path, page: int, *, gap: float = BLOCK_GAP) -> tuple[Block,
     Bands rather than boxes because handwriting runs in lines: a diagram sitting between two
     paragraphs is separated vertically, and column detection would be guessing.
     """
-    found = [p.box for p in ink_paths(_svg(pdf, page))]
+    return blocks_from_svg(_svg(pdf, page), gap=gap)
+
+
+def blocks_from_svg(svg: str, *, gap: float = BLOCK_GAP) -> tuple[Block, ...]:
+    """Ink in one SVG, grouped into bands. See `page_blocks`."""
+    paths = ink_paths(svg)
+    found = [p.box for p in (paths or ())]
 
     if not found:
         return ()
