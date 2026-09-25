@@ -294,7 +294,7 @@ def test_ink_painted_through_a_mask_is_ink_and_the_stencil_is_not() -> None:
 
 def test_a_masked_mark_is_the_colour_the_reader_sees() -> None:
     """The shader is black at a quarter opacity, and nothing on the page is a grey rect. Reading
-    the nominal fill would file the author's shading under the same colour as her pen -- which
+    the nominal fill would file the author's shading under the same colour as their pen -- which
     is the distinction the colour gate exists to keep. Composited over the paper it is
     (191, 191, 191), and that is exactly what the rendered page's pixels are."""
     assert rasterize.ink_colours_from_svg(SHADE) == ((191, 191, 191),)

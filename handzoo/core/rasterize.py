@@ -384,7 +384,7 @@ def _over_paper(colour: tuple[int, int, int], opacity: float) -> tuple[int, int,
     """What the reader sees: the fill composited over the white page.
 
     The shader is black at `fill-opacity="0.25098"` and nothing on the page is a grey rect.
-    Reporting the nominal black would file the author's shading under the same colour as her
+    Reporting the nominal black would file the author's shading under the same colour as their
     pen, which is the distinction the colour gate exists to keep. Verified against the rendered
     pixels: 0.251 black gives (191, 191, 191) and 0.251 of (30, 26, 26) gives (199, 198, 198),
     which are the two greys the raster actually contains.

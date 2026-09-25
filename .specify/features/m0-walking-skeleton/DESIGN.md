@@ -1288,9 +1288,10 @@ shapes testable at all.
 
 The author made a page carrying a highlighter, a shader, a marker, three pens, **white marks
 inside the highlighted region**, and **a white scribble on white paper** — and asked what we do
-with it. The reader said *blue, black, green, red and white*. Four of those are on the page. The
-white is not ink at all, and the two colours a reader sees first — the pink blob and the grey
-shade — were invisible to us.
+with it. The reader said *blue, black, green, red and white*. Of the page's 39 white strokes, **35 were
+stencils** — shape, not ink — and it was those that put white in the answer; the other 4 are real
+marks over the highlighter. And the two colours a reader sees first, the pink blob and the grey
+shade, were invisible to us entirely.
 
 Both halves are the same defect. reMarkable's highlighter, marker and shader do not export as
 coloured paths:
@@ -1325,17 +1326,20 @@ firing, so it looked like it was working.
 
 **Colour is composited over the paper by `fill-opacity`.** The shader is black at `0.25098`, and
 nothing on the page is a grey rect. Reporting the nominal black would file the author's shading
-under the same colour as her pen — the distinction this gate exists to keep. The arithmetic is
+under the same colour as their pen — the distinction this gate exists to keep. The arithmetic is
 checkable against the raster and was checked: 0.251 black gives (191, 191, 191), 0.251 of
 (30, 26, 26) gives (199, 198, 198), and those are exactly the two greys the rendered page
 contains.
 
-**Swept before and after across every local corpus — 793 pages, 12 changed** (11 in the
+**Swept before and after across every local corpus and the repo's own fixtures — 832 pages,
+12 changed** (11 in the
 642-page notebook, plus `l3` p4). All 12 lost a false white; **none gained white**, none became
 unreadable, and **the colour gate's verdict flipped on no page in either direction** — which
 matters because `colour` is in `SURVIVES_ACCEPTANCE`, so a flip would have re-opened pages the
 author had already accepted. Every newly reported colour was checked against the rendered
-pixels of its own page: 14 new colours, 14 present, 0 invented.
+pixels of its own page: 14 new colours, 14 present, 0 invented — and for the two greys, where a
+near-match would prove little against antialiased black, the check was tightened to the mark's
+own box, where (199, 199, 198) is the dominant pixel, 15,985 of them on p617.
 
 ##### The two whites, and why only one is ink
 
