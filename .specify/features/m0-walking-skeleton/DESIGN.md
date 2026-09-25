@@ -1080,12 +1080,17 @@ and a projected window cannot be trusted on single tokens.
 | it did not | 5 | `b/w`→`btw`, `22.9`→`22.4`, `e`→`ge`, and two it simply lacked |
 | ambiguous | 2 | single letters (`f` against `g`) in a page full of both |
 
-**And the split is by defect class, which is the finding.** Six of the seven are one event:
-our recognizer invented a **flowchart description as body text** — "nodes labeled…, the arrow
-from C to D is unlabeled…" — where the page carries ordinary prose. olmOCR transcribed the
-prose. That is the same class as §5.5.6's ch17 catch, which was also an invention, and it is a
-class no gate holds: `repetition_gate` catches invention that *repeats* (§11.0.1f), and this
-one does not repeat.
+**And the split is by defect class, which is the finding.** Six of the seven are one document:
+our recognizer wrote prose about the drawing into the body text, and olmOCR transcribed what
+the page actually says. That is the same class as §5.5.6's ch17 catch, which was also an
+invention.
+
+**Corrected 2026-09-25, and it matters:** five of those six are one page whose emitted text
+**`repetition_gate` already refuses** — the fabrication ran to 5,296 content words. Only one of
+the seven hits is on a page that passes the gates. So the original claim here, that this is "a
+class no gate holds", was true of the class and false of the evidence: the evidence was mostly
+a page we already catch. What survives is a single gate-passing instance, which is what
+§5.5.6b sets out to test and is also why that test is underpowered.
 
 Where the defect is instead a **token-level substitution** — a shorthand expanded, a
 proposition number changed, a letter swapped — the second model is usually wrong too, and the
@@ -1118,6 +1123,99 @@ whether the historical qwen runs had lexicon tokens appended, so the two arms' p
 stated to have been equal — only that the olmOCR side had no lexicon.
 
 **Cost, for scale:** 55 pages at ~15s each on the local GPU, and nothing left the machine.
+
+#### 5.5.6b Chasing the one lead: a one-sided run detects **invention**, and nothing else — measured 2026-09-25
+
+§5.5.6a's hand count left a hypothesis: the second voice is diluted against substitution, but 6
+of its 7 real hits were one **invention**. Invention is rarer and more checkable than
+substitution, and nothing in the gate set holds it — `repetition_gate` refuses invention that
+*repeats* (§11.0.1f); the rest is uncaught. So: can a second transcript be turned into an
+invention detector?
+
+**The candidate**, and it is deliberately the simplest thing that could work: in
+`diff(ours, theirs)`, flag any span carrying **L >= T of our content words**. An invented
+passage is a long run of our text with no counterpart in what the other model read off the page.
+
+**Pre-registered before computing, as in §5.5.6a:** worth building required a single T with
+invention recall **>= 0.7** and **<= 10%** of accepted pages flagged, with any firing on an
+accepted page hand-read before being called a false positive. Otherwise: no gate, and print the
+whole curve so the next reader can see by how much.
+
+**First, what the corpus actually holds.** The 23 content-word author-edit sites on the 31
+corrected pages, classified by what the edit fixed:
+
+| class | n |
+|---|---|
+| invention — we wrote what the page does not carry | 12 |
+| substitution — we read a token as another token | 7 |
+| omission — we dropped a mark | 4 |
+
+**The result, and the split that matters.** A find on a page the gates already refuse is not a
+find, so the pages are separated by whether `ascii`, `delimiters` or `repetition` already
+stopped them:
+
+| at T = 3 | invention | substitution | omission | accepted pages flagged |
+|---|---|---|---|---|
+| **pages that pass every text gate** (12 corrected, 24 accepted) | **2 / 6** | 0 / 6 | 0 / 3 | **1 / 24** |
+| pages an existing gate already refuses (2) | 5 / 6 | 0 / 1 | 0 / 1 | — |
+
+**Verdict under the written rule: no gate.** 2 of 6 is 0.33 against a 0.7 bar. Restricted to
+multi-token invention it is 2 of 3, which is still under the bar and is n = 3.
+
+**The shape of the failure, with the part that is circular removed.** At thresholds of 2 and
+above the detector fires on **0 of the 11** substitution and omission sites while still catching
+invention — but most of that is built into the method and must not be reported as a finding: an
+**omission contributes none of our tokens**, so a detector counting our tokens can only reach
+one by accident, and a **substitution is short by the classifier's own definition**. It is the
+same length bias that was pre-registered as a limit on recall, reappearing as flattering
+specificity. (At T = 1 it is not even specific: 3 of 7 substitutions and 1 of 4 omissions.)
+
+**What is left that is not circular** is small and is the only specificity evidence worth
+quoting: **1 of 24** accepted pages fires, and **0 of 5** unanchored pages do.
+
+What limits recall is reach: **4 of the 12 invention sites are a single token**, which no length
+threshold can see — a flaw in the label set I pre-registered, not a result. And the pages where
+its recall looks good (5 of 6) are the pages an existing gate already refuses, which is where a
+new detector is worth nothing.
+
+**The one false positive was hand-read, and it is real but explicable.** ch22 p22 fires on two
+spans inside an `align*` block: both models read the same four rows and emitted them in a
+different **order**, which a linear diff sees as two long one-sided runs. A row-order-insensitive
+comparison inside math environments would remove this class; it is not built, on one instance.
+
+**Against ground truth that never saw our output.** The five pages the author typed from blank
+(`transcribed` — the exit criterion's control arm) are the only unanchored labels in the corpus.
+The detector raised **0 flags on all five, and made no false positives there**; the 2 inventions
+present are 1 and 2 tokens, below reach. Two things follow, both small-n and both worth
+recording:
+
+- a word-level diff against those transcripts shows far more substitution sites per page than
+  the correction log does. **That number is not reportable and is deliberately not given here.**
+  Two of the five "ours" texts are `.fail.tex` — a quarantined population, not a comparable one;
+  the transcripts are in the author's own working format (markdown headings, `% insert snippet`)
+  rather than ours, so style counts as substitution; and §11.0 already records that on two of
+  these pages *the human arm was the less accurate one*, so some of the difference is the
+  transcript's. The hypothesis that the correction log under-counts substitution remains
+  plausible and **cannot be read from this data**.
+- invention on those pages was short. The long fabrications are attested elsewhere, not here.
+
+**What was demonstrated along the way, and matters more than the detector.** `book-of-why` p6
+carries **94 content words of the recognizer narrating its own handling of the page** — prose
+explaining that the drawing is hand-drawn, cannot be rendered directly, and has therefore been
+included as an image, with the page's own variable names woven through it. The author deleted
+all 94. Re-gated, that text is **ASCII-clean, balanced, and non-repeating**, so
+`repetition_gate` cannot see it; compile, coverage, colour and pasted were *not* re-run against
+this exact text and no claim is made about them. Its sibling p7 ran a fabrication to 5,296
+content words and `repetition_gate` **does** refuse that one.
+
+So the boundary is now measured rather than asserted: **our invention is caught when it repeats,
+and p6 is what it looks like when it does not.** It is also a reminder that the fabrication is
+not always about the mathematics — here the model wrote *about itself* into the document.
+
+**Standing conclusion.** No gate on n = 3. The class is real, named, and now has a fixture
+(`book-of-why` p6). The detector that would catch it needs either reach below three tokens —
+which this one cannot have, since at T = 1 it fires on **11 of the 24 accepted pages** — or a
+different signal entirely.
 
 **Compare text, not markup.** The naive form fails: diffing the emitted `.tex` surfaces
 formatting (`\item` against `\\`, `\section` against `\section*`) and buries the finding. Words
