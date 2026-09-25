@@ -55,6 +55,19 @@ def _get(base: str, path: str):
         return r.status, r.read()
 
 
+def _pages_of(base: str) -> list[dict]:
+    return json.loads(_get(base, "/api/pages")[1])["pages"]
+
+
+def _post_any(base: str, path: str, payload: dict):
+    """POST that survives a refusal, for the paths that answer 400."""
+    from urllib.error import HTTPError
+    try:
+        return _post(base, path, payload)
+    except HTTPError as e:
+        return json.loads(e.read())
+
+
 def _post(base: str, path: str, payload: dict):
     req = Request(base + path, data=json.dumps(payload).encode(),
                   headers={"Content-Type": "application/json"}, method="POST")
@@ -75,7 +88,8 @@ def test_each_button_writes_a_different_verdict(server) -> None:
     a page that was already right, an author who read 35 pages produced an empty log.
     """
     base, run = server
-    assert MODES == {"fix": "edited", "author": "authored", "accept": "keep-reviewed"}
+    assert MODES == {"fix": "edited", "author": "authored", "accept": "keep-reviewed",
+                     "final": "final", "flag": "flagged"}
 
     r = _post(base, "/api/save", {"page": 1, "mode": "fix", "text": "corrected\n", "seconds": 4})
     assert r["verdict"] == "edited"
@@ -468,7 +482,7 @@ def test_accepting_a_changed_page_is_refused(server) -> None:
 def test_navigating_away_no_longer_loses_an_edit(server) -> None:
     """Today an edit vanishes if you click another page. Autosave writes the file."""
     base, run = server
-    _post(base, "/api/autosave", {"page": 1, "text": "half-finished edit\n"})
+    _post(base, "/api/autosave", {"page": 1, "mode": "fix", "text": "half-finished edit\n"})
     assert (run / "page-0001.tex").read_text(encoding="utf-8") == "half-finished edit\n"
 
 
@@ -476,7 +490,7 @@ def test_autosave_records_no_verdict(server) -> None:
     """Saving the file and recording a decision are different acts. A half-typed line is not
     a judgement about the page, and a log full of them would be worse than losing the text."""
     base, run = server
-    _post(base, "/api/autosave", {"page": 1, "text": "mid-edit\n"})
+    _post(base, "/api/autosave", {"page": 1, "mode": "fix", "text": "mid-edit\n"})
     assert not (run / "corrections.jsonl").exists()
 
 
@@ -493,8 +507,8 @@ def test_autosave_does_not_destroy_the_before_text(server) -> None:
     base, run = server
     pristine = (run / "page-0001.tex").read_text(encoding="utf-8")
 
-    _post(base, "/api/autosave", {"page": 1, "text": "partial\n"})
-    _post(base, "/api/autosave", {"page": 1, "text": "corrected fully\n"})
+    _post(base, "/api/autosave", {"page": 1, "mode": "fix", "text": "partial\n"})
+    _post(base, "/api/autosave", {"page": 1, "mode": "fix", "text": "corrected fully\n"})
     _post(base, "/api/save", {"page": 1, "mode": "fix", "text": "corrected fully\n",
                               "seconds": 30.0})
 
@@ -508,10 +522,10 @@ def test_the_snapshot_is_released_once_a_verdict_lands(server) -> None:
     """Otherwise the next session's `before` is last session's text, and every later diff is
     measured from a point the author has forgotten."""
     base, run = server
-    _post(base, "/api/autosave", {"page": 1, "text": "one\n"})
+    _post(base, "/api/autosave", {"page": 1, "mode": "fix", "text": "one\n"})
     _post(base, "/api/save", {"page": 1, "mode": "fix", "text": "one\n"})
 
-    _post(base, "/api/autosave", {"page": 1, "text": "two\n"})
+    _post(base, "/api/autosave", {"page": 1, "mode": "fix", "text": "two\n"})
     _post(base, "/api/save", {"page": 1, "mode": "fix", "text": "two\n"})
 
     from handzoo.core.corrections import CorrectionLog
@@ -787,3 +801,63 @@ def test_colour_unchecked_still_counts_after_acceptance(tmp_path) -> None:
     stand in for checking it."""
     row = _row(tmp_path, gates={"compile": "pass", "colour": "skipped"}, log=["keep-reviewed"])
     assert row["gate"] == "not-checked"
+
+
+# ------------------------------------------------------------ the surface as a state machine
+
+
+def test_done_is_its_own_verdict_not_a_second_kind_of_acceptance(server) -> None:
+    """`keep-reviewed` is evidence that *the tool* got the page right and feeds the exit
+    criterion. "I fixed it and it is finished" is a fact about the page. Same chip for the
+    author, different rows in the corpus (DESIGN §12.7)."""
+    base, _ = server
+    _post(base, "/api/save", {"page": 2, "mode": "fix", "text": "my correction\n"})
+    r = _post(base, "/api/save", {"page": 2, "mode": "final", "text": "my correction\n"})
+    assert r["verdict"] == "final"
+    from handzoo.core.corrections import GOLD
+    assert "final" not in GOLD, "done is not evidence about the recognizer"
+    assert [o["review"] for o in _pages_of(base) if o["page"] == 2] == ["final"]
+
+
+def test_the_surface_can_flag_a_page(server) -> None:
+    """The un-check, and until now only the CLI could do it."""
+    base, _ = server
+    _post(base, "/api/save", {"page": 2, "mode": "accept", "text": "clean page\n"})
+    _post(base, "/api/save", {"page": 2, "mode": "flag", "text": "clean page\n",
+                              "reason": "second attempt lost a line"})
+    assert [o["review"] for o in _pages_of(base) if o["page"] == 2] == ["flagged"]
+
+
+def test_autosave_refuses_to_write_outside_a_mode(server) -> None:
+    """Read-only is an affordance in the browser; a stale tab is not bound by it. The page file
+    is the author's work, so the write says which mode it belongs to or it does not happen."""
+    base, run = server
+    before = (run / "page-0002.tex").read_bytes()
+    r = _post_any(base, "/api/autosave", {"page": 2, "text": "typed by accident\n"})
+    assert "mode" in r.get("error", "")
+    assert (run / "page-0002.tex").read_bytes() == before
+    assert _post(base, "/api/autosave", {"page": 2, "mode": "fix", "text": "on purpose\n"})["autosaved"]
+
+
+def test_looks_right_is_refused_once_the_page_carries_your_own_writing(server) -> None:
+    """It is offered exactly while the text on disk is still what the tool produced. Accepting
+    one's own correction would file it in the corpus as the recognizer's work — §11.3.1's
+    contamination in a different disguise."""
+    base, _ = server
+    _post(base, "/api/save", {"page": 2, "mode": "fix", "text": "my correction\n"})
+    r = _post(base, "/api/save", {"page": 2, "mode": "accept", "text": "my correction\n"})
+    assert r.get("saved") is False and "Done" in r.get("reason", "") + r.get("error", "")
+
+
+def test_a_page_marked_done_reads_like_an_accepted_one(tmp_path) -> None:
+    """Same chip, and the gates acceptance supersedes stay quiet (§12.6)."""
+    row = _row(tmp_path, gates={"compile": "pass", "coverage": "skipped"},
+               log=["edited", "final"])
+    assert row["review"] == "final" and row["gate"] == "clean"
+
+
+def test_a_page_marked_done_is_protected_from_a_rerun(tmp_path) -> None:
+    from handzoo.core.corrections import Correction, CorrectionLog, protected_pages
+    CorrectionLog.for_run(tmp_path).append(Correction(
+        page=3, verdict="final", source_image="p.png", before="x"))
+    assert 3 in protected_pages(tmp_path)

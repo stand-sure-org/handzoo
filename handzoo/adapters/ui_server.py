@@ -45,11 +45,15 @@ HERE = Path(__file__).resolve().parent / "ui"
 
 # What the two buttons write. `edited` feeds the exit criterion and the defect taxonomy;
 # `authored` feeds neither, and is excluded from lexicon mining.
-MODES = {"fix": "edited", "author": "authored", "accept": "keep-reviewed"}
+MODES = {"fix": "edited", "author": "authored", "accept": "keep-reviewed",
+         "final": "final", "flag": "flagged"}
 """What each action writes.
 
 `fix`    — corrected the transcription. Feeds the exit criterion and the defect taxonomy.
 `author` — revised one's own prose. Feeds neither (DESIGN 11.3.1).
+`final`  — done with a page the author worked on. A tick, like `accept`, and a different row:
+           §12.7. Records no text change and re-gates nothing.
+`flag`   — wrong, and not fixed now. The un-check (§12.5), available from any state.
 `accept` — read it and it is right. **GOLD**, and the datum the CLI's `--fix` already
            collected by asking about an unchanged document. Its absence here cost a whole
            run: an author who read 35 pages and found them correct produced an empty log,
@@ -108,7 +112,7 @@ def _image_index(out_dir: Path) -> dict[int, Path]:
     return index
 
 
-REVIEW_STATE = {"keep-reviewed": "accepted", "keep-unreviewed": "kept-unread",
+REVIEW_STATE = {"keep-reviewed": "accepted", "final": "final", "keep-unreviewed": "kept-unread",
                 "edited": "worked", "cropped": "worked", "authored": "worked",
                 "flagged": "flagged", "skipped": "skipped", "transcribed": "typed"}
 """What the *author* has done with a page, which is a different question from what the gates
@@ -204,7 +208,7 @@ def _pages(review: Review, ingest: Ingest | None = None) -> list[dict]:
                     "did": done.get(o.page, ""),
                     "review": REVIEW_STATE.get(verdicts.get(o.page, ""), ""),
                     "gate": _gate_state(o, findings,
-                                        accepted=verdicts.get(o.page) == "keep-reviewed"),
+                                        accepted=verdicts.get(o.page) in ("keep-reviewed", "final")),
                     "hints": {"diagrams": markers,
                               "capture": sum(f.get("gate") == "pasted" for f in findings)},
                     # The only work left here is a crop -- the author's "fast review" hint.
@@ -864,6 +868,12 @@ class Handler(BaseHTTPRequestHandler):
             # a half-typed line as a judgement about the page is worse, and a log full of them
             # would drown the verdicts that mean something.
             page = int(payload["page"])
+            if payload.get("mode") not in ("fix", "author"):
+                # Read-only is an affordance in the browser and a stale tab is not bound by it.
+                # The page file is the author's work; a write says which mode it belongs to or
+                # it does not happen (§12.7).
+                self._json({"error": "autosave needs the mode it belongs to: fix or author"}, 400)
+                return
             match = [o for o in self.review.outcomes() if o.page == page]
             if not match or not match[0].output:
                 self._json({"error": "no output on disk for this page"}, 404)
@@ -894,7 +904,26 @@ class Handler(BaseHTTPRequestHandler):
                   else target.read_text(encoding="utf-8"))
         after = payload.get("text", "")
 
+        if mode in ("final", "flag"):
+            # Neither changes the text, so neither re-gates: `final` is the author's judgement
+            # that a page they worked on is done (§12.7), `flag` is the un-check (§12.5).
+            img = self.review.image(page)
+            self.review.log().append(Correction(
+                page=page, verdict=MODES[mode], source_image=str(img) if img else "",
+                before=before, after="", reason=str(payload.get("reason", "")),
+                seconds=float(payload.get("seconds", 0.0)),
+                mode=payload.get("ui_mode", "web")))
+            self._json({"saved": True, "verdict": MODES[mode], "restart_timer": False})
+            return
+
         if mode == "accept":
+            worked = {"edited", "cropped", "authored", "final"}
+            if any(r.page == page and r.verdict in worked for r in current(self.review.out_dir)):
+                # The text on disk is the author's own writing now, and filing it as the
+                # recognizer's work is §11.3.1's contamination wearing a different hat.
+                self._json({"saved": False, "verdict": "keep-reviewed",
+                            "reason": "you have worked on this page — use Done to finish it"})
+                return
             if after != before:
                 self._json({"error": "the text was changed — that is a fix, not an accept"},
                            400)

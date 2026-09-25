@@ -4055,8 +4055,10 @@ keep it, because flag-then-accept is a real path.
 may still hold a second diagram. So *Done* is a separate act, offered as the next action rather
 than a second button with its own explanatory text — clutter for the commonest path.
 
-**Consequence for timing:** the auto-opened-page rule (§11.4a) is no longer needed. Nothing is
-timed until a mode starts, so opening a page for the author — or their coffee — cannot be counted.
+**Consequence for timing:** correction time is now bracketed by the mode, so opening a page for
+the author — or their coffee — cannot be counted as correcting. The *accept* clock is different
+and still measures reading time from when the page was opened, so §11.4a's rule (a page the
+surface opened is timed from the author's first touch) still guards it.
 
 ### 12.4 The ordering this implies
 
