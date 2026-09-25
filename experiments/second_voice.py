@@ -208,6 +208,71 @@ def score(pages: list[dict], transcripts: Path, level: str) -> list[dict]:
     return rows
 
 
+# ------------------------------------------------------------- the invention follow-on
+
+def classify(ours_span: list[str], truth_span: list[str]) -> str:
+    """What kind of defect the author's edit fixed.
+
+    *invention* is text we put on the page that the page does not carry -- deleted outright, or
+    replaced by something sharing almost none of its tokens. *omission* is a mark we dropped.
+    *substitution* is a token we read as a different token.
+    """
+    if not truth_span and ours_span:
+        return "invention"
+    if not ours_span and truth_span:
+        return "omission"
+    overlap = len(set(ours_span) & set(truth_span)) / max(len(ours_span), len(truth_span))
+    return ("invention" if overlap < 0.34 and max(len(ours_span), len(truth_span)) >= 3
+            else "substitution")
+
+
+def already_refused(text: str) -> bool:
+    """Would the gates already have stopped this page? A detector's only value is on the pages
+    that survive everything we have -- a find on a page `repetition_gate` refuses is not a find.
+    """
+    from handzoo.core.validate import ascii_gate, delimiter_gate, repetition_gate
+    return any(g.failures for g in (ascii_gate.check(text, fragment=True),
+                                    delimiter_gate.check(text), repetition_gate.check(text)))
+
+
+def invention(pages: list[dict], transcripts: Path, threshold: int) -> None:
+    """Does a long one-sided run against the second transcript mark invention specifically?
+
+    Measured 2026-09-25 (§5.5.6b): on pages no existing gate refuses, 2 of 6 invention sites,
+    and **0 of 9** substitution or omission sites -- specific, and far too partial to gate on.
+    """
+    from handzoo.core.validate import ascii_gate  # noqa: F401  (import cost lives here)
+    tally: dict = defaultdict(lambda: defaultdict(int))
+    for p in pages:
+        raw = transcripts/f"{p['project']}-{p['page']:04d}.txt"
+        if not raw.exists() or not raw.read_text().strip():
+            continue
+        bucket = "already refused" if already_refused(p["ours"]) else "passes every text gate"
+        mode = "standalone" if r"\documentclass" in p["ours"] else "fragment"
+        theirs = tokens(body(emit(Recognition(markup=raw.read_text(), inventory=(),
+                                              provider="ollama", model="second-voice"),
+                                  mode=mode, page=p["page"],
+                                  base_dir=Path(p["dir"])).text), "words")
+        ours = tokens(body(p["ours"]), "words")
+        flags = [s for s in sites(ours, theirs) if s[1] - s[0] >= threshold]
+        if p["arm"] == "accepted":
+            tally[bucket]["accepted pages"] += 1
+            tally[bucket]["accepted pages flagged"] += bool(flags)
+            continue
+        truth = tokens(body(p["truth"]), "words")
+        for tag, i1, i2, j1, j2 in SequenceMatcher(a=ours, b=truth,
+                                                   autojunk=False).get_opcodes():
+            if tag == "equal" or touches_diagram((i1, i2), ours):
+                continue
+            kind = classify(ours[i1:i2], truth[j1:j2])
+            tally[bucket][f"{kind} sites"] += 1
+            tally[bucket][f"{kind} caught"] += hit((i1, i2), flags)
+    for bucket, counts in tally.items():
+        print(f"\n== {bucket}")
+        for k in sorted(counts):
+            print(f"   {k:26} {counts[k]}")
+
+
 def pooled(rows: list[dict]) -> dict:
     labels = sum(r["n_labels"] for r in rows)
     hits = sum(r["hits"] for r in rows)
@@ -237,6 +302,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--work", type=Path, required=True,
                     help="where transcripts land. Page text stays here, never in the repo.")
     ap.add_argument("--skip-run", action="store_true", help="score transcripts already there")
+    ap.add_argument("--invention", type=int, metavar="T", default=None,
+                    help="instead, ask whether a one-sided run of >= T of our tokens marks "
+                         "invention specifically (§5.5.6b)")
     args = ap.parse_args(argv)
 
     pages, dropped = choose([p.expanduser() for p in args.project])
@@ -246,6 +314,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  dropped {len(items):3}  {why}")
     if not args.skip_run:
         transcribe_all(pages, args.model, args.work/"transcripts")
+
+    if args.invention is not None:
+        invention(pages, args.work/"transcripts", args.invention)
+        return 0
 
     for level in ("latex", "words"):
         rows = score(pages, args.work/"transcripts", level)

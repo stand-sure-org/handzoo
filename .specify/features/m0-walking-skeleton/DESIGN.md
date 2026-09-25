@@ -1119,6 +1119,82 @@ stated to have been equal — only that the olmOCR side had no lexicon.
 
 **Cost, for scale:** 55 pages at ~15s each on the local GPU, and nothing left the machine.
 
+#### 5.5.6b Chasing the one lead: a one-sided run detects **invention**, and nothing else — measured 2026-09-25
+
+§5.5.6a's hand count left a hypothesis: the second voice is diluted against substitution, but 6
+of its 7 real hits were one **invention**. Invention is rarer and more checkable than
+substitution, and nothing in the gate set holds it — `repetition_gate` refuses invention that
+*repeats* (§11.0.1f); the rest is uncaught. So: can a second transcript be turned into an
+invention detector?
+
+**The candidate**, and it is deliberately the simplest thing that could work: in
+`diff(ours, theirs)`, flag any span carrying **L >= T of our content words**. An invented
+passage is a long run of our text with no counterpart in what the other model read off the page.
+
+**Pre-registered before computing, as in §5.5.6a:** worth building required a single T with
+invention recall **>= 0.7** and **<= 10%** of accepted pages flagged, with any firing on an
+accepted page hand-read before being called a false positive. Otherwise: no gate, and print the
+whole curve so the next reader can see by how much.
+
+**First, what the corpus actually holds.** The 23 content-word author-edit sites on the 31
+corrected pages, classified by what the edit fixed:
+
+| class | n |
+|---|---|
+| invention — we wrote what the page does not carry | 12 |
+| substitution — we read a token as another token | 7 |
+| omission — we dropped a mark | 4 |
+
+**The result, and the split that matters.** A find on a page the gates already refuse is not a
+find, so the pages are separated by whether `ascii`, `delimiters` or `repetition` already
+stopped them:
+
+| at T = 3 | invention | substitution | omission | accepted pages flagged |
+|---|---|---|---|---|
+| **pages that pass every text gate** (12 corrected, 24 accepted) | **2 / 6** | 0 / 6 | 0 / 3 | **1 / 24** |
+| pages an existing gate already refuses (2) | 5 / 6 | 0 / 1 | 0 / 1 | — |
+
+**Verdict under the written rule: no gate.** 2 of 6 is 0.33 against a 0.7 bar. Restricted to
+multi-token invention it is 2 of 3, which is still under the bar and is n = 3.
+
+**But the shape of the failure is worth keeping, and it is the exact inverse of §5.5.6a.**
+Across every threshold at or above 2, the detector fires on **0 of 13** substitution and
+omission sites while catching invention. It is not a weak general detector; it is a *specific*
+and *partial* one. What limits it is reach, not noise: **4 of the 12 invention sites are a
+single token**, which no length threshold can see — that is a flaw in the label set I
+pre-registered, not a result. The pages the gates already refuse are where its recall looks
+good (5/6), and those are precisely the pages where it is worth nothing.
+
+**The one false positive was hand-read, and it is real but explicable.** ch22 p22 fires on two
+spans inside an `align*` block: both models read the same four rows and emitted them in a
+different **order**, which a linear diff sees as two long one-sided runs. A row-order-insensitive
+comparison inside math environments would remove this class; it is not built, on one instance.
+
+**Against ground truth that never saw our output.** The five pages the author typed from blank
+(`transcribed` — the exit criterion's control arm) are the only unanchored labels in the corpus.
+The detector raised **0 flags on all five, and made no false positives there**; the 2 inventions
+present are 1 and 2 tokens, below reach. Two things follow, both small-n and both worth
+recording:
+
+- those five pages carry **12 substitution sites** against **7 across the 31 corrected pages** —
+  roughly 2.4 per page unanchored against 0.2 per page anchored. That is a direct measurement of
+  what §11.0 warned about: correction happens *after reading our output*, and the correction log
+  therefore under-counts substitution badly. It is evidence about the labels, not the detector.
+- invention on those pages was short. The long fabrications are attested elsewhere, not here.
+
+**What was demonstrated along the way, and matters more than the detector.** `book-of-why` p6
+is a clean instance of the dangerous class: **94 content words describing a drawing** — "a
+flowchart with nodes C, D and B, the arrow from C to D is labeled A=true" — where the page
+carries ordinary prose. It is ASCII-clean, balanced, non-repeating, and **passes every gate**.
+Its sibling p7 ran the same fabrication to 5,296 content words, and `repetition_gate` **does**
+refuse that one. So the boundary is now measured: our invention is caught exactly when it
+repeats, and p6 is what it looks like when it does not.
+
+**Standing conclusion.** No gate on n = 3. The class is real, named, and now has a fixture
+(`book-of-why` p6). The detector that would catch it needs either reach below three tokens —
+which this one cannot have without flagging 46% of every page, measured — or a different
+signal entirely.
+
 **Compare text, not markup.** The naive form fails: diffing the emitted `.tex` surfaces
 formatting (`\item` against `\\`, `\section` against `\section*`) and buries the finding. Words
 first, and list markers dropped, takes the same page from seven flags to four.
