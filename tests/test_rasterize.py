@@ -2,7 +2,7 @@
 
 `pdflatex` is deterministic, so unlike recognition this can be exercised for real rather than
 stubbed. The PDF is generated in a temp dir so the suite carries no binary fixture and never
-touches the author's manuscript, which is unpublished IP and gitignored.
+touches the author's notebooks, which are gitignored.
 """
 
 from __future__ import annotations

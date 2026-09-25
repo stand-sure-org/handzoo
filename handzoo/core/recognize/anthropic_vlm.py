@@ -9,7 +9,7 @@ agree and one differs, the odd one out is the suspect.
 
 **This sends page images off the machine**, exactly as the Gemini provider does, and the same
 rules hold — opt-in, never the default, announced on every run, key from the environment only,
-no page content in the repository (constraint 7).
+no page images or bulk text in the repository (constraint 7).
 
 **One caveat that is not technical.** When Claude is used to *adjudicate* a comparison — as it
 has been throughout this project's measurement — putting Claude in the pool of things being
