@@ -85,7 +85,8 @@ def test_a_meaning_with_no_token_is_refused(tmp_path: Path) -> None:
 
 
 def test_the_shipped_example_loads_and_carries_no_author_notation() -> None:
-    """`fixtures/` is gitignored because the manuscript is unpublished IP.
+    """`fixtures/` is gitignored: page images and whole transcriptions do not belong in a repo
+    headed for public release.
 
     An author's abbreviation set plus their manuscript is more identifying than either alone,
     so the shipped example is ordinary mathematical shorthand.
