@@ -4001,6 +4001,63 @@ workflow crops first), and a referenced figure file deleted after the crop break
 build rather than the page's own (none today). `assemble` trusts the manifest; the chapter
 compile is what catches both.
 
+### 12.7 The review surface as a state machine (author, 2026-09-25)
+
+The three actions were buttons that *labelled* an edit after it happened. The author's redesign
+makes them **modes** entered before typing, and it answers three things the old shape could not.
+
+**Why modes rather than labels.**
+
+1. *The timer becomes honest.* Timing ran from when the page opened, so reading time and
+   correcting time were one number — §11.1's unmodelled variable, baked in. A mode brackets the
+   measured interval: it starts when the author starts and ends when they stop.
+2. *The fix/author split becomes structural.* §11.3.1 says the mode is chosen before typing; that
+   was a convention, and one could type first and pick the wrong button after. A mode enforces
+   what the design already claimed.
+3. *Read-only by default removes a live hazard.* Any keystroke autosaved and rewrote the page
+   file, so a stray edit became an autosaved edit with a snapshot and no verdict.
+
+**The states.** A page is in exactly one:
+
+| state | tex pane | what is offered |
+|---|---|---|
+| **reading** (default) | read-only | *Looks right* (only when the text is still the tool's output), *Fix transcription*, *Edit my notes*, *Cut*, *Flag*, and *Done* when the page has been worked |
+| **fixing** | writable, timing | *Finish fix*; *Cut* stays available — a crop **is** a correction |
+| **authoring** | writable, timing | *Finish* |
+
+**The transitions, and what each records:**
+
+- *reading → fixing / authoring*: snapshot the text as `before`, start the clock.
+- *fixing / authoring → reading*: **with** changes, record `edited` / `authored` with the elapsed
+  seconds, and offer *Done* as the next action beside the button; **without** changes, record
+  **nothing at all** — a zero-diff row would pollute the defect taxonomy and drag the timing
+  medians (author's ruling).
+- *leaving the page while in a mode* ends the mode: flush and record. Leaving is ending, and it is
+  all we can observe (author's ruling).
+- *Looks right* records `keep-reviewed` — **GOLD**, evidence that *the tool* got this page right.
+- *Done* records a new verdict, **`final`**.
+- *Flag* records `flagged`, from any state; it is the un-check (§12.5).
+
+**Why `final` is a separate verdict from `keep-reviewed`, though both show a tick.** "The tool got
+this right" is evidence about the recognizer and feeds the exit criterion; "I fixed it and it is
+finished" is a fact about the page. The author's judgement is the same — *this needs no more
+attention*, hence the same chip — but recording them alike would put corrected pages into the
+corpus as though the tool had produced them. `final` is outside `GOLD` and outside the correction
+arm. It also gives an edited page an honest route to a tick, which §12.5 left it without.
+
+**Why *Looks right* is conditional.** It is offered exactly when the text on disk is still what the
+tool produced — so: not after the page has been worked, and not once it is `final`. Clicking it on
+a page the author has already corrected would file their own writing as evidence about the
+recognizer, which is §11.3.1's contamination in a different disguise. Flagged and skipped pages
+keep it, because flag-then-accept is a real path.
+
+**Finishing a fix is not finishing the page** (author): the author may be out of time, and the page
+may still hold a second diagram. So *Done* is a separate act, offered as the next action rather
+than a second button with its own explanatory text — clutter for the commonest path.
+
+**Consequence for timing:** the auto-opened-page rule (§11.4a) is no longer needed. Nothing is
+timed until a mode starts, so opening a page for the author — or their coffee — cannot be counted.
+
 ### 12.4 The ordering this implies
 
 1. **Round-trip fidelity test** — mechanical, no UI, and it decides the format question.
