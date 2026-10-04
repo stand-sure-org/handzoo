@@ -1,9 +1,11 @@
 """Gemini recognizer — the same port, over the wire.
 
 **This sends page images off the machine.** CLAUDE.md constraint 7 is local-first, and it is
-local-first because the manuscripts are unpublished. That constraint is not repealed by this
-module: the provider is opt-in, never the default, and says out loud what it is doing. What
-stays absolute is that no page content reaches the repository.
+local-first because the corpus is the author's own notebook and where it goes is theirs to
+decide. That constraint is not repealed by this module: the provider is opt-in, never the
+default, and says out loud what it is doing. What stays absolute is that **page images never
+enter the repository, and neither does bulk text** -- short fragments quoted as evidence are
+permitted (constraint 7, the author's ruling of 2026-09-25).
 
 Why it exists: the local recognizer's characteristic failure is *over-correction* — helpfully
 completing what the author wrote (§5.5, and ch17 p1's invented divisor pair). A more capable

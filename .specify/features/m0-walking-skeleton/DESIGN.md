@@ -1200,9 +1200,9 @@ recording:
 - invention on those pages was short. The long fabrications are attested elsewhere, not here.
 
 **What was demonstrated along the way, and matters more than the detector.** `book-of-why` p6
-carries **94 content words of the recognizer narrating its own handling of the page** — prose
-explaining that the drawing is hand-drawn, cannot be rendered directly, and has therefore been
-included as an image, with the page's own variable names woven through it. The author deleted
+carries **94 content words of the recognizer narrating its own handling of the page** — "since
+the diagram is hand drawn and not in a format that can be directly rendered in LaTeX … it is
+included as an image" — with the page's own variable names woven through it. The author deleted
 all 94. Re-gated, that text is **ASCII-clean, balanced, and non-repeating**, so
 `repetition_gate` cannot see it; compile, coverage, colour and pasted were *not* re-run against
 this exact text and no claim is made about them. Its sibling p7 ran a fabrication to 5,296

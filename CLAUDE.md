@@ -92,11 +92,30 @@ Environment, verified on this machine:
    `GateResult.checked`, `coverage_gate` on an empty inventory, and `Emission.verdict` — each
    time by defaulting an unknown into the reassuring answer. **When adding a gate, decide what
    it returns when it cannot run, and test that case directly.** See DESIGN §5.7.
-7. **Local-first.** `fixtures/` is gitignored — the manuscript is unpublished IP and this repo
-   is intended for public release. `--provider gemini` exists and **sends page images to
-   Google**; it is opt-in, never the default, announces itself on every run, and reads its
-   key only from `$GEMINI_API_KEY`. A test asserts no key can live in the tree. What is
-   absolute is that no page content reaches the repository.
+7. **Local-first.** `fixtures/` is gitignored and stays that way. `--provider gemini` exists
+   and **sends page images to Google**; it is opt-in, never the default, announces itself on
+   every run, and reads its key only from `$GEMINI_API_KEY`. A test asserts no key can live in
+   the tree.
+
+   **Quoting page content — the author's ruling, 2026-09-25.** Short fragments *may* be quoted
+   in docs, commits and PRs as evidence, and that is how the measured findings in DESIGN are
+   written. The corpora are the author's own handwritten notes on **books they are reading**, so
+   there is no unpublished-IP exposure, and the author's position on the underlying works is
+   fair use. This is a relaxation of how findings are *written*, not of where data *lives*, and
+   it does not license three things:
+
+   - **Bulk.** A fragment is evidence; a page is a reproduction. Quote the tokens that carry
+     the finding, not the passage around them.
+   - **Images.** No page render, crop or capture enters the repo. Text only, and `fixtures/`
+     stays gitignored — the measurement harnesses write transcripts to a work directory
+     *outside* the tree for this reason.
+   - **Printed third-party text.** Pages carrying a reMarkable capture hold a publisher's own
+     words verbatim (measured: Leinster 1.1 pp14–18, screenshots of the book's printed
+     exercises). Those are the one place the fair-use argument is doing real work rather than
+     describing the author's own writing. Paraphrase them; do not quote them.
+
+   If a corpus is ever something other than the author's notes on a published work — an
+   unpublished manuscript, someone else's draft — **this ruling does not extend to it. Ask.**
 
 ## What is built, and what is not
 
@@ -288,9 +307,9 @@ at **122**, and the limit of 20 sits ~40x from either side. It does not claim a 
 free of invention — only free of invention that *repeats*.
 
 **That boundary is now measured, and it has a fixture.** `book-of-why` p6 carries **94 content
-words of the recognizer narrating its own handling of the page** — prose explaining that the
-drawing is hand-drawn and has therefore been included as an image, with the page's variables
-woven through it. The author deleted all 94. Re-gated it is ASCII-clean, balanced and
+words of the recognizer narrating its own handling of the page** — "since the diagram is hand
+drawn and not in a format that can be directly rendered in LaTeX … it is included as an image"
+— with the page's variables woven through it. The author deleted all 94. Re-gated it is ASCII-clean, balanced and
 **non-repeating**, so `repetition_gate` cannot see it (compile, coverage, colour and pasted were
 not re-run against that exact text). Its sibling p7 ran a fabrication to 5,296 words and
 `repetition_gate` **does** refuse it. So: our invention is caught when it repeats, and p6 is
