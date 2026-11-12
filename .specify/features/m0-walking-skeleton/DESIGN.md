@@ -1825,10 +1825,35 @@ it to a domain concept.
 
 `declarations.CHARACTER_REPAIRS` maps the ballot cross to pifont's `\ding{55}`, and the
 author's preamble does not load pifont: `! Undefined control sequence` (measured). Under the
-new target the same character has no good answer — ✗ (U+2717) is **also absent from Latin
-Modern Math** — so the missing-glyph check refuses the page instead of dropping the mark
-silently. That is the right outcome and the fix is the author's: a package, or a math font that
-carries it.
+new target the missing-glyph check refuses such a page instead of dropping the mark silently,
+which is the right outcome. Three measurements say what the fix actually is, and the obvious
+two are both wrong:
+
+1. **A math font swap does not help.** Latin Modern Math, STIX Two Math, TeX Gyre Pagella Math
+   and TeX Gyre Termes Math **all** lack ✓ (U+2713), ✗ (U+2717) and the circled digits.
+2. **Adding the packages is necessary but not sufficient.** With `amssymb` and `pifont` added
+   to the author's preamble, all three repair commands compile clean — exit 0, zero missing
+   characters, and `\checkmark` reaches the page as U+2713.
+3. **But our repair *mechanism* does not work on this engine at all.**
+   `\DeclareUnicodeCharacter` is an `inputenc` feature; LuaLaTeX passes characters straight to
+   the font and never consults it. Measured, with pifont loaded and the declaration present:
+
+   | | |
+   |---|---|
+   | `\DeclareUnicodeCharacter{2717}{\ding{55}}` | exit 1, 6 `Missing character`, ✗ never renders |
+   | `\newunicodechar{✗}{\ding{55}}` | exit 0, zero missing characters |
+
+So under a Unicode target the repairs are **dead code wearing the right name**, and the fix is
+`newunicodechar` rather than a font or a package. Our declarations block sits between the
+author's preamble and `\begin{document}`, so it can load what a repair needs — which is the
+same job that block already does for invented macros. Not built yet: no page in the measured
+corpus has emitted one of these characters since the target landed (0 of 16 freshly recognized
+pages carried any non-ASCII at all), so this is a known gap with a known fix rather than a live
+failure.
+
+A note for §11.2.6a and the a11y thread: `\ding{55}` and `\textcircled` *draw* correctly and
+do **not** extract as their original codepoints, where `\checkmark` does. A repair can be
+faithful to the eye and lossy to a screen reader.
 
 ## 7. `handzoo review` — the correction loop (in M0 scope)
 
