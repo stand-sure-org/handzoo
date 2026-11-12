@@ -1719,6 +1719,142 @@ Consequence for the Emitter: `--fragment` is not a convenience flag, it is **the
 output mode for assembly**, and `--standalone` is for reviewing a single page. Fragments must
 therefore carry no preamble and no `\begin{document}`, which is already how R4 treats them.
 
+### 6.2 The typesetting target — one decision that was living in three modules
+
+Measured 2026-11-12, prompted by the author adopting their own preamble after working in
+Overleaf and TeXstudio.
+
+Three things were hardcoded in three places: the engine in `compile_gate`, the preamble in
+`normalize`, and whether non-ASCII is a defect in `ascii_gate` and R1. They look independent
+and are not. A preamble settles all three, and settles them by **physical constraint**:
+
+```
+pdflatex + unicode-math  ->  ! Package unicode-math Error: Cannot be run with pdftex!
+```
+
+So `core.target.Target` **derives** the engine rather than accepting it as configuration.
+Asking an author to name a preamble and then separately name the only engine that can run it is
+asking them to repeat themselves and to get it wrong. Detection reads the *live* text only: the
+author's file carries commented-out alternatives, and a detector that read comments would
+switch engines on a line the document never executes.
+
+**A project that names no preamble is untouched.** `Target.generated()` is our preamble,
+pdflatex, ASCII required — what every corpus in the author's hands was built with. Swept to
+confirm before writing a line of it: 42 real pages across three projects, **0 compile
+pass->fail**, 2 fail->pass.
+
+#### The old silent loss comes back in a new shape, and the compile gate had to grow
+
+Under pdflatex an undeclared codepoint is a *build failure*. Under lualatex it is worse:
+
+| | |
+|---|---|
+| a glyph the math font lacks | build **succeeds**, exit 0, the character is simply absent |
+| `\tracinglostchars=3` | exit 1 — but emits **no `! ` line at all** |
+
+The existing error parser therefore could not see it, and would have reported "exited 1 with no
+parsed error". So the log is now read directly, **including on success**, because success is
+where this one hides. It is a hard failure, and the floor is measured on **both** paths it can fire on: 0 findings
+across 109 existing pages through the new gate on the default path, and 0 across 16 freshly
+recognized pages under the author's preamble with R1 off. Findings are deduplicated per
+character: one unmappable glyph used fourteen times is
+one decision for the author, and fourteen identical findings is the shape that teaches a
+reviewer to skim (§6.0's TODO-fatigue argument).
+
+#### R1 stops flattening what the engine would have kept
+
+Measured under `unicode-math`: `\mathcal{C}` typesets U+1D49E, `\mathbb{C}` typesets U+2102,
+and the raw characters round-trip to exactly those codepoints. §11.0.1g found the recognizer
+defaulting both of the author's letterforms to `\mathcal`; R1 was the *second* place that
+distinction died, rewriting the codepoint into a command before any gate saw it. Under a
+Unicode target it no longer fires, and we no longer emit
+
+```
+\DeclareUnicodeCharacter{2102}{\ensuremath{\bullet}}  % TODO: no mapping
+```
+
+which on an engine that can simply draw the character is **us renotating one of the author's
+marks** — constraint #5, by our own hand. Whether the *model* distinguishes the two letterforms
+any better is a separate question, and it is now measured: **it does not take the opening.**
+Across 16 freshly recognized pages with R1 off and the author's preamble in place, **zero pages
+carried any non-ASCII at all** -- the recognizer writes `\mathcal{C}`, not the character. So
+removing R1 removed a *pipeline* obstacle that was not the binding one. The lever exists and is
+unused; using it would take a prompt change, and §11.0.1g already measured one prompt attempt
+as indistinguishable from noise. The honest summary is that this change makes the letterform
+fix *possible*, not that it delivers it.
+
+#### Three smaller things the change had to get right
+
+- **The project keeps its own copy** of the preamble, written as LaTeX with provenance in
+  comments. The author called theirs tentative and intends to rework the theorem machinery, so
+  the original *will* drift; a project that re-read it each run would silently change what it
+  produces when a file it does not own is edited. The copy builds, the hash notices the drift,
+  and the run says so. The same "hash is a hint, never identity" as §11.1.3.
+- **The typeset cache is keyed on the target**, not only the source. Adopting a preamble
+  changes the engine and the surrounding document without touching one page file, so a
+  source-only key would go on serving pdflatex renders — a stale pane that looks authoritative.
+- **The ASCII gate is answered by the project, not only by the text.** A fragment carries no
+  preamble, so under a Unicode target it would read *unverified* forever -- on a question the
+  project has in fact answered. It now takes `accepts_unicode` from the target and passes, with
+  a note saying why. (`assemble` only excludes `fail`, so such a page was never in danger of
+  leaving the chapter -- checked rather than assumed.)
+- **A missing engine is `checked=False`, never a fallback.** Quietly substituting an engine
+  that *is* installed would build the document against something it does not describe, and
+  report a pass.
+
+#### Four places the first attempt missed, and what they have in common
+
+Each was a *second* site for a rule the first site had already learned:
+
+| missed | why it mattered |
+|---|---|
+| `chapter_preamble` still declared Unicode characters | R4's standalone branch learned it; the **fragment** path -- the mode the author actually uses -- reaches declarations through here instead, so pages still got `\bullet` stubs in the document they were really built into |
+| the UI save path re-gated against pdflatex and our preamble | the first edit using `\begin{defn}` or `\Hom` would have quarantined a correct page |
+| the typeset cache keyed only on the source | adoption changes the engine without touching a page file, so the pane would serve stale renders |
+| `--preamble` sat below the imports refusal | the projects created by the surface are exactly the ones that could not adopt a preamble |
+
+The unit test for each rule passed; what catches this class is an assertion that runs the whole
+way through -- fragment, assembly, engine, and `pdftotext` on the result. That test exists now.
+
+**And the name `target` was already taken three times**: the output path in `convert`, the
+output *format* in `emit`, and a `Path` in the surface's `_revalidate`. Two were renamed
+(`dest`, `fmt`), one shadowed silently until three tests failed. Grep for a name before giving
+it to a domain concept.
+
+#### What the author's preamble does to the rest of the pipeline
+
+`declarations.CHARACTER_REPAIRS` maps the ballot cross to pifont's `\ding{55}`, and the
+author's preamble does not load pifont: `! Undefined control sequence` (measured). Under the
+new target the missing-glyph check refuses such a page instead of dropping the mark silently,
+which is the right outcome. Three measurements say what the fix actually is, and the obvious
+two are both wrong:
+
+1. **A math font swap does not help.** Latin Modern Math, STIX Two Math, TeX Gyre Pagella Math
+   and TeX Gyre Termes Math **all** lack ✓ (U+2713), ✗ (U+2717) and the circled digits.
+2. **Adding the packages is necessary but not sufficient.** With `amssymb` and `pifont` added
+   to the author's preamble, all three repair commands compile clean — exit 0, zero missing
+   characters, and `\checkmark` reaches the page as U+2713.
+3. **But our repair *mechanism* does not work on this engine at all.**
+   `\DeclareUnicodeCharacter` is an `inputenc` feature; LuaLaTeX passes characters straight to
+   the font and never consults it. Measured, with pifont loaded and the declaration present:
+
+   | | |
+   |---|---|
+   | `\DeclareUnicodeCharacter{2717}{\ding{55}}` | exit 1, 6 `Missing character`, ✗ never renders |
+   | `\newunicodechar{✗}{\ding{55}}` | exit 0, zero missing characters |
+
+So under a Unicode target the repairs are **dead code wearing the right name**, and the fix is
+`newunicodechar` rather than a font or a package. Our declarations block sits between the
+author's preamble and `\begin{document}`, so it can load what a repair needs — which is the
+same job that block already does for invented macros. Not built yet: no page in the measured
+corpus has emitted one of these characters since the target landed (0 of 16 freshly recognized
+pages carried any non-ASCII at all), so this is a known gap with a known fix rather than a live
+failure.
+
+A note for §11.2.6a and the a11y thread: `\ding{55}` and `\textcircled` *draw* correctly and
+do **not** extract as their original codepoints, where `\checkmark` does. A repair can be
+faithful to the eye and lossy to a screen reader.
+
 ## 7. `handzoo review` — the correction loop (in M0 scope)
 
 Added per binding condition 2. Usability: *"a validator with no way to act on what it validates is not a product, it's a linter."*

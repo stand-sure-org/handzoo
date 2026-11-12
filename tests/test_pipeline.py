@@ -70,9 +70,11 @@ def test_every_emission_states_what_was_not_checked() -> None:
     assert "NOT CHECKED" in emit(_recognition()).text
 
 
-def test_an_unimplemented_target_raises_rather_than_silently_emitting_latex() -> None:
+def test_an_unimplemented_format_raises_rather_than_silently_emitting_latex() -> None:
+    """`fmt` is the output *format*. It used to be called `target`, which now means the
+    typesetting target -- what the document is built into, and by which engine."""
     with pytest.raises(ValueError, match="not implemented"):
-        emit(_recognition(), target="markdown")  # type: ignore[arg-type]
+        emit(_recognition(), fmt="markdown")  # type: ignore[arg-type]
 
 
 def test_report_never_prints_an_unqualified_pass() -> None:
@@ -362,7 +364,7 @@ def test_a_fragment_run_without_pdflatex_reads_unverified_not_passed(
     """Constraint #6, for the new gate entry point: a compile that could not run must not
     read as one that passed. Fragment compiles used to be skipped unconditionally, so a
     fragment run's verdict did not depend on the engine; now it does."""
-    monkeypatch.setattr(compile_gate, "engine_available", lambda: False)
+    monkeypatch.setattr(compile_gate, "engine_available", lambda engine=None: False)
     (outcome, *_) = list(pipeline.convert(pdf, tmp_path, _StubRecognizer(), last=1))
     assert outcome.gates["compile"] == "skipped"
     assert outcome.verdict == "unverified"

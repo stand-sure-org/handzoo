@@ -164,7 +164,7 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
             first: int = 1, last: int | None = None, mode: str = "fragment",
             resume: bool = False, dpi: int = rasterize.DEFAULT_DPI,
             exclude: set[int] | None = None, replacing: set[int] | None = None,
-            offset: int = 0,
+            offset: int = 0, target=None,
             on_page: Callable[[PageOutcome], None] | None = None) -> Iterator[PageOutcome]:
     """Convert a page range, yielding each outcome as it completes.
 
@@ -172,6 +172,9 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
     is what makes a long run interruptible and a bad prompt cheap to discover.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
+    if target is None:
+        from .target import Target
+        target = Target.load(out_dir)
     run = Run(out_dir).load() if resume else Run(out_dir)
     already = run.completed_pages() if resume else set()
     replaced = replacing or set()
@@ -235,23 +238,24 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
             continue
 
         emission = _validate(recognition, pdf, file_page, mode=mode, out_dir=out_dir,
+                             target=target,
                              page_number=page.number)
         if kept(page.number):
             # The author started on this page while the model was reading it. Their work
             # wins; this recognition is discarded, and nothing is recorded that would point
             # the manifest away from the file they are editing.
             continue
-        target = out_dir / f"page-{page.number:04d}.tex"
+        dest = out_dir / f"page-{page.number:04d}.tex"
         # A failing page is still written, but under a name a build cannot pick up by
         # accident. Discarding it would throw away the very thing a human needs to correct.
         # Unverified is NOT quarantined: nothing refused it.
         if emission.failed:
-            target = target.with_suffix(".fail.tex")
-        target.write_text(emission.text, encoding="utf-8")
+            dest = dest.with_suffix(".fail.tex")
+        dest.write_text(emission.text, encoding="utf-8")
 
         outcome = PageOutcome(
             page=page.number,
-            output=str(target),
+            output=str(dest),
             verdict=emission.verdict,
             gates={g.gate: ("pass" if g.passed else "skipped" if not g.checked else "fail")
                    for g in emission.gates},
@@ -270,10 +274,13 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
 
 
 def _validate(recognition: Recognition, pdf: Path, page: int, *, mode: str,
-              out_dir: Path | None = None, page_number: int | None = None) -> Emission:
+              out_dir: Path | None = None, page_number: int | None = None,
+              target=None) -> Emission:
     """`page` is the page *of the PDF* -- what the ink and colour gates read. `page_number` is
     its number in the project, which is what the emitted provenance names."""
-    draft = emit(recognition, mode=mode, page=page_number or page, base_dir=out_dir)
+    engine = compile_gate.ENGINE if target is None else target.engine
+    draft = emit(recognition, mode=mode, page=page_number or page, base_dir=out_dir,
+                 target=target)
     try:
         ink = rasterize.ink_profile(pdf, page)
     except rasterize.RasterizeError:
@@ -284,11 +291,13 @@ def _validate(recognition: Recognition, pdf: Path, page: int, *, mode: str,
         # Could not ask, so the colour gate must not answer. None is "unknown", not "clean".
         colours = None
     gates = (
-        ascii_gate.check(draft.text, fragment=(mode != "standalone")),
+        ascii_gate.check(draft.text, fragment=(mode != "standalone"),
+                         accepts_unicode=bool(target and target.accepts_unicode)),
         delimiter_gate.check(draft.text),
-        compile_gate.check(draft.text, base_dir=out_dir) if mode == "standalone"
-        else compile_gate.check_fragment(draft.text, preamble=chapter_preamble([draft.text]),
-                                         base_dir=out_dir),
+        compile_gate.check(draft.text, base_dir=out_dir, engine=engine) if mode == "standalone"
+        else compile_gate.check_fragment(
+            draft.text, preamble=chapter_preamble([draft.text], target=target),
+            base_dir=out_dir, engine=engine),
         coverage_gate.check(draft.text, recognition.inventory, ink=ink,
                             inventory_failed=recognition.inventory_failed),
         colour_gate.check(draft.text, colours=colours),

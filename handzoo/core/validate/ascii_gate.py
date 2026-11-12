@@ -51,7 +51,7 @@ def non_ascii_chars(text: str) -> list[str]:
 
 
 def check(latex: str, *, allow_declared: bool = True,
-          fragment: bool = False) -> GateResult:
+          fragment: bool = False, accepts_unicode: bool = False) -> GateResult:
     """Fail on any non-ASCII byte the document has not accounted for.
 
     Args:
@@ -75,6 +75,13 @@ def check(latex: str, *, allow_declared: bool = True,
             This is the conclusion 11.4 reached for the compile gate, arrived at independently
             by a different gate: **the chapter is the unit that can answer.**
     """
+    if accepts_unicode:
+        # The project's preamble answers the question the fragment cannot. This is a pass, not
+        # an `unverified`: the codepoints *are* accounted for -- by the document this page is
+        # built into, which is the same answer `preamble_supports_unicode` gives when the
+        # preamble happens to travel with the text (DESIGN 6.2).
+        return GateResult(GATE, note="the project's preamble typesets Unicode natively")
+
     if allow_declared and preamble_supports_unicode(latex):
         return GateResult(GATE)
 

@@ -9,6 +9,7 @@ No test here calls a model. Recognition is nondeterministic and is measured, nev
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -122,7 +123,7 @@ def test_delimiters_report_where_it_opened_not_where_it_ended() -> None:
 
 def test_a_fragment_the_engine_cannot_compile_is_not_checked_not_passed(monkeypatch) -> None:
     """The cannot-run case, tested directly (constraint #6)."""
-    monkeypatch.setattr(compile_gate, "engine_available", lambda: False)
+    monkeypatch.setattr(compile_gate, "engine_available", lambda engine=None: False)
     result = compile_gate.check_fragment("Hello.\n", preamble=chapter_preamble(["Hello.\n"]))
     assert result.checked is False and not result.failures
 
@@ -620,3 +621,49 @@ def test_a_blank_line_reads_as_a_line_break_not_an_indented_paragraph() -> None:
     # And the effect it is loaded for, so a future tidy-up cannot drop the behaviour while
     # keeping the package.
     assert "\\parindent" in PREAMBLE or "parskip}" in PREAMBLE
+
+
+# ------------------------------------------------ the engine belongs to the target, not here
+
+UNICODE_DOC = (
+    "\\documentclass{article}\n"
+    "\\usepackage{unicode-math}\n"
+    "\\setmathfont{Latin Modern Math}\n"
+    "\\begin{document}$\\mathcal{C}$ and $\\mathbb{C}$\\end{document}\n"
+)
+
+
+@pytest.mark.skipif(not shutil.which("lualatex"), reason="lualatex not installed")
+def test_a_document_pdflatex_cannot_build_is_built_by_the_engine_it_names() -> None:
+    """Measured on the author's preamble: `! Package unicode-math Error: Cannot be run with
+    pdftex!`. The engine is a property of the document, so the gate takes it from the target
+    rather than holding one module constant that happens to be right for one corpus."""
+    assert compile_gate.check(UNICODE_DOC, engine="pdflatex").failures, "pdflatex must refuse it"
+    assert not compile_gate.check(UNICODE_DOC, engine="lualatex").failures
+
+
+@pytest.mark.skipif(not shutil.which("lualatex"), reason="lualatex not installed")
+def test_a_glyph_the_font_lacks_is_a_failure_rather_than_a_silent_hole() -> None:
+    """The old silent-loss mode returns in a new shape, and it is this project's villain
+    exactly. Measured: a character Latin Modern has no glyph for leaves the build **succeeding**
+    -- exit 0 -- with 28 `Missing character` lines in the log and the character simply absent
+    from the page. The existing parser cannot see it: `\\tracinglostchars=3` raises the exit
+    code but emits no `! ` line at all, so it is read from the log explicitly.
+
+    Floor: 0 such warnings across 42 real pages built on this path, so it refuses nothing that
+    works today.
+    """
+    doc = UNICODE_DOC.replace("$\\mathcal{C}$ and $\\mathbb{C}$", "a CJK glyph: \u6f22")
+    result = compile_gate.check(doc, engine="lualatex")
+    assert result.checked
+    assert result.failures, "a dropped character must not read as a clean build"
+    assert any("6F22" in f.detail or "\u6f22" in f.detail for f in result.failures)
+
+
+def test_a_missing_engine_is_not_checked_and_is_never_quietly_swapped() -> None:
+    """Rule 6, and the obvious wrong fix for it: falling back to an engine that *is* installed
+    would build the document against something it does not describe, and report a pass."""
+    result = compile_gate.check(UNICODE_DOC, engine="definitely-not-a-tex-engine")
+    assert result.checked is False
+    assert not result.failures
+    assert "definitely-not-a-tex-engine" in result.note
