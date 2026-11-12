@@ -379,7 +379,7 @@ def typeset(out_dir: Path, outcome: PageOutcome) -> tuple[Path | None, str]:
         cached.write_bytes(pdf.read_bytes())
         return cached, ""
     text = Path(outcome.output).read_text(encoding="utf-8") if outcome.output else ""
-    result = compile_gate.check(text, base_dir=out_dir)
+    result = compile_gate.check(text, base_dir=out_dir, engine=target.engine)
     detail = "\n".join(f"line {f.line}: {f.detail}" if f.line else f.detail
                         for f in result.failures) or "pdflatex produced no output."
     return None, detail
@@ -414,8 +414,8 @@ def typeset_png(out_dir: Path, outcome: PageOutcome) -> tuple[Path | None, str]:
     return png, ""
 
 
-def _revalidate(text: str, target: Path,
-                outcome: PageOutcome | None = None) -> tuple[bool, list[dict], str]:
+def _revalidate(text: str, path: Path, outcome: PageOutcome | None = None,
+                build: "Target | None" = None) -> tuple[bool, list[dict], str]:
     """Re-run the gates on what the author actually saved.
 
     A `.fail.tex` name is one a build cannot pick up by accident. Once the defect is fixed,
@@ -456,9 +456,12 @@ def _revalidate(text: str, target: Path,
         colour_gate.check(text, colours=colours),
         pasted_gate.check(pasted, regions=_pasted_regions_for(source, outcome)),
     ]
-    gates.append(compile_gate.check(text, base_dir=target.parent) if standalone
-                 else compile_gate.check_fragment(text, preamble=chapter_preamble([text]),
-                                                  base_dir=target.parent))
+    engine = compile_gate.ENGINE if build is None else build.engine
+    gates.append(compile_gate.check(text, base_dir=path.parent, engine=engine) if standalone
+                 else compile_gate.check_fragment(text,
+                                                  preamble=chapter_preamble([text], target=build),
+                                                  engine=engine,
+                                                  base_dir=path.parent))
 
     findings = [{"gate": g.gate, "detail": f.detail, "line": f.line, "excerpt": f.excerpt}
                 for g in gates if g.checked and not g.advisory
@@ -862,7 +865,8 @@ class Handler(BaseHTTPRequestHandler):
             released = False
             if target.name.endswith(".fail.tex") and _fabrications_cleared(
                     match[0].findings or [], after):
-                clean, findings, gates = _revalidate(after, target, match[0])
+                clean, findings, gates = _revalidate(after, target, match[0],
+                                                     build=Target.load(self.review.out_dir))
                 if clean:
                     freed = target.with_name(target.name.replace(".fail.tex", ".tex"))
                     target.rename(freed)
@@ -990,7 +994,8 @@ class Handler(BaseHTTPRequestHandler):
         revalidated = quarantined = False
         if mode == "fix":
             was_quarantined = target.name.endswith(".fail.tex")
-            clean, findings, gates = _revalidate(after, target, match[0])
+            clean, findings, gates = _revalidate(after, target, match[0],
+                                                 build=Target.load(self.review.out_dir))
             if clean and was_quarantined:
                 released = target.with_name(target.name.replace(".fail.tex", ".tex"))
                 target.rename(released)

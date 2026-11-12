@@ -7,6 +7,9 @@ engine, and it decides whether non-ASCII is a defect or the correct answer.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+
 import pytest
 
 from handzoo.core import target as T
@@ -213,3 +216,43 @@ def test_a_cached_render_is_keyed_on_the_target_as_well_as_the_source() -> None:
     page = "Hello.\n"
     assert typeset_key(page, T.Target.generated()) != typeset_key(
         page, T.Target.from_text(UNICODE_PREAMBLE, origin="x.tex"))
+
+
+@pytest.mark.skipif(not shutil.which("lualatex"), reason="lualatex not installed")
+def test_a_letterform_survives_from_fragment_to_typeset_page(tmp_path) -> None:
+    """The whole point, checked at the only place that settles it: the PDF.
+
+    This is the test the first attempt needed and did not have. `normalize`'s standalone branch
+    learned to stop declaring characters as bullets; `chapter_preamble` -- which is what a
+    *fragment* reaches, through both the compile gate and `chapter.tex` -- did not, so a page
+    carrying the author's own letterforms still got
+
+        \\DeclareUnicodeCharacter{2102}{\\ensuremath{\\bullet}}
+
+    in the document it was actually built into. An end-to-end assertion catches that; a
+    unit test of the branch I happened to be editing did not.
+    """
+    from handzoo.core.assemble import assemble
+    from handzoo.core.normalize import chapter_preamble
+    from handzoo.core.pipeline import PageOutcome
+
+    target = T.Target.from_text(UNICODE_PREAMBLE, origin="x.tex")
+    fragment = f"Let ${BLACKBOARD_C}$ be a category, and ${SCRIPT_C}$ a presheaf on it.\n"
+
+    preamble = chapter_preamble([fragment], target=target)
+    assert "DeclareUnicodeCharacter" not in preamble, "the fragment's own preamble, too"
+    assert "\\bullet" not in preamble
+
+    page = tmp_path / "page-0001.tex"
+    page.write_text(fragment, encoding="utf-8")
+    master = assemble(tmp_path, [PageOutcome(page=1, output=str(page), verdict="pass", gates={})],
+                      target=target)
+    assert "page-0001" in master.read_text(encoding="utf-8"), "a Unicode page stays in the chapter"
+
+    subprocess.run([target.engine, "-interaction=nonstopmode", "-halt-on-error", master.name],
+                   cwd=tmp_path, capture_output=True, timeout=180, check=False)
+    pdf = master.with_suffix(".pdf")
+    assert pdf.exists(), "the chapter must build"
+    text = subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True, text=True).stdout
+    assert BLACKBOARD_C in text, "the blackboard-bold reached the page"
+    assert SCRIPT_C in text, "and the script letter did, as a different character"

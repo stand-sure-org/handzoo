@@ -344,7 +344,7 @@ def _strip_fabricated_graphics(text: str, rules: list[str],
     return _FAB_GRAPHIC.sub(graphic, text)
 
 
-def chapter_preamble(texts: list[str], *, base: str | None = None) -> str:
+def chapter_preamble(texts: list[str], *, target=None) -> str:
     """The preamble a chapter gives its fragments -- the one definition of it.
 
     The master document uses it, and so does the compile gate when it checks a single fragment.
@@ -359,8 +359,13 @@ def chapter_preamble(texts: list[str], *, base: str | None = None) -> str:
     told "not declared here", so if the chapter does not declare them nobody does.
     """
     joined = "\n".join(texts)
-    return (PREAMBLE if base is None else base) + declarations_for(
-        find_undefined(joined), non_ascii_chars(joined), source=joined)
+    # A character the engine can simply draw needs no declaration, and declaring it as
+    # `\bullet` renotates a mark the author made (constraint #5). This is the *second* place
+    # that had to learn it: the first was R4's standalone branch, and a fragment reaches the
+    # compile gate and `chapter.tex` through here instead.
+    keep_unicode = bool(target is not None and target.accepts_unicode)
+    return ((PREAMBLE if target is None else target.base) + declarations_for(
+        find_undefined(joined), [] if keep_unicode else non_ascii_chars(joined), source=joined))
 
 
 def normalize(markup: str, standalone: bool = True,

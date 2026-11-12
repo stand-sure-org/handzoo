@@ -93,7 +93,7 @@ class Target:
         *it* defines and says nothing about what the recognizer made up, so R8's guard stays.
         """
         from .normalize import chapter_preamble
-        return chapter_preamble(texts, base=self.base)
+        return chapter_preamble(texts, target=self)
 
     # ------------------------------------------------------------------ project storage
 

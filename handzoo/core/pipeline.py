@@ -279,7 +279,6 @@ def _validate(recognition: Recognition, pdf: Path, page: int, *, mode: str,
     """`page` is the page *of the PDF* -- what the ink and colour gates read. `page_number` is
     its number in the project, which is what the emitted provenance names."""
     engine = compile_gate.ENGINE if target is None else target.engine
-    base = None if target is None else target.base
     draft = emit(recognition, mode=mode, page=page_number or page, base_dir=out_dir,
                  target=target)
     try:
@@ -292,11 +291,12 @@ def _validate(recognition: Recognition, pdf: Path, page: int, *, mode: str,
         # Could not ask, so the colour gate must not answer. None is "unknown", not "clean".
         colours = None
     gates = (
-        ascii_gate.check(draft.text, fragment=(mode != "standalone")),
+        ascii_gate.check(draft.text, fragment=(mode != "standalone"),
+                         accepts_unicode=bool(target and target.accepts_unicode)),
         delimiter_gate.check(draft.text),
         compile_gate.check(draft.text, base_dir=out_dir, engine=engine) if mode == "standalone"
         else compile_gate.check_fragment(
-            draft.text, preamble=chapter_preamble([draft.text], base=base),
+            draft.text, preamble=chapter_preamble([draft.text], target=target),
             base_dir=out_dir, engine=engine),
         coverage_gate.check(draft.text, recognition.inventory, ink=ink,
                             inventory_failed=recognition.inventory_failed),

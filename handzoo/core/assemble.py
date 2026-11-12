@@ -109,7 +109,7 @@ def assemble(out_dir: Path, outcomes: list[PageOutcome], *, name: str = MASTER,
     # where 9 pages failed the ASCII gate with no remedy inside a fragment -- a checkmark
     # asserting an axiom holds is a term in the sentence, not decoration), and macros the
     # recognizer invented, which a fragment is only told about and a standalone page declares.
-    preamble = chapter_preamble(included, base=None if target is None else target.base)
+    preamble = chapter_preamble(included, target=target)
 
     master = out_dir / name
     master.write_text(

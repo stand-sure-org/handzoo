@@ -1754,8 +1754,10 @@ Under pdflatex an undeclared codepoint is a *build failure*. Under lualatex it i
 
 The existing error parser therefore could not see it, and would have reported "exited 1 with no
 parsed error". So the log is now read directly, **including on success**, because success is
-where this one hides. It is a hard failure with a measured floor of 0 across those same 42
-pages, and findings are deduplicated per character: one unmappable glyph used fourteen times is
+where this one hides. It is a hard failure, and the floor is measured on **both** paths it can fire on: 0 findings
+across 109 existing pages through the new gate on the default path, and 0 across 16 freshly
+recognized pages under the author's preamble with R1 off. Findings are deduplicated per
+character: one unmappable glyph used fourteen times is
 one decision for the author, and fourteen identical findings is the shape that teaches a
 reviewer to skim (§6.0's TODO-fatigue argument).
 
@@ -1773,8 +1775,13 @@ Unicode target it no longer fires, and we no longer emit
 
 which on an engine that can simply draw the character is **us renotating one of the author's
 marks** — constraint #5, by our own hand. Whether the *model* distinguishes the two letterforms
-any better is a separate question and still open; what changed is that the pipeline no longer
-decides for it.
+any better is a separate question, and it is now measured: **it does not take the opening.**
+Across 16 freshly recognized pages with R1 off and the author's preamble in place, **zero pages
+carried any non-ASCII at all** -- the recognizer writes `\mathcal{C}`, not the character. So
+removing R1 removed a *pipeline* obstacle that was not the binding one. The lever exists and is
+unused; using it would take a prompt change, and §11.0.1g already measured one prompt attempt
+as indistinguishable from noise. The honest summary is that this change makes the letterform
+fix *possible*, not that it delivers it.
 
 #### Three smaller things the change had to get right
 
@@ -1786,9 +1793,33 @@ decides for it.
 - **The typeset cache is keyed on the target**, not only the source. Adopting a preamble
   changes the engine and the surrounding document without touching one page file, so a
   source-only key would go on serving pdflatex renders — a stale pane that looks authoritative.
+- **The ASCII gate is answered by the project, not only by the text.** A fragment carries no
+  preamble, so under a Unicode target it would read *unverified* forever -- on a question the
+  project has in fact answered. It now takes `accepts_unicode` from the target and passes, with
+  a note saying why. (`assemble` only excludes `fail`, so such a page was never in danger of
+  leaving the chapter -- checked rather than assumed.)
 - **A missing engine is `checked=False`, never a fallback.** Quietly substituting an engine
   that *is* installed would build the document against something it does not describe, and
   report a pass.
+
+#### Four places the first attempt missed, and what they have in common
+
+Each was a *second* site for a rule the first site had already learned:
+
+| missed | why it mattered |
+|---|---|
+| `chapter_preamble` still declared Unicode characters | R4's standalone branch learned it; the **fragment** path -- the mode the author actually uses -- reaches declarations through here instead, so pages still got `\bullet` stubs in the document they were really built into |
+| the UI save path re-gated against pdflatex and our preamble | the first edit using `\begin{defn}` or `\Hom` would have quarantined a correct page |
+| the typeset cache keyed only on the source | adoption changes the engine without touching a page file, so the pane would serve stale renders |
+| `--preamble` sat below the imports refusal | the projects created by the surface are exactly the ones that could not adopt a preamble |
+
+The unit test for each rule passed; what catches this class is an assertion that runs the whole
+way through -- fragment, assembly, engine, and `pdftotext` on the result. That test exists now.
+
+**And the name `target` was already taken three times**: the output path in `convert`, the
+output *format* in `emit`, and a `Path` in the surface's `_revalidate`. Two were renamed
+(`dest`, `fmt`), one shadowed silently until three tests failed. Grep for a name before giving
+it to a domain concept.
 
 #### What the author's preamble does to the rest of the pipeline
 
