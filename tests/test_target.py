@@ -153,3 +153,63 @@ def test_a_standalone_page_is_built_inside_the_targets_preamble() -> None:
     r = normalize("Hello.", standalone=True, target=t)
     assert "\\usepackage{unicode-math}" in r.text
     assert "\\documentclass{article}" not in r.text
+
+
+# ------------------------------------------------------ the project remembers its target
+
+def test_a_project_keeps_its_own_copy_of_the_preamble(tmp_path) -> None:
+    """The copy is what builds. The author called this preamble tentative and intends to rework
+    the theorem machinery, so the file it came from *will* move on -- and a project that read
+    the original on every run would silently change what it produces when a file it does not
+    own is edited. Reproducibility lives in the copy; the hash is how a later run notices the
+    original has drifted (DESIGN 11.1.3's pattern, applied to a preamble)."""
+    origin = tmp_path / "common-preamble.tex"
+    origin.write_text(UNICODE_PREAMBLE, encoding="utf-8")
+    project = tmp_path / "project"
+    project.mkdir()
+
+    T.Target.from_file(origin).save(project)
+    loaded = T.Target.load(project)
+
+    assert loaded.engine == "lualatex" and loaded.accepts_unicode
+    assert "unicode-math" in loaded.base
+    assert loaded.origin == str(origin)
+    assert not loaded.drifted_from(origin)
+
+    no_class = T.Target.from_text("\\usepackage{unicode-math}\n", origin=str(origin),
+                                  document_class="report")
+    other = tmp_path / "p2"; other.mkdir()
+    no_class.save(other)
+    assert T.Target.load(other).added_document_class, "how it was made must survive the copy"
+
+    origin.write_text(UNICODE_PREAMBLE + "\n% the author kept writing\n", encoding="utf-8")
+    assert loaded.drifted_from(origin), "a moved original must be noticeable, never silent"
+
+
+def test_a_project_that_never_named_a_preamble_loads_the_generated_target(tmp_path) -> None:
+    (tmp_path / "project").mkdir()
+    assert T.Target.load(tmp_path / "project").engine == "pdflatex"
+
+
+def test_the_saved_copy_is_a_compilable_preamble_not_a_config_file(tmp_path) -> None:
+    """It is written as LaTeX, with provenance in `%` comments, because the thing an author
+    most wants to do with a preamble we copied is read it and edit it."""
+    project = tmp_path / "project"
+    project.mkdir()
+    T.Target.from_text(UNICODE_PREAMBLE, origin="/x/common-preamble.tex").save(project)
+    saved = (project / "preamble.tex").read_text(encoding="utf-8")
+    assert saved.startswith("%")
+    assert "/x/common-preamble.tex" in saved
+    assert "\\usepackage{unicode-math}" in saved
+    # and the comments must not be able to change the engine (they are stripped before detection)
+    assert T.Target.from_text(saved).engine == "lualatex"
+
+
+def test_a_cached_render_is_keyed_on_the_target_as_well_as_the_source() -> None:
+    """Adopting a preamble changes the engine and the document a page is built inside without
+    touching one page file. A cache keyed on the source alone would go on serving pdflatex
+    renders of the old preamble -- a stale pane that looks authoritative."""
+    from handzoo.adapters.ui_server import typeset_key
+    page = "Hello.\n"
+    assert typeset_key(page, T.Target.generated()) != typeset_key(
+        page, T.Target.from_text(UNICODE_PREAMBLE, origin="x.tex"))

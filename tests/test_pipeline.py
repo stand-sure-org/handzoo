@@ -70,9 +70,11 @@ def test_every_emission_states_what_was_not_checked() -> None:
     assert "NOT CHECKED" in emit(_recognition()).text
 
 
-def test_an_unimplemented_target_raises_rather_than_silently_emitting_latex() -> None:
+def test_an_unimplemented_format_raises_rather_than_silently_emitting_latex() -> None:
+    """`fmt` is the output *format*. It used to be called `target`, which now means the
+    typesetting target -- what the document is built into, and by which engine."""
     with pytest.raises(ValueError, match="not implemented"):
-        emit(_recognition(), target="markdown")  # type: ignore[arg-type]
+        emit(_recognition(), fmt="markdown")  # type: ignore[arg-type]
 
 
 def test_report_never_prints_an_unqualified_pass() -> None:

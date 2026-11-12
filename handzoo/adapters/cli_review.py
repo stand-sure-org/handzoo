@@ -249,7 +249,7 @@ def transcribe(outcome: PageOutcome, out_dir: Path, log: CorrectionLog, *,
     return 0
 
 
-def _typeset(outcome: PageOutcome, out_dir: Path) -> Path | None:
+def _typeset(outcome: PageOutcome, out_dir: Path, target=None) -> Path | None:
     """Compile one page to a PDF the author can annotate.
 
     Reuses the assembler rather than inventing a second path to a document: a one-page master
@@ -265,9 +265,12 @@ def _typeset(outcome: PageOutcome, out_dir: Path) -> Path | None:
         master = out_dir / f"review-p{outcome.page:04d}.tex"
         master.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
     else:
-        master = assemble(out_dir, [outcome], name=f"review-p{outcome.page:04d}.tex")
+        master = assemble(out_dir, [outcome], name=f"review-p{outcome.page:04d}.tex",
+                          target=target)
+    from ..core.target import Target
+    engine = (target or Target.load(out_dir)).engine
     proc = subprocess.run(
-        ["pdflatex", "-interaction=nonstopmode", "-halt-on-error", "-synctex=1", master.name],
+        [engine, "-interaction=nonstopmode", "-halt-on-error", "-synctex=1", master.name],
         cwd=out_dir, capture_output=True, text=True, check=False)
     pdf = master.with_suffix(".pdf")
     return pdf if proc.returncode == 0 and pdf.exists() else None

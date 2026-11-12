@@ -23,7 +23,9 @@ from .normalize import normalize
 from .recognize.base import Recognition
 from .validate.base import GateResult
 
-Target = Literal["latex"]
+Format = Literal["latex"]
+"""The output format. Renamed from `Target`, which now means the typesetting target
+(`core.target.Target`) -- what the document is built *into*, and by which engine."""
 """`markdown` is an M1 feature. A prose-only document in the corpus, and the author's existing
 Typora/`render_tikz.py` workflow, both argue for it — but it is not M0."""
 
@@ -81,9 +83,9 @@ def provenance(recognition: Recognition, *, page: int | None = None) -> str:
 
 
 def emit(recognition: Recognition, gates: tuple[GateResult, ...] = (), *,
-         target: Target = "latex", mode: Mode = "fragment",
+         fmt: Format = "latex", mode: Mode = "fragment",
          page: int | None = None, with_provenance: bool = True,
-         base_dir: Path | None = None) -> Emission:
+         base_dir: Path | None = None, target=None) -> Emission:
     """Normalize the recognized markup and render it for the chosen target and mode.
 
     `base_dir` is the run's output directory. R9 needs it to tell an invented
@@ -91,11 +93,11 @@ def emit(recognition: Recognition, gates: tuple[GateResult, ...] = (), *,
     verdict (DESIGN 7.2) emits the latter. Without it every reference is treated as
     fabricated, which is the safe default and not the useful one.
     """
-    if target != "latex":
-        raise ValueError(f"target {target!r} is not implemented in M0; only 'latex' is")
+    if fmt != "latex":
+        raise ValueError(f"format {fmt!r} is not implemented in M0; only 'latex' is")
 
     result = normalize(recognition.markup, standalone=(mode == "standalone"),
-                       base_dir=base_dir)
+                       base_dir=base_dir, target=target)
     text = result.text
     if with_provenance:
         text = provenance(recognition, page=page) + text

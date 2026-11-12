@@ -17,9 +17,10 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
+PREAMBLE_NAME = "preamble.tex"
 PDFLATEX = "pdflatex"
 LUALATEX = "lualatex"
 
@@ -93,6 +94,53 @@ class Target:
         """
         from .normalize import chapter_preamble
         return chapter_preamble(texts, base=self.base)
+
+    # ------------------------------------------------------------------ project storage
+
+    def save(self, out_dir: Path) -> Path:
+        """Write the project's own copy. LaTeX, with provenance in comments.
+
+        A `.tex` file rather than a config format because the thing an author most wants to do
+        with a preamble we copied is read it, and then edit it. The comments are inert to TeX
+        and are stripped before engine detection, so nothing here can change how it builds.
+        """
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = out_dir / PREAMBLE_NAME
+        header = (f"% handzoo: copied from {self.origin}\n"
+                  f"% handzoo: sha256 {self.origin_hash}\n"
+                  f"% handzoo: engine {self.engine} (derived from this file, not configured)\n")
+        if self.added_document_class:
+            header += "% handzoo: the \\documentclass line below was added -- the original had none\n"
+        path.write_text(header + self.base, encoding="utf-8")
+        return path
+
+    @classmethod
+    def load(cls, out_dir: Path) -> Target:
+        """The project's target. A project that never named a preamble gets the generated one,
+        which is what every existing corpus was built with."""
+        path = out_dir / PREAMBLE_NAME
+        if not path.exists():
+            return cls.generated()
+        text = path.read_text(encoding="utf-8")
+        origin, origin_hash, added_class = "supplied", "", False
+        body: list[str] = []
+        for line in text.splitlines(keepends=True):
+            if line.startswith("% handzoo: copied from "):
+                origin = line.split("copied from ", 1)[1].strip()
+            elif line.startswith("% handzoo: sha256 "):
+                origin_hash = line.split("sha256 ", 1)[1].strip()
+            elif line.startswith("% handzoo: the \\documentclass line below was added"):
+                added_class = True
+            elif not line.startswith("% handzoo: "):
+                body.append(line)
+        target = cls.from_text("".join(body), origin=origin)
+        # The hash is of the *origin* as adopted, not of our copy -- that is what makes
+        # `drifted_from` answerable.
+        # `added_document_class` cannot be re-derived -- the saved copy *has* the line we
+        # added -- so it is read back from the header. A value object that quietly forgets how
+        # it was made is the same failure as a gate that quietly reports a pass.
+        return replace(target, origin_hash=origin_hash or target.origin_hash,
+                       added_document_class=added_class)
 
     def drifted_from(self, path: Path) -> bool:
         """Has the file we copied from changed since? The copy is what builds."""

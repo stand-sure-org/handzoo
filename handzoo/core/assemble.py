@@ -54,7 +54,8 @@ def _placeholder(outcome: PageOutcome) -> str:
             f"{failed}; not included]}}}}\\end{{center}}\n")
 
 
-def assemble(out_dir: Path, outcomes: list[PageOutcome], *, name: str = MASTER) -> Path:
+def assemble(out_dir: Path, outcomes: list[PageOutcome], *, name: str = MASTER,
+             target=None) -> Path:
     """Write the master document that `\\input`s every page that passed.
 
     Ordering is by page number, because page order *is* the document — a manifest written with
@@ -108,7 +109,7 @@ def assemble(out_dir: Path, outcomes: list[PageOutcome], *, name: str = MASTER) 
     # where 9 pages failed the ASCII gate with no remedy inside a fragment -- a checkmark
     # asserting an axiom holds is a term in the sentence, not decoration), and macros the
     # recognizer invented, which a fragment is only told about and a standalone page declares.
-    preamble = chapter_preamble(included)
+    preamble = chapter_preamble(included, base=None if target is None else target.base)
 
     master = out_dir / name
     master.write_text(

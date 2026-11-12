@@ -81,6 +81,15 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
     parser.add_argument("--model", default=None,
                         help="defaults to the provider's own default")
     parser.add_argument("--dpi", type=int, default=150)
+    parser.add_argument("--preamble", type=Path, metavar="FILE",
+                        help="build this project inside your own preamble. The engine is "
+                             "derived from it -- a preamble loading unicode-math or fontspec "
+                             "cannot run on pdflatex, so lualatex is used. Copied into the "
+                             "project, so a later edit to the original cannot silently change "
+                             "what this project produces.")
+    parser.add_argument("--class", dest="document_class", default="article", metavar="NAME",
+                        help="document class to prepend when --preamble has no "
+                             "\\documentclass line (default: article)")
     args = parser.parse_args(argv)
 
     first, last = _parse_range(args.pages)
@@ -93,6 +102,28 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
               file=stream)
         return 2
     _preflight(stream)
+
+    from ..core.target import Target
+    if args.preamble is not None:
+        if not args.preamble.exists():
+            print(f"error: no such preamble: {args.preamble}", file=stream)
+            return 2
+        target = Target.from_file(args.preamble, document_class=args.document_class)
+        target.save(args.out)
+    else:
+        target = Target.load(args.out)
+    if target.origin not in ("generated", "supplied"):
+        where = Path(target.origin)
+        print(f"preamble: {target.origin} -> {target.engine}", file=stream)
+        if target.added_document_class:
+            print(f"          \\documentclass{{{args.document_class}}} was added; the file "
+                  "had none", file=stream)
+        if target.drifted_from(where):
+            # The project builds from its copy. Saying so is the whole point: a preamble that
+            # has moved on is a difference the author can see rather than discover.
+            print(f"          note: {where.name} has changed since this project adopted it. "
+                  "The copy in the project is what builds; re-run with --preamble to adopt "
+                  "the new one.", file=stream)
 
     from ..core.lexicon import discover as _discover_lexicon
     lexicon = _discover_lexicon(args.out)
@@ -146,7 +177,7 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
 
     failed = unverified = errored = excluded_seen = 0
     done: list[pipeline.PageOutcome] = []
-    for outcome in pipeline.convert(args.pdf, args.out, recognizer,
+    for outcome in pipeline.convert(args.pdf, args.out, recognizer, target=target,
                                     first=first, last=last, exclude=excluded,
                                     replacing=replacing,
                                     mode=args.mode, resume=args.resume, dpi=args.dpi):

@@ -34,6 +34,7 @@ from ..core import project, rasterize, store
 from ..core.assemble import assemble
 from ..core.corrections import Correction, CorrectionLog, current, pristine_path
 from ..core.normalize import chapter_preamble
+from ..core.target import Target
 from ..core.pipeline import PageOutcome, append_manifest, parse_excluded, read_manifest
 from ..core.validate.base import ADVISORY_GATES
 from ..core.validate import (ascii_gate, colour_gate, compile_gate, delimiter_gate,
@@ -324,6 +325,18 @@ def _insert_at(text: str, figure_name: str, at: int) -> str:
     return text[:at] + figure + text[at:]
 
 
+def typeset_key(source_text: str, target) -> str:
+    """What a cached render is a render *of*.
+
+    The source alone is not enough. Adopting a preamble changes the engine and the document the
+    page is built inside without touching a single page file, so a key on the source would keep
+    serving pdflatex renders of the old preamble -- a stale pane that looks authoritative,
+    which is the shape of failure this project refuses.
+    """
+    material = f"{source_text}\x00{target.engine}\x00{target.base}"
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+
+
 def typeset(out_dir: Path, outcome: PageOutcome) -> tuple[Path | None, str]:
     r"""Compile one page so the author can proof against the *rendered* result.
 
@@ -349,8 +362,8 @@ def typeset(out_dir: Path, outcome: PageOutcome) -> tuple[Path | None, str]:
     source_text = Path(outcome.output).read_text(encoding="utf-8") if outcome.output else ""
     if not source_text:
         return None, "no output on disk for this page."
-    digest = hashlib.sha256(source_text.encode("utf-8")).hexdigest()[:16]
-    cached = out_dir / ".typeset" / f"p{outcome.page:04d}-{digest}.pdf"
+    target = Target.load(out_dir)
+    cached = out_dir / ".typeset" / f"p{outcome.page:04d}-{typeset_key(source_text, target)}.pdf"
     if cached.exists():
         return cached, ""
 
@@ -360,7 +373,7 @@ def typeset(out_dir: Path, outcome: PageOutcome) -> tuple[Path | None, str]:
     # cleanly, so the pane reported a successful render of a document containing none of their
     # content. Preview the page whatever the gates said; if it cannot compile, the pane shows
     # why.
-    pdf = _typeset(replace(outcome, verdict="pass"), out_dir)
+    pdf = _typeset(replace(outcome, verdict="pass"), out_dir, target=target)
     if pdf:
         cached.parent.mkdir(exist_ok=True)
         cached.write_bytes(pdf.read_bytes())
