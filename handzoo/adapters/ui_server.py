@@ -415,7 +415,7 @@ def typeset_png(out_dir: Path, outcome: PageOutcome) -> tuple[Path | None, str]:
 
 
 def _revalidate(text: str, path: Path, outcome: PageOutcome | None = None,
-                build: "Target | None" = None) -> tuple[bool, list[dict], str]:
+                build: Target | None = None) -> tuple[bool, list[dict], str]:
     """Re-run the gates on what the author actually saved.
 
     A `.fail.tex` name is one a build cannot pick up by accident. Once the defect is fixed,
