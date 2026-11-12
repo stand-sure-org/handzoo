@@ -25,15 +25,39 @@ ENGINE = "pdflatex"
 TIMEOUT_SECONDS = 120
 
 _TEX_ERROR = re.compile(r"^! (?P<msg>.+)$", re.MULTILINE)
+_MISSING_CHAR = re.compile(r"Missing character: There is no (.)\s*\(U\+([0-9A-Fa-f]+)\)")
+"""A character the font has no glyph for. **The build still succeeds** -- measured: exit 0, and
+the character simply absent from the page. `\\tracinglostchars=3` raises the exit code but emits
+no `! ` line, so the existing error parser cannot see this at all and the log is read directly.
+
+`\\s*` because TeX wraps its log at `max_print_line`, and the wrap can fall between the
+character and its codepoint."""
 _TEX_LINE = re.compile(r"^l\.(?P<line>\d+)(?P<rest>.*)$", re.MULTILINE)
 
 
-def engine_available() -> bool:
-    return shutil.which(ENGINE) is not None
+def engine_available(engine: str = ENGINE) -> bool:
+    return shutil.which(engine) is not None
+
+
+def _dropped_characters(log: str) -> list[Failure]:
+    """Characters the engine silently dropped, one failure per distinct character.
+
+    Deduplicated on purpose: one unmappable glyph used fourteen times is one decision for the
+    author, and fourteen identical findings is the shape that teaches a reviewer to skim
+    (the TODO-fatigue argument, DESIGN 6.0).
+    """
+    seen: dict[str, tuple[str, int]] = {}
+    for ch, code in _MISSING_CHAR.findall(log):
+        name, count = seen.get(code, (ch, 0))
+        seen[code] = (name, count + 1)
+    return [Failure(detail=(f"{ch!r} (U+{code.upper()}) has no glyph in the font and was "
+                            f"dropped from the output"
+                            + (f", {count} times" if count > 1 else "")))
+            for code, (ch, count) in sorted(seen.items())]
 
 
 def check(latex: str, *, timeout: int = TIMEOUT_SECONDS,
-          base_dir: Path | None = None) -> GateResult:
+          base_dir: Path | None = None, engine: str = ENGINE) -> GateResult:
     """Compile in a scratch directory and report every TeX error.
 
     A missing engine returns `checked=False` — **not** a pass. A gate that quietly skips is
@@ -49,8 +73,10 @@ def check(latex: str, *, timeout: int = TIMEOUT_SECONDS,
     receives every intermediate file, so a run never writes `.aux` and `.log` litter into the
     author's output.
     """
-    if not engine_available():
-        return GateResult(GATE, checked=False)
+    if not engine_available(engine):
+        # Never fall back to an engine that *is* installed: it would build the document
+        # against something the document does not describe, and report a pass.
+        return GateResult(GATE, checked=False, note=f"{engine} is not installed")
 
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / "document.tex"
@@ -63,31 +89,33 @@ def check(latex: str, *, timeout: int = TIMEOUT_SECONDS,
                    "TEXINPUTS": f"{Path(base_dir).resolve()}{os.pathsep}{os.environ.get('TEXINPUTS', '')}"}
         try:
             proc = subprocess.run(
-                [ENGINE, "-interaction=nonstopmode", "-halt-on-error", "-no-shell-escape",
+                [engine, "-interaction=nonstopmode", "-halt-on-error", "-no-shell-escape",
                  src.name],
                 cwd=tmp, capture_output=True, text=True, timeout=timeout, check=False, env=env,
             )
         except subprocess.TimeoutExpired:
-            return GateResult(GATE, (Failure(detail=f"{ENGINE} timed out after {timeout}s"),))
-
-        if proc.returncode == 0:
-            return GateResult(GATE)
+            return GateResult(GATE, (Failure(detail=f"{engine} timed out after {timeout}s"),))
 
         log_path = Path(tmp) / "document.log"
         log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() \
             else proc.stdout
 
-        failures = [
+        # A dropped glyph does not fail the build, so the log is read even on success.
+        dropped = _dropped_characters(log)
+        if proc.returncode == 0:
+            return GateResult(GATE, tuple(dropped))
+
+        failures = dropped + [
             Failure(detail=m.group("msg").strip(), line=line, excerpt=excerpt)
             for m, line, excerpt in _pair_errors_with_lines(log)
         ]
         if not failures:
-            failures = [Failure(detail=f"{ENGINE} exited {proc.returncode} with no parsed error")]
+            failures = [Failure(detail=f"{engine} exited {proc.returncode} with no parsed error")]
         return GateResult(GATE, tuple(failures))
 
 
 def check_fragment(fragment: str, *, preamble: str, timeout: int = TIMEOUT_SECONDS,
-                   base_dir: Path | None = None) -> GateResult:
+                   base_dir: Path | None = None, engine: str = ENGINE) -> GateResult:
     """Compile a fragment inside the preamble the chapter will give it.
 
     A fragment has no preamble, so compiling it alone proves nothing -- which is why fragment
@@ -104,7 +132,8 @@ def check_fragment(fragment: str, *, preamble: str, timeout: int = TIMEOUT_SECON
     or at the closing `\\end{document}` -- keeps its message and loses its line.
     """
     head = preamble + "\\begin{document}\n"
-    result = check(head + fragment + "\n\\end{document}\n", timeout=timeout, base_dir=base_dir)
+    result = check(head + fragment + "\n\\end{document}\n", timeout=timeout,
+                   base_dir=base_dir, engine=engine)
     if not result.failures:
         return result
     offset, length = head.count("\n"), fragment.count("\n") + 1

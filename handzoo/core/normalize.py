@@ -160,9 +160,14 @@ def _mask_diagrams(text: str, rules: list[str]) -> str:
     return _DIAGRAM.sub(repl, text)
 
 
-def _fix_text_span(chunk: str, rules: list[str]) -> str:
-    """Apply R1 and R5 to a span already known to be outside math mode."""
-    if non_ascii_chars(chunk):
+def _fix_text_span(chunk: str, rules: list[str], *, keep_unicode: bool = False) -> str:
+    """Apply R1 and R5 to a span already known to be outside math mode.
+
+    `keep_unicode` is the target speaking: under an engine that typesets Unicode natively,
+    rewriting the codepoint into a command destroys a distinction the engine would have kept
+    (DESIGN 11.0.1g), and R1's whole premise -- that a bare codepoint is undefined -- is false.
+    """
+    if non_ascii_chars(chunk) and not keep_unicode:
         chunk = unicode_to_latex(chunk, non_ascii_only=True)
         rules.append("R1 unicode mapped")
     if _SUBSUP.search(chunk):
@@ -197,7 +202,7 @@ def _walkable_args(node) -> bool:
     return bool(argd and argd.argnlist and any(a is not None for a in argd.argnlist))
 
 
-def _walk_macro(node, rules: list[str]) -> str:
+def _walk_macro(node, rules: list[str], *, keep_unicode: bool = False) -> str:
     r"""Rebuild a macro, converting text inside its arguments.
 
     R1 previously emitted every non-math macro with `latex_verbatim()`, which carries the macro
@@ -212,13 +217,13 @@ def _walk_macro(node, rules: list[str]) -> str:
             continue
         if "Group" in type(arg).__name__:
             lo, hi = getattr(arg, "delimiters", None) or ("{", "}")
-            parts.append(lo + _walk(arg.nodelist, rules) + hi)
+            parts.append(lo + _walk(arg.nodelist, rules, keep_unicode=keep_unicode) + hi)
         else:
             parts.append(arg.latex_verbatim())
     return "".join(parts)
 
 
-def _walk(nodes, rules: list[str]) -> str:
+def _walk(nodes, rules: list[str], *, keep_unicode: bool = False) -> str:
     """Rebuild LaTeX, fixing only what sits outside math mode (R2)."""
     out: list[str] = []
     for node in nodes:
@@ -229,7 +234,7 @@ def _walk(nodes, rules: list[str]) -> str:
         if "Math" in cls:
             out.append(node.latex_verbatim())  # already math: leave entirely alone
         elif "Chars" in cls:
-            out.append(_fix_text_span(node.chars, rules))
+            out.append(_fix_text_span(node.chars, rules, keep_unicode=keep_unicode))
         elif "Macro" in cls and node.macroname in MATH_ONLY:
             rules.append(f"R2 \\{node.macroname} wrapped for text mode")
             out.append(f"\\ensuremath{{{node.latex_verbatim()}}}")
@@ -339,7 +344,7 @@ def _strip_fabricated_graphics(text: str, rules: list[str],
     return _FAB_GRAPHIC.sub(graphic, text)
 
 
-def chapter_preamble(texts: list[str]) -> str:
+def chapter_preamble(texts: list[str], *, base: str | None = None) -> str:
     """The preamble a chapter gives its fragments -- the one definition of it.
 
     The master document uses it, and so does the compile gate when it checks a single fragment.
@@ -354,12 +359,15 @@ def chapter_preamble(texts: list[str]) -> str:
     told "not declared here", so if the chapter does not declare them nobody does.
     """
     joined = "\n".join(texts)
-    return PREAMBLE + declarations_for(find_undefined(joined), non_ascii_chars(joined),
-                                       source=joined)
+    return (PREAMBLE if base is None else base) + declarations_for(
+        find_undefined(joined), non_ascii_chars(joined), source=joined)
 
 
 def normalize(markup: str, standalone: bool = True,
-              base_dir: Path | None = None) -> Result:
+              base_dir: Path | None = None, target=None) -> Result:
+    """`target` is how this project is built (`core.target.Target`). None keeps every existing
+    corpus on the path it was built with: our preamble, pdflatex, ASCII required."""
+    keep_unicode = bool(target is not None and target.accepts_unicode)
     rules: list[str] = []
     text = _strip_fabricated_graphics(markup, rules, base_dir)
     text = _mask_diagrams(text, rules)
@@ -368,7 +376,7 @@ def normalize(markup: str, standalone: bool = True,
 
     try:
         nodes, _, _ = latexwalker.LatexWalker(text, tolerant_parsing=True).get_latex_nodes()
-        text = _walk(nodes, rules)
+        text = _walk(nodes, rules, keep_unicode=keep_unicode)
     except Exception as exc:  # noqa: BLE001 - a parse failure must be loud, never silently skipped
         rules.append(f"PARSE FAILED ({type(exc).__name__}) - rules not applied")
 
@@ -389,11 +397,14 @@ def normalize(markup: str, standalone: bool = True,
         body = body.split("\\end{document}")[0].strip()
         residual = non_ascii_chars(body)
         undefined = find_undefined(body)
-        decls = declarations_for(undefined, residual, source=body)
+        # A character the engine can simply draw needs no declaration, and declaring it as
+        # `\bullet` would renotate a mark the author made -- constraint #5, by our own hand.
+        decls = declarations_for(undefined, [] if keep_unicode else residual, source=body)
         if undefined:
             rules.append(f"R8 declared {len(undefined)} undefined macro(s): "
                          + ", ".join("\\" + u for u in undefined))
-        text = PREAMBLE + decls + "\\begin{document}\n" + body + "\n\\end{document}\n"
+        base = PREAMBLE if target is None else target.base
+        text = base + decls + "\\begin{document}\n" + body + "\n\\end{document}\n"
     else:
         undefined = find_undefined(text)
         if undefined:
