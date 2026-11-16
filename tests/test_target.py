@@ -256,3 +256,128 @@ def test_a_letterform_survives_from_fragment_to_typeset_page(tmp_path) -> None:
     text = subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True, text=True).stdout
     assert BLACKBOARD_C in text, "the blackboard-bold reached the page"
     assert SCRIPT_C in text, "and the script letter did, as a different character"
+
+
+# ------------------------- characters no font draws, under an engine that draws everything else
+
+# Measured: no math font carries these three classes, so under `unicode-math` they are not a
+# letterform the engine can simply render -- they are a silent drop waiting to happen. That is
+# the distinction this section defends: ℂ is left alone because the font *has* it; ✗ is repaired
+# because nothing does.
+BALLOT_X, CHECK, CIRCLED_1 = "\u2717", "\u2713", "\u2460"
+BALLOT_PAGE = f"The second axiom fails {BALLOT_X} on this example.\n"
+
+
+def test_a_commented_out_package_does_not_count_as_supplied() -> None:
+    """The mirror of `test_a_commented_out_package_does_not_change_the_engine`, and the author
+    told us why it matters: their preamble is still being figured out, so a commented-out line
+    is a thing they are *not* loading. Counting it as supplied withholds the package the
+    repair needs and leaves `\\ding` undefined -- an error, from a line meant to prevent one."""
+    from handzoo.core.declarations import packages_in
+    assert "pifont" not in packages_in("% \\usepackage{pifont}\n\\usepackage{graphicx}\n")
+    assert "graphicx" in packages_in("% \\usepackage{pifont}\n\\usepackage{graphicx}\n")
+
+
+def test_a_measured_character_is_repaired_under_a_unicode_target() -> None:
+    """The repair path was dead code under exactly the engine we now default to.
+
+    `chapter_preamble` passed an empty character list whenever the target accepted Unicode, so
+    `CHARACTER_REPAIRS` -- eight checkmarks, five ballot crosses and thirteen circled digits
+    measured in the corpus -- never fired. The character reached LuaLaTeX, no font carried it,
+    and it left the page as a `Missing character` line in a log nobody reads.
+
+    `\\DeclareUnicodeCharacter` cannot be the mechanism here: it is an inputenc feature and
+    inert under LuaLaTeX. `\\newunicodechar` is the one that works.
+    """
+    from handzoo.core.normalize import chapter_preamble
+    t = T.Target.from_text(UNICODE_PREAMBLE, origin="x.tex")
+    preamble = chapter_preamble([BALLOT_PAGE], target=t)
+
+    assert "\\usepackage{newunicodechar}" in preamble
+    assert f"\\newunicodechar{{{BALLOT_X}}}{{\\ding{{55}}}}" in preamble
+    assert "DeclareUnicodeCharacter" not in preamble, "inert under this engine"
+
+
+def test_the_package_a_repair_needs_is_emitted_not_assumed() -> None:
+    """Our own preamble loads `pifont`; the author's does not, and nothing noticed.
+
+    The repair maps ✗ to `\\ding{55}`, which lives in pifont. `CHARACTER_REPAIRS` has carried
+    the package name all along and `declarations_for` threw it away (`glyph, _pkg = repair`),
+    which was invisible while the only preamble in play already supplied it.
+    """
+    from handzoo.core.normalize import chapter_preamble
+    t = T.Target.from_text(UNICODE_PREAMBLE, origin="x.tex")
+    assert "pifont" not in t.base, "the fixture must not supply it, or this proves nothing"
+
+    preamble = chapter_preamble([BALLOT_PAGE], target=t)
+    assert "\\usepackage{pifont}" in preamble
+    assert preamble.index("\\usepackage{pifont}") < preamble.index("\\newunicodechar"), \
+        "a package must be loaded before the mapping that uses it"
+
+
+def test_a_letterform_is_left_to_the_font_under_a_unicode_target() -> None:
+    """The counterpart, and the line this must not cross. ℂ is the author's own notation and
+    the math font draws it, so repairing it would be the renotation of constraint #5 -- the
+    very defect the Unicode target was built to stop."""
+    from handzoo.core.normalize import chapter_preamble
+    t = T.Target.from_text(UNICODE_PREAMBLE, origin="x.tex")
+    preamble = chapter_preamble([f"Let ${BLACKBOARD_C}$ be a category.\n"], target=t)
+    assert "newunicodechar" not in preamble
+    assert "pifont" not in preamble, "no repair fired, so no package is owed"
+
+
+def test_the_pdflatex_path_keeps_the_mechanism_that_works_there() -> None:
+    """Regression. Under our generated preamble the engine is pdflatex, where
+    `\\DeclareUnicodeCharacter` is the working mechanism and `\\newunicodechar` is not what
+    126 pages were measured against."""
+    from handzoo.core.normalize import chapter_preamble
+    preamble = chapter_preamble([BALLOT_PAGE])
+    assert f"\\DeclareUnicodeCharacter{{{ord(BALLOT_X):04X}}}" in preamble
+    assert "newunicodechar" not in preamble
+
+
+@pytest.mark.skipif(not shutil.which("lualatex"), reason="lualatex not installed")
+def test_the_repaired_characters_are_not_dropped_by_the_engine(tmp_path) -> None:
+    """Settled where it is actually settled: the engine's own log, through the real path.
+
+    A unit test can only prove we emitted a mapping. Whether the character survives is a
+    question for LuaLaTeX, which answers it as `Missing character: There is no ✗ (U+2717)` --
+    the exact line `compile_gate._dropped_characters` reads.
+
+    Nothing here hands `assemble` a preamble: it calls `chapter_preamble` itself and inlines
+    the result, so this exercises the path a run takes. An earlier draft also wrote
+    `preamble.tex` beside the pages, which `assemble` never reads -- the test would have gone
+    green on a file nothing used, which is the failure mode this suite has hit before.
+
+    All three repaired classes appear, because the risky line is the one that withholds
+    `amssymb`: loading it under `unicode-math` is four "already defined" errors, and the gate
+    would refuse a page that is in fact correct.
+    """
+    from handzoo.core.assemble import assemble
+    from handzoo.core.pipeline import PageOutcome
+
+    target = T.Target.from_text(UNICODE_PREAMBLE, origin="x.tex")
+    body = f"The second axiom fails {BALLOT_X}, the first holds {CHECK}, see case {CIRCLED_1}.\n"
+    page = tmp_path / "page-0001.tex"
+    page.write_text(body, encoding="utf-8")
+
+    master = assemble(tmp_path, [PageOutcome(page=1, output=str(page), verdict="pass", gates={})],
+                      target=target)
+    assert "\\usepackage{amssymb}" not in master.read_text(encoding="utf-8"), \
+        "unicode-math already supplies \\checkmark, and adding amssymb is a hard error"
+
+    subprocess.run([target.engine, "-interaction=nonstopmode", "-halt-on-error", master.name],
+                   cwd=tmp_path, capture_output=True, timeout=180, check=False)
+
+    assert master.with_suffix(".pdf").exists(), "the chapter must build"
+    log = master.with_suffix(".log").read_text(encoding="utf-8", errors="replace")
+    assert not [ln for ln in log.splitlines() if ln.startswith("!")], "the build errored"
+    for ch in (BALLOT_X, CHECK, CIRCLED_1):
+        assert f"U+{ord(ch):04X}" not in log, f"the engine dropped {ch!r}"
+
+    text = subprocess.run(["pdftotext", str(master.with_suffix(".pdf")), "-"],
+                          capture_output=True, text=True).stdout
+    assert "second axiom fails" in text, "the page was typeset, not merely compiled"
+    # Known and not fixed here: pifont and \textcircled render correctly but their text layer
+    # extracts as "7" and "1" -- a substitution one layer below the one we gate. A text font
+    # carrying U+2717 natively (the luaotfload fallback item) is what fixes both.

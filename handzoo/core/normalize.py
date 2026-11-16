@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pylatexenc import latexwalker
 from pylatexenc.latexencode import unicode_to_latex
 
-from .declarations import declarations_for, find_undefined
+from .declarations import declarations_for, find_undefined, packages_in, repairable
 from .validate.ascii_gate import non_ascii_chars
 
 # Macros that are only legal inside math mode. Seeded from measured failures, not speculation.
@@ -364,8 +364,12 @@ def chapter_preamble(texts: list[str], *, target=None) -> str:
     # that had to learn it: the first was R4's standalone branch, and a fragment reaches the
     # compile gate and `chapter.tex` through here instead.
     keep_unicode = bool(target is not None and target.accepts_unicode)
-    return ((PREAMBLE if target is None else target.base) + declarations_for(
-        find_undefined(joined), [] if keep_unicode else non_ascii_chars(joined), source=joined))
+    base = PREAMBLE if target is None else target.base
+    chars = non_ascii_chars(joined)
+    return base + declarations_for(
+        find_undefined(joined),
+        repairable(chars) if keep_unicode else chars,
+        source=joined, accepts_unicode=keep_unicode, supplied=packages_in(base))
 
 
 def normalize(markup: str, standalone: bool = True,
@@ -404,11 +408,15 @@ def normalize(markup: str, standalone: bool = True,
         undefined = find_undefined(body)
         # A character the engine can simply draw needs no declaration, and declaring it as
         # `\bullet` would renotate a mark the author made -- constraint #5, by our own hand.
-        decls = declarations_for(undefined, [] if keep_unicode else residual, source=body)
+        # What survives `repairable` is the opposite case: no font draws it, so a macro is the
+        # only way it reaches the page at all.
+        base = PREAMBLE if target is None else target.base
+        decls = declarations_for(
+            undefined, repairable(residual) if keep_unicode else residual,
+            source=body, accepts_unicode=keep_unicode, supplied=packages_in(base))
         if undefined:
             rules.append(f"R8 declared {len(undefined)} undefined macro(s): "
                          + ", ".join("\\" + u for u in undefined))
-        base = PREAMBLE if target is None else target.base
         text = base + decls + "\\begin{document}\n" + body + "\n\\end{document}\n"
     else:
         undefined = find_undefined(text)

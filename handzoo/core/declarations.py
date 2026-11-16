@@ -21,6 +21,11 @@ homomorphism, named in the brief) render as italic juxtaposed letters without it
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
+
+# A `%` that is not escaped starts a comment. Same rule as `target._COMMENT`, and for the same
+# reason: a line the author commented out is a line they are not loading.
+_COMMENT = re.compile(r"(?<!\\)%.*")
 
 # Control sequences provided by the standard preamble: base LaTeX + amsmath/amssymb/amsthm.
 # Not exhaustive by design — anything absent gets declared rather than assumed.
@@ -158,12 +163,64 @@ def _guard(name: str, declaration: str, note: str) -> str:
     return f"\\ifdefined\\{name}\\else{declaration}\\fi  % {note}"
 
 
+def repairable(chars: Iterable[str]) -> list[str]:
+    """The characters still worth declaring under an engine that draws Unicode natively.
+
+    Under LuaLaTeX a bare codepoint is usually the *correct* output -- the author's blackboard
+    bold and script letters reach the page as themselves, and declaring them would renotate a
+    mark (constraint #5). The exception is a character the *text* font cannot draw, which is
+    where these land: measured, ✗ in body text is `Missing character: There is no ✗ (U+2717)
+    in font [lmroman10-regular]`, and the page loses it silently. The macro is not a nicer
+    spelling of the character, it is the only way the mark reaches the page at all.
+
+    Note the asymmetry that makes this safe: `\\checkmark` resolves because `unicode-math`
+    defines it and the *math* font carries the glyph -- so the repair reaches a drawable
+    glyph by a different route than the bare character does.
+    """
+    return [ch for ch in chars if ch in CHARACTER_REPAIRS]
+
+
+def packages_in(preamble: str) -> set[str]:
+    """Every package a preamble already loads, plus what it makes unsafe to add.
+
+    Measured 2026-11-16: `\\usepackage{amssymb}` after `unicode-math` is a hard error --
+    `\\eth`, `\\smallsetminus`, `\\digamma` and `\\backepsilon` are already defined, four
+    errors the compile gate would rightly refuse. It is unnecessary as well as unsafe, because
+    `unicode-math` defines `\\checkmark` itself: with amssymb dropped the same page builds
+    with zero errors and zero dropped characters.
+
+    So the package a repair needs is a property of the *preamble*, not of the character.
+
+    Comments are stripped first, for the reason `Target` already learned: the author's
+    preamble is being figured out as it is used, so a commented-out `% \\usepackage{pifont}`
+    is a line they are *not* loading. Counting it as supplied would withhold the package the
+    repair needs and leave `\\ding` undefined.
+    """
+    live = _COMMENT.sub("", preamble)
+    found: set[str] = set()
+    for group in re.findall(r"\\(?:usepackage|RequirePackage)(?:\[[^\]]*\])?\{([^}]*)\}", live):
+        found.update(name.strip() for name in group.split(","))
+    if "unicode-math" in found:
+        found.add("amssymb")
+    return found
+
+
 def declarations_for(undefined: list[str], unmapped_chars: list[str] | None = None,
-                     source: str = "") -> str:
+                     source: str = "", *, accepts_unicode: bool = False,
+                     supplied: set[str] | None = None) -> str:
     """Build the declaration block that makes an unruly document compile honestly.
 
     `source` is the document body, used to decide whether each macro takes an argument.
     Without it we fall back to the name-shape guess, which is known to be wrong.
+
+    `accepts_unicode` picks the mechanism, which is not a stylistic choice:
+    `\\DeclareUnicodeCharacter` is an inputenc feature and does nothing under LuaLaTeX, so a
+    repair written that way is silently inert -- the character reaches the engine, no font
+    carries it, and it leaves the page as a `Missing character` line in a log nobody reads.
+    `\\newunicodechar` is the mechanism that works there.
+
+    `supplied` is what the preamble already loads; a repair's package is emitted only when it
+    is genuinely absent. Pass `packages_in(the preamble)`.
     """
     lines: list[str] = []
     for name in undefined:
@@ -182,17 +239,39 @@ def declarations_for(undefined: list[str], unmapped_chars: list[str] | None = No
             lines.append(_guard(name, f"\\providecommand{{\\{name}}}{{}}",
                                 f"TODO: recognizer invented \\{name}; define or correct"))
 
+    have = supplied or set()
+    wanted: list[str] = []          # packages the repairs need and the preamble lacks
+    mappings: list[str] = []
+
     for ch in unmapped_chars or []:
-        # \DeclareUnicodeCharacter has no \ifdefined equivalent; redeclaring is harmless.
         repair = CHARACTER_REPAIRS.get(ch)
         if repair:
-            glyph, _pkg = repair
-            lines.append(f"\\DeclareUnicodeCharacter{{{ord(ch):04X}}}{{{glyph}}}"
-                         f"  % measured in the corpus")
+            glyph, pkg = repair
+            if pkg != "base" and pkg not in have and pkg not in wanted:
+                wanted.append(pkg)
+        if accepts_unicode:
+            # Callers filter with `repairable` first, so an unmapped character here means the
+            # font is expected to draw it. Declaring it as a bullet is the renotation the
+            # Unicode target exists to stop, so nothing is emitted for it at all.
+            if repair:
+                mappings.append(
+                    f"\\newunicodechar{{{ch}}}{{{glyph}}}"
+                    f"  % measured: the text font does not draw U+{ord(ch):04X}")
+        elif repair:
+            # \DeclareUnicodeCharacter has no \ifdefined equivalent; redeclaring is harmless.
+            mappings.append(f"\\DeclareUnicodeCharacter{{{ord(ch):04X}}}{{{glyph}}}"
+                            f"  % measured in the corpus")
         else:
-            lines.append(
+            mappings.append(
                 f"\\DeclareUnicodeCharacter{{{ord(ch):04X}}}{{\\ensuremath{{\\bullet}}}}"
                 f"  % TODO: {ch!r} has no mapping; choose a representation")
+
+    if mappings and accepts_unicode and "newunicodechar" not in have:
+        wanted.append("newunicodechar")
+    # Packages first: \newunicodechar is used the moment it is written, and a package cannot
+    # be loaded after it.
+    lines = [f"\\usepackage{{{pkg}}}  % for the repairs below" for pkg in wanted] \
+        + lines + mappings
 
     if not lines:
         return ""
