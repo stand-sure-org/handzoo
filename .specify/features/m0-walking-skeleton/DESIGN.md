@@ -1846,10 +1846,34 @@ two are both wrong:
 So under a Unicode target the repairs are **dead code wearing the right name**, and the fix is
 `newunicodechar` rather than a font or a package. Our declarations block sits between the
 author's preamble and `\begin{document}`, so it can load what a repair needs — which is the
-same job that block already does for invented macros. Not built yet: no page in the measured
-corpus has emitted one of these characters since the target landed (0 of 16 freshly recognized
-pages carried any non-ASCII at all), so this is a known gap with a known fix rather than a live
-failure.
+same job that block already does for invented macros.
+
+**Built 2026-11-16**, and building it turned up a fourth measurement that qualifies point 2
+above. Point 2 added `amssymb` *by editing the preamble*. Our block cannot edit; it can only
+**append**, and for `amssymb` that is the one position that fails:
+
+| | |
+|---|---|
+| `amssymb` **before** `unicode-math` | exit 0 |
+| `amssymb` **after** `unicode-math` | exit 1, 4 × `! LaTeX Error: Command ... already defined` (`\eth`, `\smallsetminus`, `\digamma`, `\backepsilon`) |
+
+Both measurements are correct; they differ in insertion point. The general rule is the
+uncomfortable one: **a package our block adds is loaded last, and "last" is not a safe position
+for every package.** So the package a repair needs is a property of the *preamble*, not of the
+character — `declarations.packages_in` reads what the preamble already loads (comments
+stripped, for the reason `Target` already learned) and treats `unicode-math` as supplying
+`amssymb`. That is not a special case bolted on: `unicode-math` defines `\checkmark` itself, so
+withholding the package is also the correct answer rather than merely the safe one. Measured
+against the author's real `common-preamble.tex` — which loads `unicode-math` and neither
+`amssymb` nor `pifont` — the block emits `pifont` and `newunicodechar` only, and the page
+builds with **exit 0, zero missing characters**.
+
+What is *not* built: this fires only for the three measured classes (`repairable` filters to
+`CHARACTER_REPAIRS`). Any other non-ASCII character is left to the font deliberately, because
+declaring it would renotate a mark the author made — constraint #5 — and the missing-glyph
+check is what catches the case where the font cannot draw it. No page in the measured corpus
+has emitted one of these characters since the target landed (0 of 16 freshly recognized pages
+carried any non-ASCII at all), so the repair path remains correct-but-unexercised in the wild.
 
 A note for §11.2.6a and the a11y thread: `\ding{55}` and `\textcircled` *draw* correctly and
 do **not** extract as their original codepoints, where `\checkmark` does. A repair can be
