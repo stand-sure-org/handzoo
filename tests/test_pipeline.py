@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
 import threading
 from pathlib import Path
 
@@ -194,7 +195,12 @@ def test_the_manifest_reads_as_its_newest_row_per_page(tmp_path: Path) -> None:
     read = pipeline.read_manifest(tmp_path)
 
     assert [o.page for o in read] == [1, 2], "one row per page, in page order"
-    assert read[1].done and read[1].output == "page-0002.tex", "the newest row wins"
+    # The row is written relative here; a reader gets it resolved into the project it read,
+    # which is what stops a relative row depending on the caller's working directory and an
+    # absolute one pointing at a project that was copied from. The point of this test is
+    # unchanged: of two rows for page 2, the newest is the one served.
+    assert read[1].done, "the newest row wins"
+    assert Path(read[1].output) == tmp_path / "page-0002.tex"
 
 
 def test_concurrent_appends_never_interleave_a_row(tmp_path: Path) -> None:
@@ -438,3 +444,76 @@ def test_unverified_is_not_quarantined_only_failure_is() -> None:
 
     assert not _emission(GateResult("compile", checked=False)).failed
     assert _emission(GateResult("ascii", (Failure(detail="x"),))).failed
+
+
+# ------------------------------------------- a project directory is allowed to move
+
+def test_a_copied_project_resolves_its_rows_inside_the_copy(tmp_path) -> None:
+    """`output` is written absolute, so a copied project used to point back at the original.
+
+    Found the hard way: a project was copied to a scratch directory, the review surface was
+    pointed at the copy, and the autosave wrote through to the author's real page. Every edit
+    in the copy landed in the original, silently, including the one that was only ever meant
+    to be a test.
+
+    Four of the readers already take `Path(output).name` and look inside the project they were
+    given; the rest trusted the stored string. `read_manifest` is the one place that decides,
+    for the same reason its docstring already gives about stale rows: every reader must take it
+    the same way, and two that did not each got it wrong.
+
+    This covers the reader. The write path -- which is where the damage happened -- is covered
+    over HTTP in `test_ui.py`, because a test of the reader alone would go green while the
+    surface still wrote elsewhere.
+    """
+    original, copy = tmp_path / "ch19", tmp_path / "ch19-copy"
+    original.mkdir()
+    (original / "page-0001.tex").write_text("the original\n", encoding="utf-8")
+    pipeline.append_manifest(original, pipeline.PageOutcome(
+        page=1, output=str(original / "page-0001.tex"), verdict="pass", gates={}))
+
+    shutil.copytree(original, copy)
+    (copy / "page-0001.tex").write_text("the copy\n", encoding="utf-8")
+
+    (outcome,) = pipeline.read_manifest(copy)
+    assert Path(outcome.output).parent == copy, "the row must resolve inside the project read"
+    assert Path(outcome.output).read_text(encoding="utf-8") == "the copy\n"
+    assert (original / "page-0001.tex").read_text(encoding="utf-8") == "the original\n"
+
+
+def test_a_renamed_project_still_finds_its_pages(tmp_path) -> None:
+    """The same defect without a second copy to write into: renaming the directory left every
+    row pointing at a path that no longer exists, so a project could be lost by being tidied."""
+    before, after = tmp_path / "before", tmp_path / "after"
+    before.mkdir()
+    (before / "page-0002.fail.tex").write_text("quarantined\n", encoding="utf-8")
+    pipeline.append_manifest(before, pipeline.PageOutcome(
+        page=2, output=str(before / "page-0002.fail.tex"), verdict="fail", gates={}))
+    before.rename(after)
+
+    (outcome,) = pipeline.read_manifest(after)
+    assert Path(outcome.output).exists(), "a renamed project still has its pages"
+    assert Path(outcome.output).name == "page-0002.fail.tex", "including the quarantine suffix"
+
+
+def test_a_row_with_no_output_is_left_alone(tmp_path) -> None:
+    """An excluded or failed-before-emission page records `output=None`, and resolving it
+    would turn "there is no file" into a path that looks like one."""
+    pipeline.append_manifest(tmp_path, pipeline.PageOutcome(
+        page=3, output=None, verdict="excluded", gates={}))
+    (outcome,) = pipeline.read_manifest(tmp_path)
+    assert outcome.output is None
+
+
+def test_the_source_pdf_is_not_dragged_into_the_project(tmp_path) -> None:
+    """`source` is the opposite case and must not be touched: the PDF genuinely lives outside
+    the project, and DESIGN §8.1 says an absolute path is right for it. Rewriting it to sit
+    beside the pages would break the crop tool, which is the one reader that needs it."""
+    pdf = tmp_path / "elsewhere" / "notes.pdf"
+    pdf.parent.mkdir()
+    pdf.write_bytes(b"%PDF-1.4\n")
+    project = tmp_path / "proj"
+    project.mkdir()
+    pipeline.append_manifest(project, pipeline.PageOutcome(
+        page=1, output=str(project / "page-0001.tex"), verdict="pass", gates={}, source=str(pdf)))
+    (outcome,) = pipeline.read_manifest(project)
+    assert outcome.source == str(pdf), "the PDF stays where it is"
