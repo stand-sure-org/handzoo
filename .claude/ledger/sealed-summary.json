@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "chains": {
+    "session-1787064362-main": {
+      "branch": "main",
+      "worktree": "/Users/christopheranderson/repos/handzoo",
+      "started_at": "2026-08-18T14:46:03.156314+00:00",
+      "agent": "unknown",
+      "chain_hash": "sha256:664276f6b47016d7782ec1e8aa1d8e9da7131f4a9650577bba8b28c3759aa707",
+      "sealed": true,
+      "sealed_at": "2026-11-16T17:11:22.159344+00:00",
+      "sealed_by_identity": "chris@standsure.io",
+      "sealed_by_commit": "67dab8ddc5af29cd82959314de27163ea97ae491"
+    }
+  }
+}
