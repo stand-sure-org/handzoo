@@ -415,7 +415,10 @@ function showPending(p) {
 
 async function select(page, { auto = false } = {}) {
   await endMode();             // leaving is ending: flush and record (author's ruling)
-  await flush();               // never carry an unsaved edit onto the next page
+  // Never carry an unsaved edit onto the next page -- and never pretend it was carried. The
+  // next lines clear `dirty` and the save indicator, so a rejected write would vanish here
+  // without the author ever being told their work did not land.
+  if (!await flush()) { ack("that page did not save — stay and retry", true); return; }
   const p = pages.find(x => x.page === page);
   if (p && PENDING.has(p.state)) { showPending(p); return; }
   $("tex").readOnly = !mode;   // the mode owns this, not the act of opening a page
@@ -449,11 +452,26 @@ const escapeHtml = s => s.replace(/[&<>"]/g, c =>
 
 async function record(mode, text, seconds, extra = {}) {
   if (current === null) return;
-  const r = await (await fetch("/api/save", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ page: current, mode, text, seconds, ui_mode: "web-side-by-side",
-                           ...extra })
-  })).json();
+  // The status is checked before the body is parsed, and both before anything is cleared.
+  // Unguarded, this read `.json()` straight off the response: a rejected save with a JSON
+  // body carried no `error` key, so it fell through to clear `dirty` and report the verdict
+  // as recorded. The author's own timed work is the last place to default an unknown into
+  // the reassuring answer (constraint #6).
+  let resp;
+  try {
+    resp = await fetch("/api/save", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ page: current, mode, text, seconds, ui_mode: "web-side-by-side",
+                             ...extra })
+    });
+  } catch (e) { resp = null; }
+  if (!resp || !resp.ok) {
+    const how = resp ? `HTTP ${resp.status}` : "the server did not answer";
+    say(`not recorded (${how}) — your text is still here, and still unsaved`);
+    ack("not recorded — do not navigate away", true);
+    return;
+  }
+  const r = await resp.json().catch(() => ({ error: "the server's answer was not readable" }));
   if (r.error) { say("error: " + r.error); return; }
   original = text; dirty = false; $("saveState").textContent = "";
   const note = r.quarantined ? " — NOW FAILS A GATE, quarantined"
@@ -699,13 +717,23 @@ async function loadTypeset(page) {
 // Autosave: writes the file so navigating away cannot lose an edit. It records no verdict —
 // the buttons still do that. Debounced, and flushed before leaving a page.
 let pending = null, dirty = false;
+// Returns whether the author's text is on disk. It used to return nothing and clear `dirty`
+// before the POST, so a rejected save still read as "autosaved" -- constraint #6 in the one
+// place the author is most likely to believe us. It matters more now that Cmd+Enter flushes
+// before compiling: a silently-failed save would be followed by a typeset pane rendered from
+// the stale file, which looks authoritative and is wrong.
 async function flush() {
-  if (!dirty || current === null) return;
-  clearTimeout(pending); pending = null; dirty = false;
-  await fetch("/api/autosave", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ page: current, mode, text: $("tex").value })
-  });
+  if (!dirty || current === null) return true;
+  clearTimeout(pending); pending = null;
+  try {
+    const r = await fetch("/api/autosave", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ page: current, mode, text: $("tex").value })
+    });
+    if (!r.ok) return false;      // still dirty, so the next flush tries again
+  } catch { return false; }
+  dirty = false;
+  return true;
 }
 $("tex").addEventListener("focus", touched);
 $("tex").addEventListener("input", () => {
@@ -713,13 +741,152 @@ $("tex").addEventListener("input", () => {
   dirty = true;
   $("saveState").textContent = "unsaved";
   clearTimeout(pending);
-  pending = setTimeout(async () => { await flush(); $("saveState").textContent = "autosaved"; },
-                       1500);
+  pending = setTimeout(async () => {
+    $("saveState").textContent = await flush() ? "autosaved" : "NOT SAVED";
+  }, 1500);
 });
 window.addEventListener("beforeunload", () => {
   if (dirty && mode) navigator.sendBeacon("/api/autosave",
     new Blob([JSON.stringify({ page: current, mode, text: $("tex").value })],
              { type: "application/json" }));
+});
+
+// --- editor keys --------------------------------------------------------------------
+// Every binding below is inert while the textarea is read-only, including the one that only
+// compiles. The mode boundary is what brackets the measured correction interval (DESIGN
+// 12.7), so a key that edited text outside a mode would put untimed, unattributed work in the
+// file -- and a corrupted measurement costs more than a missing convenience. The guard reads
+// `readOnly` rather than `mode`, because `showPending` sets it without going through
+// setMode(): a queued page has no text to edit and no mode to be in.
+
+// The lines a selection touches. A selection ending at column 0 is resting on that line, not
+// touching it -- which is what stops Option+Down dragging a line the author never selected.
+function lineSpan(v, selStart, selEnd) {
+  let end = selEnd;
+  if (end > selStart && v[end - 1] === "\n") end -= 1;
+  const from = selStart === 0 ? 0 : v.lastIndexOf("\n", selStart - 1) + 1;
+  const to = v.indexOf("\n", end);
+  return [from, to === -1 ? v.length : to];
+}
+
+// Option+Up / Option+Down. The whole span moves as one and the selection goes with it; left
+// behind, a second press would move a different line than the first.
+function moveLines(v, selStart, selEnd, dir) {
+  const [from, to] = lineSpan(v, selStart, selEnd);
+  if (dir < 0) {
+    if (from === 0) return null;                   // nothing above: let the caret move
+    const prev = from < 2 ? 0 : v.lastIndexOf("\n", from - 2) + 1;
+    return { from: prev, to, body: v.slice(from, to) + "\n" + v.slice(prev, from - 1),
+             shift: prev - from };
+  }
+  if (to === v.length) return null;                // nothing below
+  // The last line of the file has no newline of its own, so the swap is rebuilt rather than
+  // moved: splicing the newline across that boundary is how two lines get merged into one.
+  const nl = v.indexOf("\n", to + 1), end = nl === -1 ? v.length : nl;
+  return { from, to: end, body: v.slice(to + 1, end) + "\n" + v.slice(from, to),
+           shift: end - to };
+}
+
+// Cmd+/. Blank lines are left alone -- a `%` on an empty line is trailing whitespace and
+// nothing else -- and they do not vote on whether the block is already commented. Uncomments
+// only when every live line is commented; anything mixed comments, which is what makes this a
+// toggle rather than a coin flip.
+const MARK = "% ";
+function toggleComment(v, selStart, selEnd) {
+  const [from, to] = lineSpan(v, selStart, selEnd);
+  const lines = v.slice(from, to).split("\n");
+  const live = lines.filter(l => l.trim() !== "");
+  if (!live.length) return null;
+  // `^\s*%` and not `%` anywhere: `\%` is a literal percent sign in the author's text, and
+  // uncommenting one would silently change what the page says.
+  const off = live.every(l => /^\s*%/.test(l));
+  return { from, to, body: lines.map(l => l.trim() === "" ? l
+    : off ? l.replace(/^(\s*)%[ ]?/, "$1") : l.replace(/^(\s*)/, "$1" + MARK)).join("\n") };
+}
+
+// Enter on a finished `\begin{foo}`: write the `\end{foo}` now, while the name is known.
+// Only a bare begin at the end of the line -- `\begin{tabular}{cc}` carries arguments this
+// cannot guess at, and half an environment is worse than none.
+const BEGIN = /\\begin\{([A-Za-z][A-Za-z0-9*]*)\}[ \t]*$/;
+// A commented `\begin` is not an environment, and neither is a commented `\end`. Both the
+// trigger and the counts below read the page with comments gone, or `% \begin{itemize}` earns
+// a live `\end{itemize}` under a dead begin -- a page that cannot compile, written by us,
+// which is the one thing this project exists not to do. `\\%` is read as escaped: a known
+// approximation, not a case anyone has hit.
+const uncommented = s => s.replace(/(^|[^\\])%.*$/gm, "$1");
+function autoClose(v, selStart, selEnd) {
+  if (selStart !== selEnd) return null;
+  const from = selStart === 0 ? 0 : v.lastIndexOf("\n", selStart - 1) + 1;
+  const nl = v.indexOf("\n", selStart);
+  if (v.slice(selStart, nl === -1 ? v.length : nl).trim() !== "") return null;
+  const m = BEGIN.exec(uncommented(v.slice(from, selStart)));
+  if (!m) return null;
+  // Counting, not "is there an \end{foo} further down": two `itemize` blocks in a row would
+  // see the second one's end and leave the one being typed unclosed. `align*` needs the star
+  // escaped, or the name is read as a repeat of `n`.
+  const esc = m[1].replace(/\*/g, "\\*");
+  const live = uncommented(v);
+  const n = kw => (live.match(new RegExp("\\\\" + kw + "\\{" + esc + "\\}", "g")) || []).length;
+  if (n("begin") <= n("end")) return null;
+  const indent = /^[ \t]*/.exec(v.slice(from, selStart))[0];
+  return { from: selStart, to: selStart,
+           body: "\n" + indent + "  \n" + indent + "\\end{" + m[1] + "}",
+           caret: selStart + 1 + indent.length + 2 };
+}
+
+// One insertText over the whole affected span: one undo step, and the `input` it fires is
+// what marks the page dirty for the autosave above. Assigning `.value` would do neither --
+// it empties the browser's undo stack, so the author's Cmd+Z stops reaching their own typing.
+function splice(from, to, body, selFrom, selTo) {
+  const ta = $("tex");
+  ta.setSelectionRange(from, to);
+  if (!document.execCommand("insertText", false, body)) {
+    ta.setRangeText(body, from, to, "end");
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  ta.setSelectionRange(selFrom, selTo);
+}
+
+// Cmd+Enter. The typeset pane compiles the file on disk and caches on its hash, so the
+// pending autosave has to land first -- otherwise this renders the text from a second ago and
+// reads as though the compile ignored the edit.
+async function compile() {
+  const unsaved = dirty;
+  const saved = await flush();
+  if (unsaved) $("saveState").textContent = saved ? "autosaved" : "NOT SAVED";
+  // No save, no compile. Rendering the file on disk after a failed write would show the
+  // author a page built from text they can see is not what they typed.
+  if (saved) loadTypeset(current);
+}
+
+$("tex").addEventListener("keydown", e => {
+  if ($("tex").readOnly) return;
+  const v = $("tex").value, a = $("tex").selectionStart, b = $("tex").selectionEnd;
+  if (e.metaKey && !e.altKey && !e.ctrlKey && e.key === "Enter") {
+    e.preventDefault();
+    compile();
+  } else if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey &&
+             (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+    const r = moveLines(v, a, b, e.key === "ArrowUp" ? -1 : 1);
+    if (!r) return;            // at the edge of the file: the arrow keeps its usual meaning
+    e.preventDefault();
+    splice(r.from, r.to, r.body, a + r.shift, b + r.shift);
+  } else if (e.metaKey && !e.altKey && !e.ctrlKey && e.key === "/") {
+    const r = toggleComment(v, a, b);
+    if (!r) return;
+    e.preventDefault();
+    // A collapsed caret stays where it was pointing, shifted by its own line's change; a
+    // selection keeps the lines it had, so the key can be pressed twice.
+    const end = r.from + r.body.length;
+    const at = Math.min(Math.max(a + r.body.length - (r.to - r.from), r.from), end);
+    splice(r.from, r.to, r.body, a === b ? at : r.from, a === b ? at : end);
+  } else if (e.key === "Enter" && !e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey &&
+             !e.isComposing) {
+    const r = autoClose(v, a, b);
+    if (!r) return;
+    e.preventDefault();
+    splice(r.from, r.to, r.body, r.caret, r.caret);
+  }
 });
 
 // The run, in one line: where it is, and the one action that makes sense from here.
