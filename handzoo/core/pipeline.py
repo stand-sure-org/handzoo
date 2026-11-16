@@ -16,6 +16,7 @@ is written after every page, not at the end.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass, field, replace
@@ -88,6 +89,18 @@ class PageOutcome:
     """This page's number *in `source`*, when it differs from its number in the project -- a
     page appended from a second PDF. Anything that reads the source (the crop tool, the ink and
     colour gates) must use `pdf_page`, or it cuts the right region from the wrong page."""
+    page_hash: str = ""
+    """sha256 of the page render this text was written against.
+
+    Not identity -- DESIGN 11.1.3a settled that the author asserts correspondence and we never
+    infer it. This answers the one question hashing *can* answer: has the page changed since we
+    read it? A protected page is kept on a re-run, and without this the author is never told
+    that the thing their correction describes has moved. Defaulted, so manifests written before
+    it existed still load; an empty hash means *not checked*, never *unchanged*."""
+    render_dpi: int = 0
+    """The resolution `page_hash` was taken at. A render at another DPI is a different image of
+    the same page, so comparing across them would report every page as changed -- and a warning
+    that fires on everything is one the author learns to scroll past. 0 means unrecorded."""
 
     @property
     def pdf_page(self) -> int:
@@ -96,6 +109,27 @@ class PageOutcome:
     @property
     def done(self) -> bool:
         return self.error is None
+
+
+@dataclass(frozen=True, slots=True)
+class Kept:
+    """A page a run did not touch because it carries the author's work, and what became of the
+    source underneath it.
+
+    `drift` is one of `changed`, `unchanged`, `unknown`. The third is not a tidy default: a
+    page recorded before `page_hash` existed, or read at a different DPI, cannot be compared,
+    and saying so is the difference between this being information and being a lie (#6).
+    """
+
+    page: int
+    why: str
+    """The correction verdict that protects it -- `edited`, `authored`, `keep-reviewed`..."""
+    drift: str
+
+
+def page_digest(image: Path) -> str:
+    """The render's sha256. One definition, because two would compare unequal forever."""
+    return hashlib.sha256(image.read_bytes()).hexdigest()
 
 
 @dataclass
@@ -185,11 +219,17 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
             resume: bool = False, dpi: int = rasterize.DEFAULT_DPI,
             exclude: set[int] | None = None, replacing: set[int] | None = None,
             offset: int = 0, target=None,
-            on_page: Callable[[PageOutcome], None] | None = None) -> Iterator[PageOutcome]:
+            on_page: Callable[[PageOutcome], None] | None = None,
+            on_kept: Callable[[Kept], None] | None = None) -> Iterator[PageOutcome]:
     """Convert a page range, yielding each outcome as it completes.
 
     A generator rather than a list: the caller sees page 1 before page 51 is attempted, which
     is what makes a long run interruptible and a bad prompt cheap to discover.
+
+    `on_kept` hears about the pages this run did *not* touch because they carry author work.
+    They are not yielded -- nothing happened to them, and a manifest row would say something
+    did -- but the run is the only place that knows whether the source moved under them, since
+    it holds the fresh render and the recorded one at the same moment.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     if target is None:
@@ -207,6 +247,24 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
         # reviews while the run is still going, and a page they start on after it began is
         # theirs by the time the run reaches it. One log read, next to a model call.
         return n not in replaced and n in protected_pages(out_dir)
+
+    recorded = {o.page: o for o in read_manifest(out_dir)}
+
+    def announce_kept(n: int, image: Path) -> None:
+        """What became of the source under a page we are about to skip.
+
+        This is the only moment it can be asked. The run re-renders into the project, so by
+        the time anyone looks afterwards the stored image *is* the new one and the old render
+        is gone -- the comparison has to happen here, against what the manifest recorded.
+        """
+        if on_kept is None:
+            return
+        was = recorded.get(n)
+        if was is None or not was.page_hash or was.render_dpi != dpi:
+            drift = "unknown"          # cannot compare; must not read as unchanged (#6)
+        else:
+            drift = "unchanged" if was.page_hash == page_digest(image) else "changed"
+        on_kept(Kept(page=n, why=protected_pages(out_dir).get(n, ""), drift=drift))
 
     # `first`, `last` and the rasterized numbers are the *file's*; everything recorded -- the
     # manifest, the output name, `exclude`, `replacing`, protection -- uses the project's.
@@ -242,7 +300,10 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
                 on_page(outcome)
             yield outcome
             continue
-        if page.number in already or kept(page.number):
+        if kept(page.number):
+            announce_kept(page.number, page.image)
+            continue
+        if page.number in already:
             continue
 
         try:
@@ -250,7 +311,8 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
         except RecognitionError as exc:
             outcome = PageOutcome(page=page.number, output=None, verdict="fail",
                                   gates={}, error=str(exc), source=str(pdf),
-                                  source_page=src_page(file_page))
+                                  source_page=src_page(file_page),
+                                  page_hash=page_digest(page.image), render_dpi=dpi)
             run.record(outcome)
             if on_page:
                 on_page(outcome)
@@ -282,6 +344,10 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
             rules=len(emission.rules),
             source=str(pdf),
             source_page=src_page(file_page),
+            # What this text was written against. Recorded on every page, because which page
+            # will later carry a correction is not knowable now.
+            page_hash=page_digest(page.image),
+            render_dpi=dpi,
             findings=[
                 {"gate": g.gate, "detail": f.detail, "line": f.line, "excerpt": f.excerpt}
                 for g in emission.gates for f in g.failures
