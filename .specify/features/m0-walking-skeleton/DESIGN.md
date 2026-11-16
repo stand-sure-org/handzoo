@@ -3328,6 +3328,39 @@ protection is therefore not a new concept, only a new consumer of one that exist
 is not. The policy — refuse the page, write alongside as `.new.tex`, or ask — is the author's
 call and is deliberately left open here.
 
+#### A fourth, found 2026-11-16: the *project* had no identity either
+
+Not a page-identity bug but its sibling, and it failed harder. `PageOutcome.output` is written
+as an absolute path, so a project directory could not be copied, renamed or moved: every reader
+was handed a path to where the pages used to be.
+
+Renaming merely broke it. **Copying corrupted the original.** A project was copied to a scratch
+directory and the review surface pointed at the copy; the manifest sent every write back to the
+real project, and a line typed into what was believed to be a throwaway landed in the author's
+own `ch19/page-0001.tex`. Nothing warned, because the file at the stored path was still there
+and still writable. It was caught by checking the copy, finding it unchanged, and going to look
+for where the write had gone.
+
+The tell was already in the codebase: four readers (`assemble` ×3, `project.snapshot`) took
+`Path(output).name` and looked inside the project they were given, while the rest trusted the
+stored string. One of those two groups was wrong, and it was not the one doing extra work.
+
+Fixed in `read_manifest`, which is the single place every reader already goes through, by the
+same argument its docstring makes about stale rows. A page belongs to the project it is read
+from. `source` is deliberately untouched: the PDF genuinely lives outside the project, and
+§8.1 says an absolute path is right for it. No migration — existing manifests keep their
+absolute strings and are simply reinterpreted.
+
+Audited before the fix landed: of the nine projects on disk (`ch18`, `ch18-v2`, `ch19`,
+`ch22`, `l11`, `leinster`, `leinster-cut`, `leinster11`, `valenza-la2`, 823 rows between
+them), **none** had a row pointing outside its own directory — `ch18-v2` is a second run, not
+a copy. So this prevents the failure rather than repairing one, and no project changes which
+files it shows.
+
+Worth stating plainly, because it is the project's own thesis turned inward: this is silent
+corruption of exactly the kind the gates exist to refuse, in the tool that refuses it. The
+gates watch what the recognizer writes into a page. Nothing was watching which page.
+
 ### 11.1.3a Explicit replacement dissolves the hard case rather than solving it
 
 The author's proposal (2026-08-25): *require the user to tell us to replace page 2 with a

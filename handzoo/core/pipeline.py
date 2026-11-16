@@ -152,6 +152,26 @@ def read_manifest(out_dir: Path) -> list[PageOutcome]:
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.strip():
             row = PageOutcome(**json.loads(line))
+            # A page belongs to the project it is read from, not to the directory it was
+            # written in. `output` is stored absolute, so a project that was copied, renamed
+            # or moved used to hand every reader a path to somewhere else -- measured, and
+            # the way it fails is the worst available: a copy made to experiment in writes
+            # through to the original, silently, because the file at the old path is still
+            # there and still writable.
+            #
+            # Deciding it here is the same argument this function's docstring already makes
+            # about stale rows. Four readers took `Path(output).name` and looked inside the
+            # project they were given; the rest trusted the string. One of those two groups
+            # was wrong, and it was not the one doing extra work.
+            #
+            # `source` is deliberately untouched: the PDF really does live outside the
+            # project, and DESIGN 8.1 says an absolute path is right for it.
+            #
+            # Resolved, not merely joined: `handzoo-ui out/` hands this a relative directory,
+            # and a relative row would then depend on the caller's working directory -- a
+            # second way for the same string to mean two places.
+            if row.output:
+                row = replace(row, output=str(out_dir.resolve() / Path(row.output).name))
             latest[row.page] = row
     # A project with a store has an extent: the pages it has *now*. Undoing an append lowers
     # it, and the pages beyond it have left -- decided here, once, so no reader has to learn

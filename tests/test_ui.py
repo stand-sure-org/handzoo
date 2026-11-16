@@ -861,3 +861,35 @@ def test_a_page_marked_done_is_protected_from_a_rerun(tmp_path) -> None:
     CorrectionLog.for_run(tmp_path).append(Correction(
         page=3, verdict="final", source_image="p.png", before="x"))
     assert 3 in protected_pages(tmp_path)
+
+
+def test_autosaving_in_a_copied_project_does_not_write_through_to_the_original(
+        run_dir: Path, tmp_path: Path) -> None:
+    """The incident this is a regression for, reproduced over HTTP.
+
+    A project was copied to a scratch directory to experiment in, the surface was pointed at
+    the copy, and the autosave wrote through to the author's real page -- because the manifest
+    stores `output` absolute and the file at that path was still there and still writable. The
+    copy was checked afterwards, found unchanged, and the write had to be hunted down.
+
+    Not asserted through `read_manifest`: the bug was in what the *write* path resolved, and a
+    test of the reader alone would have gone green while the surface still wrote elsewhere.
+    """
+    copy = tmp_path.parent / (tmp_path.name + "-copy")
+    shutil.copytree(run_dir, copy)
+    original_text = (run_dir / "page-0001.tex").read_text(encoding="utf-8")
+
+    Handler.review = Review(copy)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        _post(base, "/api/autosave",
+              {"page": 1, "mode": "fix", "text": "edited inside the copy\n"})
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+    assert (copy / "page-0001.tex").read_text(encoding="utf-8") == "edited inside the copy\n"
+    assert (run_dir / "page-0001.tex").read_text(encoding="utf-8") == original_text, \
+        "the project that was copied FROM must not have been touched"
