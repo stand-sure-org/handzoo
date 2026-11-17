@@ -221,9 +221,21 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
         # A resumed page is skipped rather than yielded, so assembling `done` left every page
         # an earlier invocation finished out of the chapter, with no placeholder -- the l11
         # run's chapter began at page 3.
-        master = assemble(args.out, pipeline.read_manifest(args.out))
+        gone: list[tuple[int, str]] = []
+        master = assemble(args.out, pipeline.read_manifest(args.out),
+                          on_absent=lambda page, why: gone.append((page, why)))
         print(f"\nassembled -> {master.name}  (pages that failed appear as placeholders, "
               "never silently omitted)", file=stream)
+        if gone:
+            # The chapter says this in itself, but a chapter is only read when someone opens
+            # it and the author reads the terminal. These pages passed their gates -- the
+            # wording must not send anyone looking at the recognizer.
+            print(f"\n  ⚠ {len(gone)} page(s) passed their gates but no text was found on "
+                  f"disk:", file=stream)
+            for page, why in gone:
+                print(f"    · page {page}: {why}", file=stream)
+            print("    Each appears in the chapter as a placeholder, so the document still "
+                  "builds.", file=stream)
 
     print("\nGates prove these documents build. They do not prove the transcription is "
           "correct:\nsilent substitution — a mark replaced rather than dropped — is not "

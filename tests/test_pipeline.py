@@ -459,6 +459,32 @@ def test_the_cli_does_not_claim_an_unchecked_page_is_unchanged(
         "and it must say what to do about it -- this used to be a permanent condition"
 
 
+@pytestmark_pdf
+def test_the_cli_says_when_a_pages_text_is_not_on_disk(
+        pdf: Path, tmp_path: Path, monkeypatch) -> None:
+    """The chapter carries a placeholder, but a chapter is only read when someone opens it and
+    the author reads the terminal. These pages passed their gates, so the wording must not
+    send anyone looking at the recognizer.
+
+    Reached the way it actually happens: a corrected page is kept by every later run, so a
+    run assembles a manifest row whose file something has since removed.
+    """
+    monkeypatch.setattr(cli_convert, "OllamaRecognizer", lambda **_: _StubRecognizer())
+    out = tmp_path / "run"
+    cli_convert.main([str(pdf), "-o", str(out)], stream=io.StringIO())
+    _corrected(out, 2, "edited", "mine\n")
+    (out / "page-0002.tex").unlink()
+
+    said = io.StringIO()
+    cli_convert.main([str(pdf), "-o", str(out)], stream=said)
+    text = said.getvalue()
+
+    assert "no text was found on disk" in text, text
+    assert "page 2" in text
+    assert "still builds" in text, "and it must say the chapter is usable, not merely broken"
+    assert (out / "chapter.tex").exists()
+
+
 # --------------------------------------------------------------------------- cli
 
 
