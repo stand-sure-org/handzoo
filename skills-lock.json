@@ -1,0 +1,89 @@
+{
+  "version": 2,
+  "skills": {
+    "address-findings": {
+      "source": "entireio/skills",
+      "commit": "af6cd3fce1852a7214c43bbf64315900196ad4ee",
+      "sourceType": "github",
+      "skillPath": "skills/address-findings/SKILL.md",
+      "computedHash": "6d3919eaf0345ba29547e4e8f7767d877228d3368011fb0cd63340f29fb68d06"
+    },
+    "explain": {
+      "source": "entireio/skills",
+      "commit": "af6cd3fce1852a7214c43bbf64315900196ad4ee",
+      "sourceType": "github",
+      "skillPath": "skills/explain/SKILL.md",
+      "computedHash": "9730c6ed5b5102348e978f7fe86dbc4ad27e3851e408e4718f38b7b0e74b1fe2"
+    },
+    "recall": {
+      "source": "entireio/skills",
+      "commit": "af6cd3fce1852a7214c43bbf64315900196ad4ee",
+      "sourceType": "github",
+      "skillPath": "skills/recall/SKILL.md",
+      "computedHash": "c911b6c95e223041d106cb402b3c3d891e84a71375871d7691486b0d9a17d5f2"
+    },
+    "replay": {
+      "source": "entireio/skills",
+      "commit": "af6cd3fce1852a7214c43bbf64315900196ad4ee",
+      "sourceType": "github",
+      "skillPath": "skills/replay/SKILL.md",
+      "computedHash": "57b4134c9d89279f2ae8b27a3854b629a722328f84d7e9d58c517fd8b861ec3c"
+    },
+    "review": {
+      "source": "entireio/skills",
+      "commit": "af6cd3fce1852a7214c43bbf64315900196ad4ee",
+      "sourceType": "github",
+      "skillPath": "skills/review/SKILL.md",
+      "computedHash": "ee3ebf06d17fb682cddaae21ccc2b16f7103cf66c26b3f59ad062423e304e3f9"
+    },
+    "search": {
+      "source": "entireio/skills",
+      "commit": "af6cd3fce1852a7214c43bbf64315900196ad4ee",
+      "sourceType": "github",
+      "skillPath": "skills/search/SKILL.md",
+      "computedHash": "a4481758384af9fc723335de9bac17751cf231dbde5a5507379c7df09582adaf"
+    },
+    "session-crosslink": {
+      "source": "entireio/skills",
+      "commit": "af6cd3fce1852a7214c43bbf64315900196ad4ee",
+      "sourceType": "github",
+      "skillPath": "skills/session-crosslink/SKILL.md",
+      "computedHash": "9445309b4dcb2f84d29b7a82fc1680b1ba4324ceab844c4811525fa9710e6429"
+    },
+    "session-handoff": {
+      "source": "entireio/skills",
+      "commit": "af6cd3fce1852a7214c43bbf64315900196ad4ee",
+      "sourceType": "github",
+      "skillPath": "skills/session-handoff/SKILL.md",
+      "computedHash": "2018d61b8ebec9d83be7b818ad74aade4fa98a5362ac5764fadb627dc9615dcc"
+    },
+    "session-to-skill": {
+      "source": "entireio/skills",
+      "commit": "af6cd3fce1852a7214c43bbf64315900196ad4ee",
+      "sourceType": "github",
+      "skillPath": "skills/session-to-skill/SKILL.md",
+      "computedHash": "337f6b355d68fad25d592f281cfa88cc820d0107cdab62c8f65419b31cff7c14"
+    },
+    "teach": {
+      "source": "entireio/skills",
+      "commit": "af6cd3fce1852a7214c43bbf64315900196ad4ee",
+      "sourceType": "github",
+      "skillPath": "skills/teach/SKILL.md",
+      "computedHash": "52814972cb87f8365f3fbd85d78b5b9999b552d9aa4c16e81ff498a2602adf22"
+    },
+    "using-entire": {
+      "source": "entireio/skills",
+      "commit": "af6cd3fce1852a7214c43bbf64315900196ad4ee",
+      "sourceType": "github",
+      "skillPath": "skills/using-entire/SKILL.md",
+      "computedHash": "34e2cbf126f3221682113bfa4543cd7ef67246c833997bd12fa4d49a7aa4fea0"
+    },
+    "what-happened": {
+      "source": "entireio/skills",
+      "commit": "af6cd3fce1852a7214c43bbf64315900196ad4ee",
+      "sourceType": "github",
+      "skillPath": "skills/what-happened/SKILL.md",
+      "computedHash": "1fa6c04432df5b369616090d68e935fddba9da5af9bc832a722b3d7596feb56d"
+    }
+  }
+}
