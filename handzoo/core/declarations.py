@@ -85,6 +85,14 @@ KNOWN = frozenset(
 # is load-bearing everywhere else in this module and this is the one place it works against
 # us. A fix has to be a check on what was *emitted*, not a change to what is declared —
 # DESIGN §11.0.1e.
+#
+# **And no gate is coming, by the author's ruling (2026-11-17).** Which one the scrawl meant
+# is interpretive: a fact about what the hand meant, not about the emitted LaTeX, which is
+# all a gate can see. `÷F⃗` builds, and the gates have only ever claimed that output builds.
+# The author's review -- the `accepted` flag -- is the mechanism, and the check for marks
+# that do not make sense belongs near the time of real typesetting, by them or by an agent
+# reading for sense rather than syntax. So this comment is the deliverable: whoever edits
+# this list sees the class, and nothing downstream pretends to catch it.
 
 # Macros the recognizer has been measured to invent, and what it plainly meant.
 REPAIRS = {
