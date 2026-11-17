@@ -3087,6 +3087,30 @@ its place on measured true positives, and a gate built on six labelled pages is 
 wrong precision. The author has written no physics through HandZoo. The docstring now carries
 the class so that whoever edits `KNOWN` sees it.
 
+**And it is not deferred — it is out of scope, by the author's ruling (2026-11-17).** The
+reason is better than "no instance yet": *the input is interpretive*. Whether a scrawled mark
+is `div` the divergence or `div` the division sign is not a fact about the emitted LaTeX, which
+is all a gate can see; it is a fact about what the author's hand meant, and on this corpus the
+author's own reading of their handwriting is the only source of it. A gate cannot arbitrate
+that, and one built to try would be guessing in the one place the project has promised not to.
+
+**The mechanism already exists and it is the `accepted` flag.** The surface's tick means *Looks
+right*, said by the person who wrote the page, and the review loop is where a mark that does
+not make sense gets caught. The author's framing is that this check belongs **near the time of
+real typesetting** — when the document is being built for use, by them or by an agent reading
+for sense rather than for syntax — not at recognition time, where nothing yet knows what the
+page is for.
+
+That is also the honest division of labour the positioning already states: the gates prove the
+output *builds*, never that it is *true*. `÷F⃗` builds. Asking a gate to catch it is asking the
+guarantee to cover ground it has always said it does not cover, and the cost of pretending
+otherwise is the one this project exists to refuse — a reader who stops checking because
+something green told them not to.
+
+An agent reading for sense is a real future component (§5.5.6's cross-provider pairing,
+`qwen2-math` as a semantic checker), and this is where it would sit: after the author's
+review, before the build, judging meaning rather than form. It is M1+, and it is not a gate.
+
 #### Learning from usage: what would have to be true
 
 The correction log already records `before` and `after` per page, so the raw material exists.

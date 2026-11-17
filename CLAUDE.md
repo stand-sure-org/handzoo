@@ -302,7 +302,15 @@ All gates pass, no TODO is emitted.
 **`KNOWN`'s safety argument is one-directional** and now says so. A name wrongly *absent* costs
 a no-op guard; a name wrongly *present* fails silently. **Deleting the name does not fix it** —
 `\ifdefined\div` finds base LaTeX's definition, the guard no-ops, output is still ÷. A fix has
-to check what was *emitted*, not what is *declared*. Not built: no measured instance yet.
+to check what was *emitted*, not what is *declared*.
+
+**Not a gate — the author's ruling, 2026-11-17.** The input is *interpretive*: whether the
+scrawl means divergence or a division sign is a fact about what the hand meant, not about the
+emitted LaTeX, and a gate can only see the latter. `÷F⃗` builds, and the gates have only ever
+claimed that output builds. **This is what the `accepted` flag is for** — the author reviews
+it, and the check for marks that do not make sense belongs near the time of real typesetting,
+by them or by an agent reading for *sense* rather than syntax (M1+, §5.5.6). The docstring
+carries the class so whoever edits `KNOWN` sees it. See DESIGN §11.0.1e.
 
 ## Letterforms: the recognizer defaults everything to `\mathcal` (DESIGN §11.0.1g)
 
