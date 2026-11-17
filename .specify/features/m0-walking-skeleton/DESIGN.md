@@ -5017,6 +5017,42 @@ dropped by all three while every test stayed green. `GateResult.as_dicts()` is n
 shape, and the HTTP-level tests assert the new field arrives at the surface rather than merely
 existing on the gate.
 
+### 12.9 The browser's storage is not a variable (2026-11-17)
+
+The surface persists one thing in `localStorage`: the three pane zoom levels, so a comfortable
+size survives a session. The write was wrapped in `try/catch`. The read was not, and it sat at
+**top level in a classic script** — so any throw there took the whole page down, and the 546
+lines below it never bound: the pane toggles, the crop handlers, the drift affirmation. Not a
+pane at the wrong size. A blank page.
+
+**The asymmetry was exactly backwards.** A failed write costs one preference. A failed read cost
+the surface. Whoever wrapped the write had the hazard in mind and guarded the cheap half.
+
+Three ways it goes wrong, and only the first is the one people remember — all three measured in
+the browser against the old line:
+
+| | old behaviour |
+|---|---|
+| `localStorage` **throws on access** — private window, or site data blocked for this origin | `SecurityError` |
+| a corrupt or truncated value | `SyntaxError` from `JSON.parse` |
+| a value that parses but is the wrong *shape* — `null`, a string, an array, a missing key | `TypeError` at `scales[k]`, or a literal **`NaN%`** on the label and an invalid `--scale` |
+
+The third is the interesting one, because it does not throw at the read at all. It throws, or
+renders nonsense, several lines later in code that looks like arithmetic — and `applyScale` runs
+at top level too, so `null` in storage still takes the page down, just from somewhere that gives
+no hint where the value came from.
+
+**So the read validates rather than parses.** Storage is not a variable the program set; it is
+whatever an older build wrote, or a person edited, or another tab left. Each key is replaced
+with its default unless it is a finite number inside the range the buttons themselves enforce —
+**replaced, not clamped**, because a value outside that range is not a preference this page ever
+offered, and clamping it into plausibility would quietly honour something nobody chose. Same
+instinct as constraint #6: a value that cannot be validated is not a value.
+
+Verified in the browser across nine cases — a throwing accessor, corrupt JSON, `null`, a string,
+an array, missing keys, out-of-range numbers, a `null` member, and an ordinary saved value, which
+round-trips exactly.
+
 ### 12.4 The ordering this implies
 
 1. **Round-trip fidelity test** — mechanical, no UI, and it decides the format question.
