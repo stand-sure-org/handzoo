@@ -62,6 +62,60 @@ _ENV = re.compile(r"\\(?:begin|end)\{[^}]*\}(?:\{[^}]*\})?")
 _COMMAND = re.compile(r"\\[a-zA-Z]+\s*|\\.|[{}$&_^~#]")
 _MATH_DELIM = [("\\(", "$"), ("\\)", "$"), ("\\[", "$$"), ("\\]", "$$")]
 
+# Aligned environments, their rows, and the rows that are not statements on their own.
+_ALIGNED = re.compile(
+    r"\\begin\{(align\*?|aligned|alignat\*?|eqnarray\*?|gather\*?|split)\}(.*?)"
+    r"\\end\{\1\}", re.DOTALL)
+_ROW = re.compile(r"\\\\\s*(?:\[[^\]]*\])?")
+_CONTINUES = re.compile(
+    r"^&\s*(?:=|<|>|\\le\b|\\leq\b|\\ge\b|\\geq\b|\\equiv\b|\\approx\b|\\sim\b"
+    r"|\\cong\b|\\subseteq\b|\\subset\b|\\in\b|\\to\b|\\mapsto\b|\\Rightarrow\b"
+    r"|\\implies\b|\\iff\b|\\leftrightarrow\b)")
+
+
+def rows_are_independent(rows: list[str]) -> bool:
+    """Can these rows be reordered without changing what the block says?
+
+    A row opening with the alignment marker and a relation -- `&= \\pi r^2` -- has no left-hand
+    side of its own. It means *the thing above, continued*, so moving it moves the argument.
+    A block of rows that each stand alone is a list, and a list in another order is the same
+    list.
+
+    Measured over every multi-row aligned block in the nine corpora on disk: 63% are all
+    independent, 19% are entirely continuation chains, and 18% mix the two. **So the obvious
+    version of this fix is wrong.** DESIGN recorded "a row-order-insensitive comparison inside
+    math environments would remove this class", and applied to every block that would blind
+    the comparison to reordering in the 37% where reordering changes the mathematics.
+    """
+    live = [r for r in (row.strip() for row in rows) if r]
+    return len(live) > 1 and not any(_CONTINUES.match(r) for r in live[1:])
+
+
+def canonical_math_rows(text: str) -> str:
+    """Put the rows of each reorderable aligned block in one fixed order.
+
+    Two models reading the same four independent rows and emitting them in different orders
+    is not a disagreement about the page, but a linear diff sees it as two long one-sided
+    runs -- which is the one hand-read false positive in the specificity sample (ch22 p22,
+    DESIGN 5.5.6a). Sorting both sides collapses it, and still shows a difference when the
+    rows themselves differ.
+
+    Chains are left exactly as they are, so a model that reorders a derivation is still
+    caught. This also, deliberately, hides an *author* edit that only reorders independent
+    rows: that is presentation rather than a transcription defect, and 11.3.1 is clear that
+    polish must not be counted as correction.
+    """
+    def one(m: re.Match) -> str:
+        env, inner = m.group(1), m.group(2)
+        rows = _ROW.split(inner)
+        if not rows_are_independent(rows):
+            return m.group(0)
+        ordered = sorted(r.strip() for r in rows if r.strip())
+        return ("\\begin{" + env + "}\n" + " \\\\\n".join(ordered)
+                + "\n\\end{" + env + "}")
+
+    return _ALIGNED.sub(one, text)
+
 
 # --------------------------------------------------------------------------- page selection
 
@@ -118,7 +172,9 @@ def body(text: str) -> str:
     text = _COMMENT.sub("", text.split("\\end{document}", 1)[0])
     for old, new in _MATH_DELIM:
         text = text.replace(old, new)
-    return _DIAG.sub(SENTINEL, text)
+    # Both arms and the author-edit labels are all tokenized from this one function, so
+    # canonicalizing here keeps every position in `score()` consistent with every other.
+    return _DIAG.sub(SENTINEL, canonical_math_rows(text))
 
 
 def tokens(text: str, level: str) -> list[str]:
