@@ -77,10 +77,12 @@
              display:flex; gap:.5rem; align-items:center; }
   .cropbar img { max-height:64px; border:1px solid var(--line); background:#fff; }
   .cropbar label { display:flex; align-items:center; gap:.35rem; flex:1; min-width:12rem; }
-  /* A `display` rule beats the UA's `[hidden] { display:none }`, so the field stayed visible
-     on an untagged project until this line existed -- measured in the browser, and the same
-     trap `.cropbar[hidden]` above already works around. */
-  .cropbar label[hidden] { display:none; }
+  /* A `display` rule beats the UA's `[hidden] { display:none }` -- measured in the browser,
+     and the same trap `.cropbar[hidden]` above works around. Kept for anything inside the bar
+     that is hidden by attribute: `#cropinert` is a bare span and needs no rule, but a future
+     `[hidden]` on an element with a `display` would silently stay on screen. */
+  .cropbar [hidden] { display:none; }
+  .cropbar #cropinert { color:var(--dim); }
   .cropbar input { flex:1; min-width:8rem; font:inherit; padding:.2rem .35rem;
                    border:1px solid var(--line); border-radius:4px; background:var(--bg);
                    color:inherit; }
@@ -214,7 +216,7 @@
       <div class="cropbar" id="cropbar" hidden>
         <img id="cropprev" alt="cropped figure">
         <span id="cropmsg"></span>
-        <label id="croptalt" hidden>describe it
+        <label id="croptalt">describe it<span id="cropinert" hidden>(inert until tagging is on)</span>
           <input id="cropalt" type="text" maxlength="500" autocomplete="off"
                  placeholder="what the drawing shows — for a screen reader">
         </label>
@@ -253,10 +255,12 @@
 <script>
 const $ = id => document.getElementById(id);
 let pages = [], current = null, opened = 0, original = "";
-// Whether this project's preamble turns LaTeX tagging on. It decides one thing only: whether
-// asking the author to describe a drawing is worth their time. Measured -- `alt=` without
-// `\DocumentMetadata{tagging=on}` compiles clean and the PDF carries no `/Alt`, so a
-// description collected here would reach nobody and nothing would say so.
+// Whether this project's preamble turns LaTeX tagging on. It decides one thing only: how the
+// description field is *labelled*. Measured -- `alt=` without `\DocumentMetadata{tagging=on}`
+// compiles clean, warns nothing, and the PDF carries no `/Alt`, so a description typed on an
+// untagged project reaches nobody yet. The field is still offered (author, 2026-11-17): the
+// text is cheap to keep and starts working the day the directive goes in, and the one option
+// ruled out is taking it in silence, since its reader is the one who cannot tell.
 let tagging = false;
 // A page the surface opened by itself is timed from the author's first touch of it, not
 // from launch: `opened` feeds the correction arm, and time spent away from the machine is
@@ -721,12 +725,12 @@ async function doCrop(page, points) {
   $("cropprev").src = d.preview;
   $("cropmsg").textContent = `${d.name} — ${d.bytes.toLocaleString()} bytes, vector`;
   $("cropkeep").textContent = "Keep it";
-  // Offered only under tagging. Measured: `alt=` without `\DocumentMetadata{tagging=on}`
-  // compiles clean and the PDF carries no `/Alt` at all, so a field shown here without it
-  // would be collecting the author's words and dropping them -- and the one reader it is
-  // aimed at is the one who cannot tell.
+  // Always shown, and labelled by what it currently does. An untagged project carries the
+  // text into the `.tex` and a note saying no `/Alt` is produced yet; hiding the field
+  // instead would quietly decide for the author that the work is not worth doing until they
+  // turn tagging on.
   $("cropalt").value = "";
-  $("croptalt").hidden = !tagging;
+  $("cropinert").hidden = tagging;
   $("cropbar").hidden = false;
 }
 
@@ -741,7 +745,7 @@ $("cropkeep").onclick = async () => {
                            // `[[DIAGRAM: ...]]` text: inventing diagram prose is the measured
                            // fabrication class, and this is the one string read by someone
                            // who cannot check it against the drawing.
-                           alt: tagging ? $("cropalt").value : "",
+                           alt: $("cropalt").value,
                            seconds: (performance.now() - opened) / 1000,
                            ui_mode: "web-side-by-side" })
   });
@@ -751,13 +755,14 @@ $("cropkeep").onclick = async () => {
   mode = null; modeStart = 0; $("tex").readOnly = true;
   $("pane-tex").classList.remove("editing");
   $("fix").textContent = "Fix transcription"; $("author").textContent = "Edit my notes";
-  const described = tagging && $("cropalt").value.trim() !== "";
+  const described = $("cropalt").value.trim() !== "";
   $("cropbar").hidden = true; pendingCrop = null;
   await load(); renderFindings(current);
   say(`figure placed — ${d.remaining} marker(s) left` +
       (d.released ? ", page released from quarantine" : "") +
       (tagging && !described ? " — no description, so it is unlabelled for a screen reader"
-                             : ""));
+       : described && !tagging ? " — description kept, inert until the preamble turns tagging on"
+                               : ""));
   await select(current);
   await load();
   refreshActions();

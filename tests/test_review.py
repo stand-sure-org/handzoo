@@ -337,17 +337,59 @@ def test_crop_replaces_the_marker_with_the_drawing(tmp_path: Path, monkeypatch) 
                         lambda *a, **k: (cli_review.rasterize.Block(10, 20, 100, 80, 5),))
     monkeypatch.setattr(cli_review.rasterize, "page_size", lambda p, page=1: (514.0, 685.0))
 
-    cli_review.main([str(out)], stream=io.StringIO(), read_line=_keys("c", "1", "y"),
+    # The empty string is the description prompt, answered by skipping it. Spelling it out
+    # rather than letting `_keys` run dry: the fallback is "q", which this test would have
+    # accepted as a one-letter alt text without a single assertion noticing.
+    cli_review.main([str(out)], stream=io.StringIO(), read_line=_keys("c", "1", "y", ""),
                     open_file=lambda p: None)
 
     text = (tmp_path / "page-0001.tex").read_text()
     assert "includegraphics" in text, "the drawing must replace the marker"
     assert "TODO diagram" not in text, "the marker must be gone once a real figure replaces it"
+    assert "alt=" not in text, "nothing was described, so nothing is claimed"
     assert cut == {"x": 10, "y": 20, "width": 100, "height": 80}
 
     (row,) = CorrectionLog.for_run(out).read()
     assert row.verdict == "cropped" and row.is_gold
     assert row.after.endswith(".pdf")
+
+
+def test_an_untagged_crop_is_still_offered_a_description_and_says_it_is_inert(
+        tmp_path: Path, monkeypatch) -> None:
+    """The author's call, 2026-11-17, on the surface that has no tagging.
+
+    Measured: `alt=` without `\\DocumentMetadata{tagging=on}` compiles clean, warns nothing,
+    and the PDF carries no `/Alt`. The field is offered anyway -- the text is cheap to keep
+    and starts working the day the directive goes in -- and both the prompt and the file say
+    it is currently inert. Taking it in silence is the one thing ruled out: its reader is the
+    one person who cannot tell.
+    """
+    src = tmp_path / "src.pdf"
+    src.write_bytes(b"%PDF-1.4\n")
+    out = _manifest(tmp_path, _diagram_page(tmp_path, 1, source=src))
+
+    def fake_crop(pdf, page, target, **region):
+        target.write_bytes(b"%PDF-1.4 cropped\n")
+        return target
+
+    monkeypatch.setattr(cli_review.rasterize, "crop_vector", fake_crop)
+    monkeypatch.setattr(cli_review.rasterize, "page_blocks",
+                        lambda *a, **k: (cli_review.rasterize.Block(10, 20, 100, 80, 5),))
+    monkeypatch.setattr(cli_review.rasterize, "page_size", lambda p, page=1: (514.0, 685.0))
+
+    stream = io.StringIO()
+    cli_review.main([str(out)], stream=stream,
+                    read_line=_keys("c", "1", "y", "a commutative square"),
+                    open_file=lambda p: None)
+
+    printed = stream.getvalue()
+    assert "describe it for a screen reader" in printed, "the field is offered here too"
+    assert "inert until the preamble turns tagging on" in printed, printed
+
+    text = (tmp_path / "page-0001.tex").read_text()
+    assert "alt={a commutative square}" in text, "the author's words are kept"
+    assert "inert" in text and "tagging=on" in text, text
+    assert "unlabelled" not in text, "it was described; the other note must not appear too"
 
 
 def test_a_rejected_crop_leaves_the_document_untouched(tmp_path: Path, monkeypatch) -> None:

@@ -11,5 +11,6 @@
     "primary": {
       "type": "git-refs"
     }
-  }
+  },
+  "sign_checkpoint_commits": false
 }

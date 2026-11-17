@@ -186,22 +186,27 @@ def crop(outcome: PageOutcome, out_dir: Path, text: str, *, stream, read_line,
         print("  keep it? [y]es  [r]etry  [c]ancel > ", end="", file=stream, flush=True)
         answer = (read_line() or "c").strip().lower()[:1] or "c"
         if answer == "y":
-            described = ""
-            if tagging:
-                # Asked only under tagging, because that is the only case where an answer
-                # reaches anybody: measured, `alt=` without `\DocumentMetadata{tagging=on}`
-                # compiles clean and the PDF comes out with no `/Alt` at all. Asking anyway
-                # would be collecting work and dropping it.
-                #
-                # Typed by the author or left empty. The recognizer's own description of the
-                # drawing is never offered as a default: inventing diagram prose is the
-                # measured fabrication class (DESIGN 5.5.6b), and this is the one text read
-                # by someone who cannot check it against the page.
-                print("  describe it for a screen reader (enter to skip) > ",
-                      end="", file=stream, flush=True)
-                described = (read_line() or "").strip()
-                if not described:
-                    print("  no description — the figure goes in unlabelled.", file=stream)
+            # Asked on every project, and the prompt says which kind this one is (author,
+            # 2026-11-17). Measured, `alt=` without `\DocumentMetadata{tagging=on}` compiles
+            # clean, warns nothing, and the PDF carries no `/Alt`, so a description typed here
+            # on an untagged project reaches nobody *yet*. Three ways to handle that, and the
+            # choice is deliberate: refusing the field would cost a re-description of every
+            # crop made before tagging went on; collecting it in silence is the one option
+            # ruled out, because the reader it is aimed at is the one who cannot tell.
+            #
+            # Typed by the author or left empty. The recognizer's own description of the
+            # drawing is never offered as a default: inventing diagram prose is the measured
+            # fabrication class (DESIGN 5.5.6b), and this is the one text read by someone who
+            # cannot check it against the page.
+            inert = "" if tagging else " — inert until the preamble turns tagging on"
+            print(f"  describe it for a screen reader{inert} (enter to skip) > ",
+                  end="", file=stream, flush=True)
+            described = (read_line() or "").strip()
+            if tagging and not described:
+                print("  no description — the figure goes in unlabelled.", file=stream)
+            elif described and not tagging:
+                print("  kept, and the file says it is inert until tagging is on.",
+                      file=stream)
             figure = figure_tex(name, width=CROP_WIDTH, description=described,
                                 tagging=tagging)
             # A function replacement, not a string: `re.sub` treats backslashes in a

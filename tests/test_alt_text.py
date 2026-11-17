@@ -124,6 +124,57 @@ def test_a_description_is_emitted_even_without_tagging() -> None:
     assert "alt={A square}" in figure_tex("fig.pdf", width=WIDTH, description="A square")
 
 
+def test_a_description_without_tagging_says_so_in_the_file() -> None:
+    """The author's call, 2026-11-17: keep the text, and let the file say it reaches nobody.
+
+    The alternative was refusing the field until tagging is on, which would cost a
+    re-description of every crop made before. Accepting it in *silence* was never one of the
+    options: the whole point of the field is a reader who cannot check it against the drawing,
+    and the author is the only person who can know it is currently unread.
+    """
+    emitted = figure_tex("fig.pdf", width=WIDTH, description="A square")
+    assert "alt={A square}" in emitted, "the description is kept"
+    assert "inert" in emitted and "tagging=on" in emitted, emitted
+
+
+@pytest.mark.parametrize("description, tagging, note", [
+    ("A square", False, "inert"),
+    # The quadrant that caught a real bug: an `elif` on the wrong condition printed "inert"
+    # over a description that works perfectly. The correct case is the one that exposed it.
+    ("A square", True, None),
+    ("", True, "unlabelled"),
+    ("", False, None),
+    ("   ", False, None),
+    ("   ", True, "unlabelled"),
+])
+def test_exactly_one_note_or_none_per_quadrant(description, tagging, note) -> None:
+    """Two notes, four quadrants, and never both. Each note is a claim about who reads this
+    figure, and two claims at once would be a contradiction in the author's own file."""
+    emitted = figure_tex("fig.pdf", width=WIDTH, description=description, tagging=tagging)
+    present = {word for word in ("inert", "unlabelled") if word in emitted}
+    assert present == ({note} if note else set()), emitted
+
+
+def test_the_inert_note_sits_on_its_own_line_too() -> None:
+    """Same reason as the missing-description note, and a separate test because it is a
+    separate branch: a trailing `%` would comment out the rest of the author's sentence."""
+    emitted = figure_tex("fig.pdf", width=WIDTH, description="A square")
+    first, _, rest = emitted.partition("\n")
+    assert "%" not in first.replace("\\%", ""), first
+    assert rest.lstrip().startswith("%")
+
+
+def test_the_inert_note_does_not_break_the_gates() -> None:
+    """It names `\\DocumentMetadata{tagging=on}`, so it carries braces -- inside a comment,
+    which the delimiter gate must skip. A note about accessibility that refused the page
+    would be the worst possible trade."""
+    page = ("Some prose.\n"
+            + figure_tex("fig.pdf", width=WIDTH, description="A square {with} 100% $ink$")
+            + "\n")
+    assert delimiter_gate.check(page).passed, delimiter_gate.check(page).report()
+    assert ascii_gate.check(page, fragment=True).passed
+
+
 # ------------------------------------------------------------------------------- the engine
 
 
@@ -180,3 +231,5 @@ def test_a_description_without_tagging_reaches_nobody_and_still_compiles(tmp_pat
     assert run.returncode == 0, "it compiles clean, which is why the silence is dangerous"
     assert _alt_of(tmp_path / "doc.pdf") is None, \
         "no tagging, so the description reaches nobody -- the surface must keep saying so"
+    assert "inert" in (tmp_path / "doc.tex").read_text(encoding="utf-8"), \
+        "and the file says so, next to the description, where the author will see it"
