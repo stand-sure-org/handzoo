@@ -918,3 +918,88 @@ def test_a_save_in_the_surface_keeps_what_the_page_looked_like(server) -> None:
     (newest,) = [o for o in read_manifest(run_dir) if o.page == 1]
     assert newest.page_hash == "a" * 64, "the render this text was written against survives"
     assert newest.render_dpi == 150
+
+
+def test_a_mismatch_saved_in_the_surface_reports_both_of_its_ends(server) -> None:
+    """The surface's re-gate is a separate code path from the run's, and the field is new.
+
+    Asserting it on the gate alone would prove only that the gate computes it. What the
+    clickable line in the tex pane actually reads is this JSON, built by `_revalidate` --
+    which hand-rolled its own finding dict until this change and would have dropped the
+    field silently.
+    """
+    base, run_dir = server
+    body = _post(base, "/api/save",
+                 {"page": 1, "mode": "fix",
+                  "text": "text\n\\begin{align}\nbody\n\\end{center}\n", "seconds": 5.0})
+
+    (page,) = [p for p in _pages_of(base) if p["page"] == 1]
+    (finding,) = [f for f in page["findings"]
+                  if f["gate"] == "delimiters" and "not what is open" in f["detail"]]
+    assert finding["line"] == 4, "reported where the \\end is"
+    assert finding["pair_line"] == 2, "and where what is open was opened"
+    assert body is not None
+
+
+def test_a_finding_the_gate_cannot_pair_carries_no_second_line(server) -> None:
+    """Over HTTP, because `None` surviving serialisation is the half that matters.
+
+    A JSON `null` reaching the surface is what stops a line number being drawn; a missing
+    key would do the same, but a `0` would send the author to the top of the file as though
+    the gate had looked there.
+    """
+    base, run_dir = server
+    _post(base, "/api/save", {"page": 1, "mode": "fix",
+                              "text": "text\n$ opens and never closes\n", "seconds": 5.0})
+
+    (page,) = [p for p in _pages_of(base) if p["page"] == 1]
+    for finding in [f for f in page["findings"] if f["gate"] == "delimiters"]:
+        assert finding["pair_line"] is None, finding
+
+
+def test_the_text_endpoint_describes_the_text_it_hands_over(server) -> None:
+    """Recorded findings outlive the text they were computed against.
+
+    Measured on the author's own `l11` p3: its newest manifest row reports
+    `\\end{itemize} closes array` at line 19, where the file on disk now has `\\end{center}`
+    and the delimiter gate finds nothing. A line number from that row would send the author
+    to a line nothing was ever wrong with -- so the surface asks for the findings in the same
+    response as the text, and gets an answer about the string it is about to display.
+
+    Reproduced here by writing a page the manifest describes wrongly, which is the shape of
+    every edit made outside HandZoo as well.
+    """
+    base, run_dir = server
+    rows = [json.loads(ln) for ln in
+            (run_dir / "manifest.jsonl").read_text(encoding="utf-8").splitlines() if ln.strip()]
+    row = next(r for r in rows if r["page"] == 1)
+    row["findings"] = [{"gate": "delimiters", "line": 19, "pair_line": 17,
+                        "detail": "\\end{itemize} closes array, which is not what is open",
+                        "excerpt": ""}]
+    (run_dir / "manifest.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    Path(row["output"]).write_text("balanced $x$ now\n", encoding="utf-8")
+
+    _, body = _get(base, "/api/text?page=1")
+    served = json.loads(body)
+    assert served["text"] == "balanced $x$ now\n"
+    assert served["delimiters"] == [], "the stale row said line 19; the text says nothing"
+
+    (page,) = [p for p in _pages_of(base) if p["page"] == 1]
+    assert any(f["line"] == 19 for f in page["findings"]), \
+        "the manifest row is untouched -- the point is that the two can disagree"
+
+
+def test_the_text_endpoint_reports_both_ends_of_a_live_mismatch(server) -> None:
+    """And when the file really is broken, both ends come back with it."""
+    base, run_dir = server
+    row = next(json.loads(ln) for ln
+               in (run_dir / "manifest.jsonl").read_text(encoding="utf-8").splitlines()
+               if ln.strip() and json.loads(ln)["page"] == 1)
+    Path(row["output"]).write_text("text\n\\begin{align}\nbody\n\\end{center}\n",
+                                   encoding="utf-8")
+
+    _, body = _get(base, "/api/text?page=1")
+    (finding,) = [f for f in json.loads(body)["delimiters"]
+                  if "not what is open" in f["detail"]]
+    assert (finding["line"], finding["pair_line"]) == (4, 2)

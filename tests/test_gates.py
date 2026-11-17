@@ -667,3 +667,69 @@ def test_a_missing_engine_is_not_checked_and_is_never_quietly_swapped() -> None:
     assert result.checked is False
     assert not result.failures
     assert "definitely-not-a-tex-engine" in result.note
+
+
+def test_a_mismatched_end_names_the_line_its_opener_is_on() -> None:
+    """The closer's line alone is half an answer.
+
+    `\\end{center}` on line 4 is where the error is *reported*; line 2 is where the thing
+    that is actually open was opened. A reader needs both ends to see the mistake, and the
+    surface needs them structurally rather than parsed back out of the prose.
+    """
+    latex = "text\n\\begin{align}\nbody\n\\end{center}\n"
+    (failure,) = [f for f in delimiter_gate.check(latex).failures
+                  if "not what is open" in f.detail]
+    assert failure.line == 4
+    assert failure.pair_line == 2
+
+
+def test_a_mismatched_end_names_whatever_is_actually_open_not_the_enclosing_environment() -> None:
+    """One typo cascades, and the pairing has to stay truthful through it.
+
+    An unclosed `$` inside an `enumerate` means the `\\end{enumerate}` closes the `$`, not the
+    environment -- so the line it points at is the dollar's, which is the mistake.
+    """
+    latex = "\\begin{enumerate}\n\\item $x\n\\end{enumerate}\n"
+    (failure,) = [f for f in delimiter_gate.check(latex).failures
+                  if "not what is open" in f.detail]
+    assert failure.line == 3
+    assert failure.pair_line == 2
+
+
+@pytest.mark.parametrize("latex", [
+    r"stray \) alone",
+    r"stray \] alone",
+    "\\begin{align}\nnever closed",
+    "\ntext\n$ opens and never closes",
+])
+def test_a_finding_with_only_one_end_known_claims_no_other_end(latex: str) -> None:
+    """Constraint #6 in miniature: there is no second line, so there must be no number.
+
+    A closer with no opener, and an opener with no closer, each have exactly one location.
+    Defaulting the absent one to anything -- 0, 1, the same line -- would send a reader to a
+    line the gate never looked at.
+    """
+    for failure in delimiter_gate.check(latex).failures:
+        assert failure.pair_line is None, failure
+
+
+def test_a_failure_serialises_both_ends() -> None:
+    """Three call sites hand-rolled this dict and would each have dropped a new field.
+
+    So the shape lives on `GateResult` now, where the gate's own name is in scope -- the
+    reason the hand-rolled versions had to repeat it.
+    """
+    latex = "text\n\\begin{align}\nbody\n\\end{center}\n"
+    result = delimiter_gate.check(latex)
+    (row,) = [d for d in result.as_dicts() if "not what is open" in d["detail"]]
+    assert row == {"gate": "delimiters", "detail": row["detail"],
+                   "line": 4, "pair_line": 2, "excerpt": ""}
+
+
+def test_the_cli_reader_is_told_both_ends_too() -> None:
+    """The surface is not the only reader; `__str__` is what `handzoo` prints."""
+    latex = "text\n\\begin{align}\nbody\n\\end{center}\n"
+    (failure,) = [f for f in delimiter_gate.check(latex).failures
+                  if "not what is open" in f.detail]
+    assert "line 4" in str(failure)
+    assert "line 2" in str(failure)

@@ -101,6 +101,12 @@
   .findings { padding:.4rem .9rem; border-bottom:1px solid var(--line); font-size:12px;
               max-height:7em; overflow-y:auto; }
   .findings div { margin:.15rem 0; }
+  /* A finding's line number is a button only where the number indexes *this* pane's text.
+     Compile lines are counted in the preamble-wrapped document and are left as plain text
+     for that reason -- see renderFindings. */
+  .jump { font:inherit; color:var(--accent); background:none; border:0; border-bottom:1px
+          dotted currentColor; padding:0; cursor:pointer; }
+  .jump:disabled { color:var(--dim); border-bottom-style:none; cursor:default; }
   .gate { font-family:ui-monospace,monospace; }
   .msg { margin-left:auto; font-size:12px; color:var(--dim); }
   /* Pages a run has not reached. Dim, never red: a queued page is not a defect. */
@@ -339,14 +345,95 @@ function renderFindings(page) {
       `${escapeHtml(p.error)} <span class="done">— retry from the bar above</span></div>`;
     return;
   }
-  $("findings").innerHTML = (p && (p.findings || []).length)
-    ? p.findings.map(f =>
+  // Delimiter findings come from `liveDelims`, which describes the string in the pane; every
+  // other gate's come from the manifest row, which describes the run. Both are shown, and the
+  // difference is why only one of them gets a line you can click.
+  const shown = (p ? (p.findings || []).filter(f => f.gate !== "delimiters") : [])
+    .concat(liveDelims);
+  // A line number is only a destination while the pane still holds the text it was measured
+  // against. Typing invalidates every number in this panel at once, so the jumps go dead
+  // together rather than one of them quietly landing in the wrong place (constraint #6).
+  const live = $("tex").value === original;
+  const where = f => {
+    if (!f.line) return "";
+    // Only the delimiter findings are clickable, and the reason is *freshness*, not
+    // coordinates: they alone were recomputed against the string this pane is displaying.
+    // Every other number here was recorded by the run and can outlive the text it described
+    // -- the author's own `l11` p3 carries a repetition finding at line 19 on a page whose
+    // text has since been replaced wholesale. Those stay plain, with the reason on hover,
+    // because a number that looks clickable looks like it was checked.
+    //
+    // (They are *not* in the wrong coordinate system. `compile_gate.check_fragment` already
+    // subtracts the wrapper's preamble and drops the line entirely when the error falls
+    // outside the page -- valenza-la2 p36 records `line: null` and keeps pdflatex's raw
+    // "input line 77" in the prose only. Making them clickable is the same three lines once
+    // they are recomputed on open too; what is missing is the recomputation, not the maths.)
+    if (f.gate !== "delimiters")
+      return ` <span class="done" title="recorded by the run — the page may have changed `
+           + `since">line ${f.line}</span>`;
+    const chip = (n, label) =>
+      `<button class="jump" data-line="${n}"${live ? "" : " disabled"} title="${
+        live ? `go to line ${n}` : "the text has changed since this was measured"
+      }">${label}</button>`;
+    return " " + chip(f.line, `line ${f.line}`)
+         + (f.pair_line ? " " + chip(f.pair_line, `opened line ${f.pair_line}`) : "");
+  };
+  $("findings").innerHTML = shown.length
+    ? shown.map(f =>
         `<div><span class="gate ${f.gate === "reference" ? "flag" : "fail"}">[${f.gate}]</span> ` +
-        `${escapeHtml(f.detail)}${f.line ? ` <span class="done">line ${f.line}</span>` : ""}</div>`
+        `${escapeHtml(f.detail)}${where(f)}</div>`
       ).join("")
     : `<div class="done">Nothing flagged. The gates cannot see substitution, so this is not a
        statement that the page is correct.</div>`;
 }
+
+// Put the caret on a line and show it. Selecting the whole line rather than scrolling alone
+// is what makes a mismatch readable: the author sees which `\end` the gate meant, and with
+// the pair chip can step between the two ends of it.
+//
+// This focuses the pane, which is the same arrival signal as clicking into it -- `touched()`
+// starts the page clock either way, so no new path into the measured interval is opened here.
+function jumpTo(line) {
+  const el = $("tex");
+  const lines = el.value.split("\n");
+  if (!(line >= 1 && line <= lines.length)) return;   // a number off the end goes nowhere
+  let start = 0;
+  for (let i = 0; i < line - 1; i++) start += lines[i].length + 1;
+  el.focus();
+  el.setSelectionRange(start, start + lines[line - 1].length);
+  // The scroll has to be done by hand. Focusing a textarea scrolls its caret into view only
+  // when it was not already focused, so the *second* chip -- the pair, which is the whole
+  // point -- selected the right line and left the pane where it was. Measured: line 43 then
+  // "opened line 2" both ended at scrollTop 794. `blur()` then `focus()` does not revive it.
+  el.scrollTop = Math.max(0, lineTop(el, line) - el.clientHeight / 2);
+}
+
+// Where a line starts, in pixels, with the pane's own wrapping applied. Arithmetic on
+// line-height is wrong here and not by a little: the pane soft-wraps, so one long line is
+// several rows tall. Measured on a 600-character line, line 3 sits at 202px where
+// `padding + 2 x line-height` says 56 -- seven lines out. A mirror laid out under the same
+// font, width and padding gets it right; summed over the whole text it reproduces the pane's
+// own scrollHeight to within a rounding pixel (257.4 against 258).
+function lineTop(el, line) {
+  const cs = getComputedStyle(el);
+  const d = document.createElement("div");
+  for (const k of ["fontFamily", "fontSize", "fontWeight", "lineHeight", "letterSpacing",
+                   "paddingLeft", "paddingRight", "paddingTop", "textIndent", "tabSize"])
+    d.style[k] = cs[k];
+  d.style.cssText += ";position:absolute;visibility:hidden;white-space:pre-wrap;" +
+                     "word-wrap:break-word;box-sizing:border-box;";
+  d.style.width = el.clientWidth + "px";
+  d.textContent = el.value.split("\n").slice(0, line - 1).join("\n") + (line > 1 ? "\n" : "");
+  document.body.appendChild(d);
+  const top = d.offsetHeight;
+  d.remove();
+  return top;
+}
+
+$("findings").addEventListener("click", e => {
+  const b = e.target.closest(".jump");
+  if (b) jumpTo(Number(b.dataset.line));
+});
 
 // The surface is a state machine (DESIGN 12.7): reading, fixing, authoring. A mode is entered
 // *before* typing -- which is what makes the fix/author split structural rather than a label
@@ -427,6 +514,7 @@ async function select(page, { auto = false } = {}) {
   if (!r.ok) { say("no output on disk for page " + page); return; }
   const d = await r.json();
   current = page; original = d.text;
+  liveDelims = d.delimiters || [];   // computed by the server from this exact string
   $("tex").value = d.text;
   $("img").src = "/api/image?page=" + page;
   renderFindings(page);
@@ -480,6 +568,10 @@ async function record(mode, text, seconds, extra = {}) {
   say(r.saved ? `saved as ${r.verdict} — ${seconds.toFixed(1)}s${note}` : (r.reason || "unchanged"));
   opened = performance.now();
   await load();            // pages[] carries the new findings...
+  // ...which were computed by the re-gate against exactly the text now in the pane, so the
+  // jump invariant still holds and the lines stay live through a correction.
+  liveDelims = ((pages.find(x => x.page === current) || {}).findings || [])
+    .filter(f => f.gate === "delimiters");
   renderFindings(current); // ...and the panel has to be told about them
   loadTypeset(current);
   refreshActions();
@@ -717,6 +809,10 @@ async function loadTypeset(page) {
 // Autosave: writes the file so navigating away cannot lose an edit. It records no verdict —
 // the buttons still do that. Debounced, and flushed before leaving a page.
 let pending = null, dirty = false;
+// The delimiter findings for `original`, and nothing else. Set in the two places `original`
+// is -- a page open and a save -- so "these findings describe that string" is an invariant
+// rather than a hope. `$("tex").value === original` is then the whole trust test for a jump.
+let liveDelims = [];
 // Returns whether the author's text is on disk. It used to return nothing and clear `dirty`
 // before the POST, so a rejected save still read as "autosaved" -- constraint #6 in the one
 // place the author is most likely to believe us. It matters more now that Cmd+Enter flushes
@@ -737,8 +833,14 @@ async function flush() {
 }
 $("tex").addEventListener("focus", touched);
 $("tex").addEventListener("input", () => {
+  // The first keystroke is what invalidates the panel's line numbers, so the panel is redrawn
+  // once on that transition -- not per keystroke. `jumpTo` measures offsets in the *current*
+  // text, so a chip left live after an edit would scroll to line N of a different document
+  // and look like it had found something.
+  const wasClean = !dirty;
   touched();
   dirty = true;
+  if (wasClean && current !== null) renderFindings(current);
   $("saveState").textContent = "unsaved";
   clearTimeout(pending);
   pending = setTimeout(async () => {

@@ -348,10 +348,7 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
             # will later carry a correction is not knowable now.
             page_hash=page_digest(page.image),
             render_dpi=dpi,
-            findings=[
-                {"gate": g.gate, "detail": f.detail, "line": f.line, "excerpt": f.excerpt}
-                for g in emission.gates for f in g.failures
-            ],
+            findings=[d for g in emission.gates for d in g.as_dicts()],
         )
         run.record(outcome)
         if on_page:

@@ -55,9 +55,11 @@ def check(latex: str) -> GateResult:
                 stack.pop()
             else:
                 open_env = stack[-1][2] if stack else "nothing"
+                # Both ends, because the reported line is not the line to go fix. `None` when
+                # nothing is open at all: there is no opener, so there is no second line.
                 failures.append(Failure(
                     detail=f"\\end{{{env}}} closes {open_env}, which is not what is open",
-                    line=line))
+                    line=line, pair_line=stack[-1][1] if stack else None))
         elif kind in ("open_inline", "open_display"):
             stack.append((kind, line, r"\(" if kind == "open_inline" else r"\["))
         elif kind == "close_inline":
