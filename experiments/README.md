@@ -54,6 +54,29 @@ the fabricated `3, 10`, and a dropped chapter number nobody had noticed. Compare
 markup** — diffing `.tex` buries the finding in formatting. A router, never a verdict.
 See DESIGN §5.5.6.
 
+## `second_voice.py` — the same question, local and cheap
+
+`provider_disagreement.py` costs constraint #7: it sends page images to a second vendor. This
+asks whether a second model *on this machine* does the same job, over a whole corpus where the
+author's correction log says what the defects were. The decision rule was written before any
+number was computed, which is the point of the file.
+
+Answer: **no, on the cheap version.** Against olmOCR-2-7B the ratio is 1.24 at the LaTeX level
+and 1.68 at content-word level — both inside the pre-registered "weak, not worth a gate" band —
+and where it does fire, the second model carries the author's text only 4 times in 14. It flags
+where *both* models are wrong, which a reviewer cannot act on. See DESIGN §5.5.6a.
+
+Three things it gets right that a naive diff does not: both arms go through the same emitter,
+diagram descriptions are bucketed separately (two models never agree on free prose), and there
+is a shifted null, so "flag a third of the page and catch a third of the defects" cannot pass
+for a result.
+
+`canonical_math_rows` sorts the rows of an aligned block **only when no row continues the one
+above it**. Two models emitting the same independent rows in different orders is not a
+disagreement about the page, but a derivation in a different order is — measured, 37% of the
+multi-row blocks on disk have at least one continuation row, so the blanket version of this fix
+would have blinded the comparison exactly where reordering changes the mathematics.
+
 ## `blink.py` — is the artifact the human approved the artifact that ships?
 
 The instrument for DESIGN §12.1: take an emitted `.tex`, push it through a candidate editor

@@ -1180,8 +1180,39 @@ new detector is worth nothing.
 
 **The one false positive was hand-read, and it is real but explicable.** ch22 p22 fires on two
 spans inside an `align*` block: both models read the same four rows and emitted them in a
-different **order**, which a linear diff sees as two long one-sided runs. A row-order-insensitive
-comparison inside math environments would remove this class; it is not built, on one instance.
+different **order**, which a linear diff sees as two long one-sided runs.
+
+**The obvious fix for it was wrong, and measuring said so** (2026-11-17). This section first
+recorded that "a row-order-insensitive comparison inside math environments would remove this
+class". Applied to every block it also removes a class worth keeping: a row that opens with the
+alignment marker and a relation — `&= a^2 + b^2` — has no left-hand side of its own, so it means
+*the thing above, continued*, and moving it moves the argument. A model that reorders a
+derivation has changed the mathematics, which is exactly the silent-substitution class §5.5
+exists for.
+
+Measured over every multi-row aligned block in the nine corpora on disk (156 blocks, 109 pages):
+
+| | |
+|---|---|
+| every row stands alone — reordering is presentation | **63%** |
+| every row continues the one above — order *is* the argument | 19% |
+| mixed | 18% |
+
+So order-insensitivity is safe for 63% of blocks and wrong for the other 37%, and the condition
+separating them is syntactic: no row after the first opens with `&` plus a relation.
+`canonical_math_rows` sorts the rows of a block that passes that test and leaves every other
+block byte-identical. Validated against all 162 blocks on disk: 99 canonicalized, 63 untouched,
+idempotent on every page, and rows that genuinely differ still differ afterwards.
+
+One deliberate side effect: it also hides an *author* edit that merely reorders independent
+rows. That is presentation rather than a transcription defect, and §11.3.1 is explicit that
+polish must not be counted as correction.
+
+**It does not revive the detector.** The rejection was on concentration — 1.24 at the LaTeX
+level, 1.68 at content-word level, both inside the "weak, not worth a gate" band — and
+specificity was never the binding constraint. What changes is that the one quoted false
+positive is an artifact of the comparison rather than a property of the models, so a re-run
+measures the detector instead of the diff.
 
 **Against ground truth that never saw our output.** The five pages the author typed from blank
 (`transcribed` — the exit criterion's control arm) are the only unanchored labels in the corpus.
