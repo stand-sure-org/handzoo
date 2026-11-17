@@ -345,15 +345,15 @@ function renderFindings(page) {
       `${escapeHtml(p.error)} <span class="done">— retry from the bar above</span></div>`;
     return;
   }
-  // Delimiter findings come from `liveDelims`, which describes the string in the pane; every
-  // other gate's come from the manifest row, which describes the run. Both are shown, and the
-  // difference is why only one of them gets a line you can click.
+  // Delimiter findings come from `liveDelims` when it provably describes the string in the
+  // pane; every other gate's come from the manifest row, which describes the run.
+  const recorded = p ? (p.findings || []).filter(f => f.gate === "delimiters") : [];
+  // The whole trust test, and it is one condition: these findings are about this page and
+  // this exact text. Typing breaks it, so every line in the panel goes dead together rather
+  // than one of them quietly landing in the wrong place (constraint #6).
+  const live = liveDelims.page === page && liveDelims.text === $("tex").value;
   const shown = (p ? (p.findings || []).filter(f => f.gate !== "delimiters") : [])
-    .concat(liveDelims);
-  // A line number is only a destination while the pane still holds the text it was measured
-  // against. Typing invalidates every number in this panel at once, so the jumps go dead
-  // together rather than one of them quietly landing in the wrong place (constraint #6).
-  const live = $("tex").value === original;
+    .concat(live ? liveDelims.findings : recorded);
   const where = f => {
     if (!f.line) return "";
     // Only the delimiter findings are clickable, and the reason is *freshness*, not
@@ -378,11 +378,22 @@ function renderFindings(page) {
     return " " + chip(f.line, `line ${f.line}`)
          + (f.pair_line ? " " + chip(f.pair_line, `opened line ${f.pair_line}`) : "");
   };
-  $("findings").innerHTML = shown.length
-    ? shown.map(f =>
-        `<div><span class="gate ${f.gate === "reference" ? "flag" : "fail"}">[${f.gate}]</span> ` +
-        `${escapeHtml(f.detail)}${where(f)}</div>`
-      ).join("")
+  const rows = shown.map(f =>
+    `<div><span class="gate ${f.gate === "reference" ? "flag" : "fail"}">[${f.gate}]</span> ` +
+    `${escapeHtml(f.detail)}${where(f)}</div>`);
+  // Swapping the run's delimiter findings for live ones can make this panel disagree with the
+  // row's own badge, which still reads from the manifest -- and on a page whose only hard
+  // findings were delimiters, the panel would have gone quiet under a header saying FAIL while
+  // the file sat in quarantine. That is the ch22 p28 failure this function was written to stop,
+  // so the disagreement is stated instead of absorbed. Measured: 1 of the 804 emitted pages on
+  // this machine (`l11` p3, 4 recorded against 0 live), today shielded only by an unrelated
+  // repetition finding -- which is luck, not a design.
+  if (live && recorded.length !== liveDelims.findings.length)
+    rows.push(`<div><span class="gate flag">[delimiters]</span> the run recorded ` +
+      `${recorded.length} here; the file on disk has ${liveDelims.findings.length}. The page's ` +
+      `badge and its quarantine still read from the run — finish a fix to re-gate it.</div>`);
+  $("findings").innerHTML = rows.length
+    ? rows.join("")
     : `<div class="done">Nothing flagged. The gates cannot see substitution, so this is not a
        statement that the page is correct.</div>`;
 }
@@ -514,7 +525,8 @@ async function select(page, { auto = false } = {}) {
   if (!r.ok) { say("no output on disk for page " + page); return; }
   const d = await r.json();
   current = page; original = d.text;
-  liveDelims = d.delimiters || [];   // computed by the server from this exact string
+  // Computed by the server from this exact string, and stored with it.
+  liveDelims = { page, text: d.text, findings: d.delimiters || [] };
   $("tex").value = d.text;
   $("img").src = "/api/image?page=" + page;
   renderFindings(page);
@@ -570,8 +582,9 @@ async function record(mode, text, seconds, extra = {}) {
   await load();            // pages[] carries the new findings...
   // ...which were computed by the re-gate against exactly the text now in the pane, so the
   // jump invariant still holds and the lines stay live through a correction.
-  liveDelims = ((pages.find(x => x.page === current) || {}).findings || [])
-    .filter(f => f.gate === "delimiters");
+  liveDelims = { page: current, text,
+                 findings: ((pages.find(x => x.page === current) || {}).findings || [])
+                   .filter(f => f.gate === "delimiters") };
   renderFindings(current); // ...and the panel has to be told about them
   loadTypeset(current);
   refreshActions();
@@ -809,10 +822,12 @@ async function loadTypeset(page) {
 // Autosave: writes the file so navigating away cannot lose an edit. It records no verdict —
 // the buttons still do that. Debounced, and flushed before leaving a page.
 let pending = null, dirty = false;
-// The delimiter findings for `original`, and nothing else. Set in the two places `original`
-// is -- a page open and a save -- so "these findings describe that string" is an invariant
-// rather than a hope. `$("tex").value === original` is then the whole trust test for a jump.
-let liveDelims = [];
+// The delimiter findings, carried with the page and the exact text they were computed from.
+// Keyed by both rather than trusted by call order: `renderFindings` has four callers, and the
+// crop path renders before it re-selects, so a bare list would have drawn the pre-crop lines
+// under the post-crop file for a frame. Matching on page *and* text makes the invariant
+// structural -- there is no ordering a caller can get wrong.
+let liveDelims = { page: null, text: null, findings: [] };
 // Returns whether the author's text is on disk. It used to return nothing and clear `dirty`
 // before the POST, so a rejected save still read as "autosaved" -- constraint #6 in the one
 // place the author is most likely to believe us. It matters more now that Cmd+Enter flushes

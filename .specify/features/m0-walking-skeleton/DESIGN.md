@@ -4626,6 +4626,25 @@ sits at 202px where `padding + 2 x line-height` says 56 — seven lines out. A m
 laid out under the same font, width and padding gets it right, and summed over the whole text
 reproduces the pane's own `scrollHeight` to within a rounding pixel (257.4 against 258).
 
+**Swapping the run's findings for live ones can make the panel disagree with the badge, and
+it says so.** The row's gate state and the page's quarantine both read from the manifest. On a
+page whose only hard findings were delimiter findings, replacing them with a clean live result
+would have left the panel reading *"Nothing flagged"* under a header saying FAIL, with the file
+still named `.fail.tex` — the exact ch22 p28 failure `renderFindings` was written to stop,
+reintroduced from the other direction. Measured: **1 of the 804 emitted pages** is in that
+state (`l11` p3, 4 recorded against 0 live), and it is shielded today only by an unrelated
+repetition finding, which is luck rather than design. So the disagreement is printed as its own
+line — *"the run recorded 4 here; the file on disk has 0"* — and *"Nothing flagged"* cannot
+render beside it.
+
+**`liveDelims` is keyed by page and by text, not by call order.** `renderFindings` has four
+callers and the crop path renders *before* it re-selects, so a bare list would have drawn the
+pre-crop lines under the post-crop file for a frame. Matching on both makes the invariant
+structural: when either differs, the panel falls back to the run's recorded findings with every
+line disabled. The Option+↑/↓ line move from the editor-keys work is covered by the same
+condition — `splice` goes through `execCommand("insertText")` and falls back to `setRangeText`
+plus an explicit `input` event, so either path fires the redraw.
+
 **One consolidation came with it.** `Failure` → `dict` was hand-rolled at three call sites —
 `pipeline.convert` and both halves of the surface's re-gate — so a field added to `Failure` was
 dropped by all three while every test stayed green. `GateResult.as_dicts()` is now the one
