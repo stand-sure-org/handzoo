@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from handzoo.adapters import cli_convert
-from handzoo.core import pipeline
+from handzoo.core import corrections, pipeline
 from handzoo.core.corrections import Correction, CorrectionLog, pristine_path
 from handzoo.core.emit import Emission, emit, report
 from handzoo.core.recognize.base import Mark, Recognition
@@ -424,9 +424,13 @@ def test_the_cli_warns_when_a_kept_pages_source_moved(
     cli_convert.main([str(other_pdf), "-o", str(out)], stream=said)
     text = said.getvalue()
 
-    assert "CHANGED since you corrected it" in text
+    assert "CHANGED since this correction was last checked against it" in text
     assert "--replace 2" in text
     assert "Your text was kept" in text, "the warning must not read as a threat to their work"
+    assert "still holds" in text, "and it must name the other way out, not only --replace"
+    # Not "since you wrote it": an affirmation moves the point of last checking forward, so
+    # that wording would be false for any page the author has already vouched for once.
+    assert "since you corrected it" not in text
 
 
 @pytestmark_pdf
@@ -451,6 +455,8 @@ def test_the_cli_does_not_claim_an_unchecked_page_is_unchanged(
 
     assert "not checked for drift" in text
     assert "CHANGED" not in text, "an unchecked page is not a changed one either"
+    assert "still holds" in text, \
+        "and it must say what to do about it -- this used to be a permanent condition"
 
 
 # --------------------------------------------------------------------------- cli
@@ -651,6 +657,136 @@ def test_a_different_dpi_is_not_reported_as_a_changed_page(pdf: Path, tmp_path: 
                           dpi=pipeline.rasterize.DEFAULT_DPI + 50, on_kept=kept.append))
 
     assert [(k.page, k.drift) for k in kept] == [(2, "unknown")]
+
+
+# ------------------- "this correction still holds for the page as it now stands"
+
+
+def _affirm_what_is_on_disk(out_dir: Path, page: int) -> None:
+    """What the surface does when the author presses the button: hash the *stored* render and
+    read its own resolution out of it. Never a fresh render -- three of the nine projects on
+    disk record a source PDF that is no longer there."""
+    image = next((out_dir / "pages").glob(f"p-{page:04d}*.png"))
+    row = next((o for o in pipeline.read_manifest(out_dir) if o.page == page), None)
+    corrections.affirm(out_dir, corrections.Affirmation(
+        page=page, page_hash=pipeline.page_digest(image),
+        render_dpi=pipeline.rasterize.png_dpi(image),
+        supersedes=row.page_hash if row else ""))
+
+
+@pytestmark_pdf
+def test_an_affirmed_correction_stops_the_drift_warning(
+        pdf: Path, other_pdf: Path, tmp_path: Path) -> None:
+    """The author's decision, 2026-11-17, and the only thing that ends the warning.
+
+    Before this there was no way out: both `changed` and `unknown` were permanent, so every
+    corrected page in every project read as adrift for ever -- and a warning that can never be
+    answered is one the reader learns to scroll past, which costs the warnings that matter.
+    """
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer()))
+    _corrected(tmp_path, 2, "edited", "what the author made it\n")
+
+    drifted: list[pipeline.Kept] = []
+    list(pipeline.convert(other_pdf, tmp_path, _StubRecognizer(), on_kept=drifted.append))
+    assert [(k.page, k.drift) for k in drifted] == [(2, "changed")], "the premise"
+
+    _affirm_what_is_on_disk(tmp_path, 2)
+
+    after: list[pipeline.Kept] = []
+    list(pipeline.convert(other_pdf, tmp_path, _StubRecognizer(), on_kept=after.append))
+    assert [(k.page, k.drift) for k in after] == [(2, "unchanged")]
+    assert (tmp_path / "page-0002.tex").read_text(encoding="utf-8") == \
+        "what the author made it\n", "affirming says the text still holds; it does not touch it"
+
+
+@pytestmark_pdf
+def test_a_page_that_predates_hashes_can_be_affirmed_out_of_not_checked(
+        pdf: Path, tmp_path: Path) -> None:
+    """Every project on disk starts here: 823 rows written before `page_hash` existed, each
+    reading "not checked for drift" with nothing the author could do about it. The affirmation
+    is per page by their choice -- no bulk baseline exists, because the only thing that may
+    clear this is a person looking at the page."""
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer()))
+    _corrected(tmp_path, 2, "edited", "mine\n")
+    rows = [json.loads(ln) for ln in
+            (tmp_path / pipeline.MANIFEST).read_text(encoding="utf-8").splitlines() if ln.strip()]
+    for r in rows:
+        r.pop("page_hash", None); r.pop("render_dpi", None)
+    (tmp_path / pipeline.MANIFEST).write_text(
+        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+    before: list[pipeline.Kept] = []
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer(), on_kept=before.append))
+    assert [(k.page, k.drift) for k in before] == [(2, "unknown")], "the premise"
+
+    _affirm_what_is_on_disk(tmp_path, 2)
+
+    after: list[pipeline.Kept] = []
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer(), on_kept=after.append))
+    assert [(k.page, k.drift) for k in after] == [(2, "unchanged")]
+
+
+@pytestmark_pdf
+def test_an_affirmation_does_not_carry_across_a_change_of_dpi(pdf: Path, tmp_path: Path) -> None:
+    """The author vouched for a particular image of the page. A render at another resolution
+    is a different image, so the honest answer is that nobody has checked *this* one --
+    exactly as it would be for a manifest row recorded at another `--dpi`."""
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer()))
+    _corrected(tmp_path, 2, "edited", "mine\n")
+    _affirm_what_is_on_disk(tmp_path, 2)
+
+    kept: list[pipeline.Kept] = []
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer(),
+                          dpi=pipeline.rasterize.DEFAULT_DPI + 50, on_kept=kept.append))
+
+    assert [(k.page, k.drift) for k in kept] == [(2, "unknown")]
+
+
+@pytestmark_pdf
+def test_a_run_seeing_a_changed_page_never_adopts_it_as_the_baseline(
+        pdf: Path, other_pdf: Path, tmp_path: Path) -> None:
+    """The failure this design exists to prevent: a run has the new render in hand at exactly
+    the moment it reports the drift, and recording it there would be the tool clearing its own
+    warning. Two runs over the moved source must both say `changed`."""
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer()))
+    _corrected(tmp_path, 2, "edited", "mine\n")
+
+    seen = []
+    for _ in range(2):
+        kept: list[pipeline.Kept] = []
+        list(pipeline.convert(other_pdf, tmp_path, _StubRecognizer(), on_kept=kept.append))
+        seen.append([(k.page, k.drift) for k in kept])
+
+    assert seen == [[(2, "changed")], [(2, "changed")]]
+
+
+@pytestmark_pdf
+def test_an_affirmation_retires_when_the_page_is_re_read(
+        pdf: Path, other_pdf: Path, tmp_path: Path) -> None:
+    """Measured, not reasoned about: this reported `changed` on a page whose text had just
+    been written against exactly that render.
+
+    `--replace N` is the other way out the drift warning offers. It re-reads the page from the
+    moved source and records a fresh hash -- but the correction log row that protects the page
+    survives it, so the page is still kept by later runs, and a stale affirmation went on
+    outranking the newer manifest row for ever.
+
+    `Affirmation.supersedes` holds the baseline it replaced, so a re-recognition retires it:
+    the manifest is believed again the moment it records something else. A *kept* page writes
+    no manifest row, which is why this does not disturb the case the feature exists for.
+    """
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer()))
+    _corrected(tmp_path, 2, "edited", "mine\n")
+    _affirm_what_is_on_disk(tmp_path, 2)
+
+    list(pipeline.convert(other_pdf, tmp_path, _StubRecognizer(), replacing={2}))
+    assert 2 in corrections.protected_pages(tmp_path), \
+        "the premise: the log row survives a replace, so the page is still kept"
+
+    kept: list[pipeline.Kept] = []
+    list(pipeline.convert(other_pdf, tmp_path, _StubRecognizer(), on_kept=kept.append))
+    assert [(k.page, k.drift) for k in kept] == [(2, "unchanged")], \
+        "the re-read page matches the source it was read from"
 
 
 @pytestmark_pdf

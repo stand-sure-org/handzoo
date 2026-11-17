@@ -38,6 +38,52 @@ class Page:
     image: Path
 
 
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+_METRE_PER_INCH = 0.0254
+
+
+def png_dpi(image: Path) -> int:
+    """The resolution a stored page render was made at, read out of the file itself.
+
+    `pdftoppm` writes a PNG `pHYs` chunk, so a render describes its own resolution and nothing
+    has to remember it alongside: measured, every page of all nine projects on disk reads
+    5905 px/m, which is 150 dpi. That is what makes drift answerable for a project whose
+    manifest predates `render_dpi` -- and for the three projects whose source PDF is no longer
+    on disk at all, where the stored render is the only evidence there is.
+
+    **Returns 0 when it cannot tell**, and 0 compares equal to nothing (`drift_between`), so
+    this can only ever push a comparison to *unknown*. It can never manufacture an
+    `unchanged`, which still requires the bytes to match. That asymmetry is the whole safety
+    argument (constraint #6): a resolution we guessed wrong would otherwise silently decide
+    that a page the author has not looked at is fine.
+
+    `pHYs` stores pixels per metre as an integer, so the stored value is a rounded one --
+    150 dpi is written as 5905, which reads back as 149.987. Rounding recovers the integer
+    exactly, because one dpi is about 39 px/m apart and no two plausible resolutions collide.
+    """
+    try:
+        data = image.read_bytes()
+    except OSError:
+        return 0
+    if data[:8] != _PNG_MAGIC:
+        return 0
+    i = 8
+    while i + 12 <= len(data):
+        length = int.from_bytes(data[i:i + 4], "big")
+        kind = data[i + 4:i + 8]
+        if kind == b"pHYs":
+            body = data[i + 8:i + 8 + length]
+            if len(body) < 9 or body[8] != 1:   # unit 1 is metres; 0 is "aspect ratio only"
+                return 0
+            return round(int.from_bytes(body[:4], "big") * _METRE_PER_INCH)
+        if kind == b"IDAT":
+            # `pHYs` must precede the image data, so there is no point reading further -- and
+            # a multi-megabyte scan of the pixels is not free when the surface asks per page.
+            return 0
+        i += 12 + length
+    return 0
+
+
 def _require(tool: str) -> None:
     if shutil.which(tool) is None:
         raise RasterizeError(f"{tool} not found on PATH (install poppler)")

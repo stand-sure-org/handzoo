@@ -33,6 +33,7 @@ from typing import Literal
 from . import store
 
 LOG_NAME = "corrections.jsonl"
+AFFIRMATIONS_NAME = "affirmations.jsonl"
 
 Verdict = Literal["keep-reviewed", "keep-unreviewed", "edited", "cropped", "flagged",
                   "skipped", "transcribed", "authored", "final"]
@@ -77,6 +78,92 @@ through, which is worth knowing and worth never mistaking for verification."""
 
 
 PRISTINE = ".pristine"
+
+
+# ------------------------------------------------------------------ "this still holds"
+
+
+@dataclass(frozen=True, slots=True)
+class Affirmation:
+    """The author's statement that a correction still describes the page beneath it.
+
+    A corrected page is kept by every later run, and `PageOutcome.page_hash` records what the
+    page looked like when the text was written. When the source moves under it -- the author
+    keeps writing, and a reMarkable re-export changes page extents -- the run warns and keeps
+    the text, because a drifted correction may still be right and it cost 77.3s against 4s of
+    recognition (DESIGN 11.1.3 bug 1b). What was missing is the other half: a way to *end* the
+    warning that does not amount to the tool deciding the correction is fine.
+
+    This is that act, and it is explicit and per-page by the author's decision (2026-11-17).
+    No bulk baseline was offered, and auto-baselining on a save was rejected for the same
+    reason: the only thing that may clear the warning is a person looking at the page as it now
+    stands and saying the text still holds. Nothing here ever claims a check that did not
+    happen (constraint 6).
+
+    **Deliberately not a `Verdict`.** A correction row says what the author did to the *text*;
+    this says something about the *source underneath it*. Filed together they would collide on
+    the readers that take the latest row per page -- the surface derives both the review tick
+    and `accepted=` that way, so an affirmation would have removed the tick and brought back
+    the gates `SURVIVES_ACCEPTANCE` hides, on the very page the author had just vouched for.
+    Its own file costs one reader and changes none.
+    """
+
+    page: int
+    page_hash: str
+    """sha256 of the render the author was looking at when they said it. The *stored* render,
+    not a fresh one: three of the nine projects on disk record a source PDF that is no longer
+    there, so the PNG in `pages/` is the only evidence that exists."""
+    render_dpi: int
+    """Read out of that PNG's own `pHYs` chunk. 0 means unreadable, which compares equal to
+    nothing and so leaves the answer *unknown* rather than inventing an `unchanged`."""
+    supersedes: str = ""
+    """The manifest's `page_hash` at the moment this was said -- the baseline this one replaces.
+
+    An affirmation is about a *correction*, and it has to retire when that correction does.
+    `--replace N` re-reads the page from the moved source and writes a fresh manifest row, but
+    the log row that protects the page survives, so without this the stale affirmation went on
+    outranking the newer row and the next run reported `changed` on text that had just been
+    written against exactly that render (measured, not reasoned about). Holding what it
+    superseded makes it retire itself: the moment a re-recognition records a different hash,
+    the affirmation no longer applies and the manifest is believed again. A *kept* page writes
+    no manifest row, so for the case this feature exists for it stays in force.
+
+    Defaulted for the same reason every other added field is -- a row written before it existed
+    still loads -- and `""` is the honest value there, since a manifest that recorded no hash
+    is exactly what the empty string means elsewhere."""
+    at: float = field(default_factory=time.time)
+
+
+def affirm(out_dir: Path, affirmation: Affirmation) -> None:
+    """Append one. Append-only for the same reason the correction log is: a record that can be
+    rewritten is a record of what someone last believed."""
+    path = out_dir / AFFIRMATIONS_NAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(asdict(affirmation)) + "\n")
+
+
+def affirmations(out_dir: Path) -> dict[int, Affirmation]:
+    """The newest affirmation per page, about the pages as they exist now.
+
+    Birth-filtered exactly as `current()` is: a page number is reused after an undo, and an
+    affirmation about the page that left would hand the newcomer a baseline nobody ever looked
+    at -- which is the one thing this whole mechanism exists to prevent.
+    """
+    path = out_dir / AFFIRMATIONS_NAME
+    if not path.exists():
+        return {}
+    births = store.born(out_dir)
+    newest: dict[int, Affirmation] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = Affirmation(**json.loads(line))
+        if row.at < births.get(row.page, 0):
+            continue
+        if row.page not in newest or row.at >= newest[row.page].at:
+            newest[row.page] = row
+    return newest
 
 
 def pristine_path(out_dir: Path, page: int) -> Path:

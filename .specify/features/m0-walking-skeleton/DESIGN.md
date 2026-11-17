@@ -3540,6 +3540,12 @@ right, and the correction is the most expensive artefact in the system — 77.3s
 question the tool is not entitled to answer. This is information, and `--replace N` remains
 the explicit instruction of §11.1.3a.
 
+**Both warnings were permanent, which §11.1.3c fixes.** `--replace N` was the only exit and it
+discards the correction, so a page that drifted stayed flagged for ever — and every project on
+disk begins in `unknown`. The author can now say the correction still holds for the page as it
+now stands, per page and explicitly, and that becomes the baseline the next run compares
+against.
+
 **This does not close bug 1.** Identity is still the ordinal: insert a page and every later
 page still shifts, and drift detection will then report a long run of `changed` pages that
 are really the same pages in new positions — correctly, since from the manifest's point of
@@ -3612,6 +3618,100 @@ to reconcile against. The author's two thoughts are one conclusion.
 **Also observed:** `Consdr` (for "Consider") is not on the author's seed sheet. The lexicon will
 always be incomplete, which is an argument for the correction-mined path (§11.0.1c) rather than
 against the file.
+
+### 11.1.3c Answering the warning: "this correction still holds" (2026-11-17)
+
+The drift report above had no way out. `changed` and `unknown` were both **permanent**: once a
+page drifted, or once it was recorded before hashes existed, it read as adrift on every run
+thereafter with nothing the author could do short of `--replace N`, which throws their
+correction away. Every corrected page in all nine projects on disk sat in `unknown`
+indefinitely. A warning that cannot be answered is one the reader learns to scroll past, and
+that costs the warnings that matter.
+
+**The missing act is the author saying the correction still holds for the page as it now
+stands.** It is explicit and per page, which was the author's decision when three options were
+put to them: per-page only, a bulk baseline marked *unreviewed*, or a silent bulk baseline.
+They chose **per-page only**, described as clearing a warning only by looking at the page and
+saying the correction still holds, with nothing ever claiming a check that did not happen. So
+no bulk command exists, and a save does not quietly affirm either: the ink pane is collapsible,
+so a fix can be made without the render on screen, and inferring the affirmation from it would
+be the tool deciding a check happened.
+
+**What the comparison runs against** is `pipeline.baseline_for`: the newest affirmation if
+there is one, otherwise what the run recorded when the text was written. Nothing else may set a
+baseline. In particular a run that *observes* a kept page's new render — which it does, at
+exactly the moment it reports the drift — must not adopt it, because that is the tool clearing
+its own warning. A test runs the moved source twice and requires `changed` both times.
+
+#### The render describes itself, which removes the blocker
+
+The UI half of this was deferred once on the belief that the stored PNG records no resolution,
+so a surface could not tell drift from a `--dpi` change. **That was wrong.** `pdftoppm` writes
+a PNG `pHYs` chunk: measured, every page of all nine projects reads 5905 px/m, which is 150
+dpi. `rasterize.png_dpi` reads it, so a stored render carries its own resolution and nothing
+has to be persisted alongside it.
+
+The safety property is an asymmetry worth stating: `png_dpi` returns **0 when it cannot tell**,
+0 compares equal to nothing, and so this can only ever push an answer to `unknown`. It can
+never manufacture an `unchanged`, which still requires two hashes that match. The test renders
+at 72, 150, 200 and 300 — because every render on this machine is 150, and a reader that
+always returned 150 would have passed any single-value check. Same shape as the `/Alt`
+detector that reported zero hits because it looked for the wrong encoding.
+
+#### The hash basis, measured
+
+The drift comparison had never run on real data, because every project predates `page_hash`.
+If poppler had changed since August, an untouched page would re-render to different bytes and
+every page the author affirmed would read `changed` on the next run — the backlog refilling
+itself. Measured instead of assumed: **54 of 55 pages across six projects re-render
+byte-identical** to what is stored, and three renders of the same page are identical every
+time.
+
+The one exception is a **true positive**, and it found itself. `ch22` p11's stored render is
+900×1200 px where today's page 11 is 1071×1428, and *no* page of that PDF is the stored size
+any more — the heights run 685/725/754/773/775/1238 pt, which are reMarkable pages that grew as
+they were written on. The source was re-exported after the run. Bug 1 of §11.1.3 in the wild,
+sitting in the corpus before the detector that would have caught it existed.
+
+Also measured, and it shapes the design: **three of the nine projects record a source PDF that
+is no longer on disk** (`ch18`, `l11`, `leinster11`). For those the stored render in `pages/`
+is the only evidence there is, which is why an affirmation binds to that file and never to a
+fresh render.
+
+#### Where it is filed, and why not in the correction log
+
+An `Affirmation` lives in its own append-only `affirmations.jsonl`, **not** as a new `Verdict`.
+A correction row says what the author did to the *text*; this says something about the *source
+underneath it*. Filed together they collide on every reader that takes the latest row per page
+— the surface derives both the review tick and `accepted=` that way, so an affirmation would
+have removed the tick and brought back the gates `SURVIVES_ACCEPTANCE` hides, **on the very
+page the author had just vouched for**. Its own file costs one reader and changes none. Rows
+are birth-filtered exactly as `corrections.current()` is, so an affirmation about a page that
+left cannot hand its replacement a baseline nobody looked at.
+
+#### Two refusals, both constraint #6
+
+The surface refuses to record an affirmation when the render has changed since it was shown —
+an ingest thread re-renders pages mid-review, so the statement must bind to the image the
+author actually looked at — and when the render carries no resolution, because storing `0`
+would file a statement nothing can ever compare against: the warning would stay and the author
+would believe they had cleared it. In the second case the button is **withheld rather than
+shown and refused**, since offering an action that cannot be honoured is the same error as a
+check that did not run reading as one that passed.
+
+#### One bug the feature did not have on its own
+
+Found by testing the interaction rather than the feature. `--replace N` is the *other* way out
+the warning offers, and the correction-log row that protects a page survives it — so after a
+replace the page is still kept, while a stale affirmation went on outranking the fresh manifest
+row. The next run reported `changed` about text that had just been written against exactly that
+render: the warning answering itself with a lie. `Affirmation.supersedes` records the baseline
+it replaced, so the manifest is believed again the moment a re-recognition records something
+else, and a kept page — which writes no manifest row — is undisturbed.
+
+The row does not vanish on success. It becomes *"You confirmed this correction still holds on
+<date>"* — "nobody ever checked" and "a person checked, on this day" are different facts, and
+the second one is the one worth keeping.
 
 ### 11.2.7 The Leinster 1.1 run — first full pass through the surface
 
