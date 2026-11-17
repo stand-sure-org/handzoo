@@ -660,3 +660,33 @@ def test_a_run_records_what_the_page_looked_like(pdf: Path, tmp_path: Path) -> N
     assert len(outcome.page_hash) == 64, "a sha256 of the page render"
     assert outcome.render_dpi == pipeline.rasterize.DEFAULT_DPI
     assert pipeline.read_manifest(tmp_path)[0].page_hash == outcome.page_hash, "and it persists"
+
+
+@pytestmark_pdf
+def test_a_run_inside_the_authors_preamble_assembles_the_chapter_with_it(
+        pdf: Path, tmp_path: Path, monkeypatch) -> None:
+    """Through the CLI, because that is where the bug was.
+
+    `--preamble` reached the per-page compile gate and the typeset pane, and never reached
+    `chapter.tex`: three of `assemble`'s four callers omitted `target=`, `cli_convert` among
+    them with `target` already in scope. So a project built inside the author's preamble
+    produced a master document carrying *our* generated one, and the documented promise that
+    `--preamble` governs what the project produces was false for the master from the moment
+    it shipped.
+
+    The feature's own tests passed `target=` explicitly -- an argument no caller supplies --
+    which is the third time this codebase has had a green suite over a path nothing reaches.
+    """
+    monkeypatch.setattr(cli_convert, "OllamaRecognizer", lambda **_: _StubRecognizer())
+    mine = tmp_path / "mine.tex"
+    mine.write_text("\\documentclass{report}\n"
+                    "\\usepackage{graphicx}\n"
+                    "\\newcommand{\\mysentinel}{so I can find it}\n", encoding="utf-8")
+    out = tmp_path / "run"
+
+    assert cli_convert.main([str(pdf), "-o", str(out), "--preamble", str(mine)],
+                            stream=io.StringIO()) == 0
+
+    chapter = (out / "chapter.tex").read_text(encoding="utf-8")
+    assert "\\mysentinel" in chapter, "the author's preamble is not in the chapter"
+    assert "\\documentclass{report}" in chapter, "nor is the class they chose"

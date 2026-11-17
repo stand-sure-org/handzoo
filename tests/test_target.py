@@ -381,3 +381,96 @@ def test_the_repaired_characters_are_not_dropped_by_the_engine(tmp_path) -> None
     # Known and not fixed here: pifont and \textcircled render correctly but their text layer
     # extracts as "7" and "1" -- a substitution one layer below the one we gate. A text font
     # carrying U+2717 natively (the luaotfload fallback item) is what fixes both.
+
+
+# ------------------------------------------------------- \DocumentMetadata and the class line
+
+TAGGED_PREAMBLE = (
+    "\\DocumentMetadata{lang=en-US, tagging=on}\n"
+    "\\usepackage{graphicx}\n"
+)
+
+
+def test_the_added_class_line_goes_below_documentmetadata_not_above_it() -> None:
+    """`\\DocumentMetadata` is required to come *before* `\\documentclass`, and LaTeX refuses
+    the document outright when it does not -- `\\DocumentMetadata should be used only before`,
+    measured, fatal, no PDF.
+
+    So the one case `added_document_class` exists for is also the case that breaks it: a
+    preamble that turns tagging on and leaves the class to us. Prepending at the top put our
+    line first and the project could never have built.
+    """
+    t = T.Target.from_text(TAGGED_PREAMBLE)
+    assert t.added_document_class
+    assert t.base.index("\\DocumentMetadata") < t.base.index("\\documentclass"), t.base
+    # and the metadata's own argument is not cut in half by the insertion
+    assert "\\DocumentMetadata{lang=en-US, tagging=on}" in t.base
+
+
+def test_a_multiline_documentmetadata_argument_is_not_split() -> None:
+    """The argument is routinely written across lines, and the class line goes after all of
+    it -- inserting on a line boundary would land inside the braces."""
+    t = T.Target.from_text(
+        "\\DocumentMetadata{\n  lang=en-US,\n  tagging=on,\n  pdfstandard=ua-2,\n}\n"
+        "\\usepackage{graphicx}\n")
+    before, _, after = t.base.partition("\\documentclass")
+    assert before.count("{") == before.count("}"), f"class line landed inside braces: {before!r}"
+    assert "pdfstandard=ua-2" in before
+    assert "\\usepackage{graphicx}" in after
+
+
+def test_a_commented_out_documentmetadata_does_not_move_the_class_line() -> None:
+    """A commented directive is not a directive -- the same rule `_DOCUMENTCLASS` already
+    applies to `\\documentclass` itself."""
+    t = T.Target.from_text("% \\DocumentMetadata{tagging=on}\n\\usepackage{graphicx}\n")
+    assert t.base.startswith("\\documentclass")
+
+
+def test_a_preamble_that_already_has_both_is_left_alone() -> None:
+    t = T.Target.from_text(
+        "\\DocumentMetadata{tagging=on}\n\\documentclass{book}\n\\usepackage{graphicx}\n")
+    assert not t.added_document_class
+    assert t.base.startswith("\\DocumentMetadata")
+    assert "\\documentclass{book}" in t.base
+
+
+def test_a_tagging_project_actually_builds(tmp_path) -> None:
+    """The only test that settles this one, because the failure is the engine's.
+
+    This test passed once while the bug was present, and the reason is the second half of
+    this fix: `assemble` was never handed the target, so the preamble under test never
+    reached the document being compiled. The structural assertions below run *before* the
+    compile so the vacuous pass cannot come back -- a build that proves nothing must not
+    read as a build that proved something (constraint #6).
+
+    Measured, so the engine here is not a guess: `\\DocumentMetadata{tagging=on}` builds
+    under **pdflatex** as well as lualatex (exit 0, `Tagged: yes`, PDF 2.0), and this
+    preamble loads neither `unicode-math` nor `fontspec`, so `engine` is pdflatex. The skip
+    therefore names the engine the target actually chose.
+    """
+    from handzoo.core.assemble import assemble
+    from handzoo.core.pipeline import PageOutcome
+
+    target = T.Target.from_text(TAGGED_PREAMBLE)
+    assert target.added_document_class
+    page = tmp_path / "page-0001.tex"
+    page.write_text("A tagged page.\n", encoding="utf-8")
+    target.save(tmp_path)
+    # No `target=`: the point is that the project's own preamble arrives without being asked
+    # for, which is what every caller but one actually does.
+    master = assemble(tmp_path, [PageOutcome(page=1, output=str(page), verdict="pass",
+                                             gates={})])
+    written = master.read_text(encoding="utf-8")
+    assert "\\DocumentMetadata" in written, "the author's preamble never reached the chapter"
+    assert written.index("\\DocumentMetadata") < written.index("\\documentclass"), written[:400]
+
+    if shutil.which(target.engine) is None:
+        pytest.skip(f"{target.engine} not installed")
+    run = subprocess.run(
+        [target.engine, "-interaction=nonstopmode", "-halt-on-error", master.name],
+        cwd=tmp_path, capture_output=True, text=True, timeout=180)
+    log = (tmp_path / master.with_suffix(".log").name)
+    text = log.read_text(errors="replace") if log.exists() else run.stdout
+    assert "DocumentMetadata should be used only before" not in text, text[-2000:]
+    assert run.returncode == 0, text[-2000:]
+    assert (tmp_path / master.with_suffix(".pdf").name).exists()

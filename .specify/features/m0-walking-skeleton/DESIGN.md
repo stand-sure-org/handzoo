@@ -1879,6 +1879,46 @@ A note for §11.2.6a and the a11y thread: `\ding{55}` and `\textcircled` *draw* 
 do **not** extract as their original codepoints, where `\checkmark` does. A repair can be
 faithful to the eye and lossy to a screen reader.
 
+
+#### 6.2.1 The target reached every build but the one named after the project (2026-11-17)
+
+Found while clearing the way for alt text on crops, which needs `\DocumentMetadata{tagging=on}`
+in the author's preamble. Two defects, and the second hides the first.
+
+**`assemble` was never handed the target.** It takes `target=None` and three of its four
+callers never passed one — `cli_convert` among them, with `target` sitting in scope two lines
+above. So `--preamble` governed the per-page compile gate, the typeset pane and the
+`handzoo-review` build, and did **not** govern `chapter.tex`: a project built inside the
+author's preamble emitted a master document carrying our generated one, with our
+`\documentclass{article}` over their `report`. The documented promise that `--preamble` decides
+what the project produces was false for the master from the moment it shipped (PR #76).
+
+It is latent rather than harmful — no corpus on disk carries a `preamble.tex`, so nothing the
+author has built was affected. The fix is inside `assemble`, which now loads the project's
+target when none is given; `Target.load` answers `generated()` for a project without one, so
+every existing corpus is byte-identical, and a fifth caller cannot reintroduce it.
+
+**The feature's own tests passed `target=` explicitly** — an argument no production caller
+supplies. Third instance in this codebase of a green suite over a path nothing reaches, after
+§11.0.2's reporter and the `--transcribe` guard. The regression test therefore goes through
+`cli_convert.main([... "--preamble", f])` and reads `chapter.tex`.
+
+**`\DocumentMetadata` must precede `\documentclass`.** Placed after, LaTeX refuses the
+document outright — `\DocumentMetadata should be used only before`, fatal, no PDF (measured).
+`Target.from_text` prepended the class line at the top of the file, so the one case
+`added_document_class` exists for — a preamble that turns tagging on and leaves the class to
+us — was also the case that could never build. The insertion point is now found by matching
+the directive's braces rather than taking its first line, because the argument is routinely
+written across several lines; an unbalanced argument falls back to today's behaviour rather
+than guessing where it ended.
+
+**And the end-to-end test passed while the bug was present**, because the preamble under test
+never reached the compiled document. The structural assertions now run *before* the compile:
+a build that proves nothing must not read as a build that proved something (constraint #6).
+
+**Measured, so the engine is not a guess:** `tagging=on` builds under **pdflatex** as well as
+lualatex — exit 0, `Tagged: yes`, PDF 2.0. Engine derivation is unchanged by tagging.
+
 ## 7. `handzoo review` — the correction loop (in M0 scope)
 
 Added per binding condition 2. Usability: *"a validator with no way to act on what it validates is not a product, it's a linter."*

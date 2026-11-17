@@ -38,6 +38,37 @@ otherwise promote a pdflatex project to a Unicode one).
 """
 
 _DOCUMENTCLASS = re.compile(r"(?<!\\)%.*|\\documentclass")
+_DOCUMENTMETADATA = re.compile(r"(?<!\\)%.*|\\DocumentMetadata\s*\{")
+
+
+def _after_document_metadata(text: str) -> int:
+    """Index just past a leading `\\DocumentMetadata{...}`, or 0 when there is none.
+
+    `\\DocumentMetadata` is required to come **before** `\\documentclass`; placed after it,
+    LaTeX refuses the document outright -- `\\DocumentMetadata should be used only before`,
+    fatal, no PDF. So the one case `added_document_class` exists for is also the case that
+    breaks it: a preamble that turns tagging on and leaves the class to us.
+
+    The argument is read by matching braces rather than to end of line, because it is
+    routinely written across several lines and inserting on a line boundary would land
+    inside it. An unbalanced argument returns 0 -- today's behaviour, which is the right
+    answer for a preamble that will not compile anyway: guessing where it ended could put
+    our line somewhere it changes meaning.
+    """
+    for m in _DOCUMENTMETADATA.finditer(text):
+        if not m.group(0).startswith("\\"):
+            continue                      # a commented directive is not a directive
+        depth, i = 0, m.end() - 1         # sitting on the opening brace
+        while i < len(text):
+            ch = text[i]
+            if ch in "{}" and (i == 0 or text[i - 1] != "\\"):
+                depth += 1 if ch == "{" else -1
+                if depth == 0:
+                    nl = text.find("\n", i + 1)
+                    return nl + 1 if nl != -1 else len(text)
+            i += 1
+        return 0
+    return 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +102,11 @@ class Target:
         live = _COMMENT.sub("", text)
         unicode_native = _UNICODE_ENGINE.search(live) is not None
         has_class = any(m.group(0).startswith("\\") for m in _DOCUMENTCLASS.finditer(text))
-        base = text if has_class else f"\\documentclass{{{document_class}}}\n{text}"
+        if has_class:
+            base = text
+        else:
+            at = _after_document_metadata(text)
+            base = f"{text[:at]}\\documentclass{{{document_class}}}\n{text[at:]}"
         if not base.endswith("\n"):
             base += "\n"
         return cls(base=base,
