@@ -24,7 +24,8 @@ from dataclasses import dataclass, field
 from pylatexenc import latexwalker
 from pylatexenc.latexencode import unicode_to_latex
 
-from .declarations import declarations_for, find_undefined, packages_in, repairable
+from .declarations import (compatibility_for, declarations_for, find_undefined,
+                           packages_in, repairable)
 from .validate.ascii_gate import non_ascii_chars
 
 # Macros that are only legal inside math mode. Seeded from measured failures, not speculation.
@@ -366,7 +367,8 @@ def chapter_preamble(texts: list[str], *, target=None) -> str:
     keep_unicode = bool(target is not None and target.accepts_unicode)
     base = PREAMBLE if target is None else target.base
     chars = non_ascii_chars(joined)
-    return base + declarations_for(
+    return base + compatibility_for(
+        tagging=bool(target is not None and target.tagging)) + declarations_for(
         find_undefined(joined),
         repairable(chars) if keep_unicode else chars,
         source=joined, accepts_unicode=keep_unicode, supplied=packages_in(base))

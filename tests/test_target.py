@@ -474,3 +474,76 @@ def test_a_tagging_project_actually_builds(tmp_path) -> None:
     assert "DocumentMetadata should be used only before" not in text, text[-2000:]
     assert run.returncode == 0, text[-2000:]
     assert (tmp_path / master.with_suffix(".pdf").name).exists()
+
+
+# ------------------------------------------------------------------------- tagging detection
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("\\DocumentMetadata{tagging=on}\n\\documentclass{article}\n", True),
+    ("\\DocumentMetadata{ tagging = on }\n\\documentclass{article}\n", True),
+    ("\\DocumentMetadata{\n  lang=en-US,\n  tagging=on,\n}\n\\documentclass{article}\n", True),
+    ("\\DocumentMetadata{tagging=off}\n\\documentclass{article}\n", False),
+    ("\\DocumentMetadata{lang=en-US}\n\\documentclass{article}\n", False),
+    ("% \\DocumentMetadata{tagging=on}\n\\documentclass{article}\n", False),
+    ("\\documentclass{article}\n\\usepackage{graphicx}\n", False),
+    ("\\documentclass{article}\n% a note about tagging=on in prose\n", False),
+])
+def test_tagging_is_read_from_the_directives_own_braces(text: str, expected: bool) -> None:
+    """`tagging=off` is the documented way to turn it back off, so the value is parsed rather
+    than the key merely found -- and a commented directive is not a directive, the same rule
+    `\\documentclass` detection already follows."""
+    assert T.Target.from_text(text).tagging is expected
+
+
+def test_the_generated_target_does_not_turn_tagging_on() -> None:
+    """Nine corpora were built without it. The target exists to let a project say otherwise."""
+    assert T.Target.generated().tagging is False
+
+
+def test_a_tagging_project_gets_the_tikzcd_shim_and_others_do_not(tmp_path) -> None:
+    """Measured: `tagging=on` plus a `tikzcd` environment is a fatal error under both engines
+    (`File ended while scanning use of \\\\__math_grab_dollar_delim:w`, no PDF). The shim is
+    emitted on tagging alone -- the author can add a diagram later, and the hook is inert when
+    `tikz-cd` is never loaded.
+    """
+    from handzoo.core.normalize import chapter_preamble
+
+    tagged = chapter_preamble(["body\n"], target=T.Target.from_text(TAGGED_PREAMBLE))
+    assert "\\AddToHook{env/tikzcd/begin}{\\MathCollectFalse}" in tagged
+
+    for other in (None, T.Target.generated(), T.Target.from_text(UNICODE_PREAMBLE)):
+        assert "AddToHook" not in chapter_preamble(["body\n"], target=other), other
+
+
+def test_a_tikzcd_page_in_a_tagging_project_builds(tmp_path) -> None:
+    """Through `assemble`, and asserted structurally *before* the compile -- the lesson of
+    6.2.1, where an end-to-end test passed because the preamble never arrived.
+
+    The author draws commutative diagrams by hand; we never emit `tikzcd` ourselves
+    (constraint #4). This is the page they authored.
+    """
+    from handzoo.core.assemble import assemble
+    from handzoo.core.pipeline import PageOutcome
+
+    target = T.Target.from_text(TAGGED_PREAMBLE + "\\usepackage{tikz-cd}\n")
+    assert target.tagging
+    page = tmp_path / "page-0001.tex"
+    page.write_text("Before.\n\\begin{tikzcd}\nA \\ar[r] & B\n\\end{tikzcd}\nAfter.\n",
+                    encoding="utf-8")
+    target.save(tmp_path)
+    master = assemble(tmp_path, [PageOutcome(page=1, output=str(page), verdict="pass",
+                                             gates={})])
+    written = master.read_text(encoding="utf-8")
+    assert "\\AddToHook{env/tikzcd/begin}" in written, "the shim never reached the chapter"
+    assert written.index("\\DocumentMetadata") < written.index("\\documentclass")
+
+    if shutil.which(target.engine) is None:
+        pytest.skip(f"{target.engine} not installed")
+    run = subprocess.run(
+        [target.engine, "-interaction=nonstopmode", "-halt-on-error", master.name],
+        cwd=tmp_path, capture_output=True, text=True, timeout=180)
+    log = tmp_path / master.with_suffix(".log").name
+    text = log.read_text(errors="replace") if log.exists() else run.stdout
+    assert "math_grab_dollar_delim" not in text, text[-1500:]
+    assert run.returncode == 0, text[-2000:]

@@ -205,6 +205,39 @@ def packages_in(preamble: str) -> set[str]:
     return found
 
 
+def compatibility_for(*, tagging: bool = False) -> str:
+    r"""Shims the engine needs that the author's preamble cannot be expected to carry.
+
+    Kept out of `declarations_for` on purpose: that block is headed "every one is a mark the
+    recognizer could not justify", and this is not one. Nothing here is about the page's
+    content -- it is about the combination of packages the project builds with.
+
+    **Tagging breaks `tikzcd`.** Measured on TeX Live 2026, under *both* engines: a document
+    with `\DocumentMetadata{tagging=on}` and a `tikzcd` environment dies with
+    `File ended while scanning use of \__math_grab_dollar_delim:w` and produces no PDF. The
+    cause is narrower than "tikz-cd is incompatible" -- a plain `tikzpicture` with math nodes
+    compiles fine; it is `matrix of math nodes` that collides with the kernel's math
+    collection, and tikz-cd is built on one.
+
+    Emitted on `tagging` alone rather than on finding `tikzcd` in the text, because the author
+    can add a diagram after this preamble was written, and both halves of the risk were
+    measured away: the hook is inert when `tikz-cd` is never loaded, and `\MathCollectFalse`
+    is defined even with tagging off. We never emit `tikzcd` ourselves (constraint #4) -- this
+    is for the diagrams the author draws by hand in a page they authored.
+
+    **Not covered:** a raw `matrix of math nodes` outside tikz-cd fails the same way and is
+    fixed by the same hook on `env/tikzpicture/begin`. That is left out because it would turn
+    math collection off inside *every* picture, including the ones that work, to rescue a
+    construction no corpus here uses. One line in the author's own preamble if it ever does.
+    """
+    if not tagging:
+        return ""
+    return ("% --- generated compatibility: the project's own packages need these, not its\n"
+            "% --- content. See DESIGN 6.2.2 for what each one was measured against.\n"
+            "\\AddToHook{env/tikzcd/begin}{\\MathCollectFalse}"
+            "  % measured: tagging + tikzcd is a fatal error without this\n")
+
+
 def declarations_for(undefined: list[str], unmapped_chars: list[str] | None = None,
                      source: str = "", *, accepts_unicode: bool = False,
                      supplied: set[str] | None = None) -> str:

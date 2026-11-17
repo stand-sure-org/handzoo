@@ -90,6 +90,26 @@ class Target:
     """We supplied the `\\documentclass` line because the file had none. Visible on purpose:
     the class is a guess, and a guess the author can see is a guess they can correct."""
 
+    @property
+    def tagging(self) -> bool:
+        """True when this preamble turns LaTeX's tagging on.
+
+        Derived rather than stored: unlike `added_document_class` it can be read back off
+        `base`, so storing it would mean another `save`/`load` round-trip to keep honest.
+
+        Read from inside `\\DocumentMetadata`'s own braces, not from anywhere in the file --
+        a `% tagging=on` in a comment, or the word in a package option, is not this switch.
+        `tagging=off` is the documented way to turn it back off, so the value is parsed
+        rather than the key merely found.
+        """
+        at = _after_document_metadata(self.base)
+        if not at:
+            return False
+        live = _COMMENT.sub("", self.base[:at])
+        opening = live.find("{", live.find("\\DocumentMetadata"))
+        m = re.search(r"\btagging\s*=\s*(\w+)", live[opening:])
+        return bool(m) and m.group(1) == "on"
+
     @classmethod
     def generated(cls) -> Target:
         """Today's behaviour, unchanged: our own preamble under pdflatex, ASCII required."""

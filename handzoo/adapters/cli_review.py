@@ -28,6 +28,7 @@ from pathlib import Path
 
 from ..core import rasterize
 from ..core.assemble import assemble
+from ..core.emit import figure_tex
 from ..core.corrections import BASELINE, Correction, CorrectionLog
 from ..core.pipeline import MANIFEST, PageOutcome, read_manifest
 
@@ -156,6 +157,9 @@ def crop(outcome: PageOutcome, out_dir: Path, text: str, *, stream, read_line,
         print("  no diagram marker on this page to replace.", file=stream)
         return None
 
+    from ..core.target import Target
+    tagging = Target.load(out_dir).tagging
+
     pdf = Path(outcome.source)
     try:
         blocks = rasterize.page_blocks(pdf, outcome.pdf_page)
@@ -182,11 +186,28 @@ def crop(outcome: PageOutcome, out_dir: Path, text: str, *, stream, read_line,
         print("  keep it? [y]es  [r]etry  [c]ancel > ", end="", file=stream, flush=True)
         answer = (read_line() or "c").strip().lower()[:1] or "c"
         if answer == "y":
-            figure_tex = f"\\includegraphics[width={CROP_WIDTH}]{{{name}}}"
+            described = ""
+            if tagging:
+                # Asked only under tagging, because that is the only case where an answer
+                # reaches anybody: measured, `alt=` without `\DocumentMetadata{tagging=on}`
+                # compiles clean and the PDF comes out with no `/Alt` at all. Asking anyway
+                # would be collecting work and dropping it.
+                #
+                # Typed by the author or left empty. The recognizer's own description of the
+                # drawing is never offered as a default: inventing diagram prose is the
+                # measured fabrication class (DESIGN 5.5.6b), and this is the one text read
+                # by someone who cannot check it against the page.
+                print("  describe it for a screen reader (enter to skip) > ",
+                      end="", file=stream, flush=True)
+                described = (read_line() or "").strip()
+                if not described:
+                    print("  no description — the figure goes in unlabelled.", file=stream)
+            figure = figure_tex(name, width=CROP_WIDTH, description=described,
+                                tagging=tagging)
             # A function replacement, not a string: `re.sub` treats backslashes in a
             # replacement string as escapes, and `\i` of `\includegraphics` is not a valid
             # one. The figure would have blown up the substitution rather than the document.
-            replaced = _MARKER.sub(lambda _m: figure_tex, text, count=1)
+            replaced = _MARKER.sub(lambda _m: figure, text, count=1)
             return replaced, name
         figure.unlink(missing_ok=True)
         if answer != "r":
