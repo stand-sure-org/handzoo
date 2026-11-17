@@ -51,6 +51,21 @@ is **copied into the project**, so a later edit to the original cannot silently 
 project produces; the run says so when the original has drifted. A project that names no
 preamble is untouched: our preamble, pdflatex, ASCII required.
 
+**It reaches the master document too, which it did not until 2026-11-17.** `assemble` takes a
+`target` and three of its four callers never passed one -- `cli_convert` among them, with
+`target` in scope -- so a project built inside the author's preamble emitted a `chapter.tex`
+carrying *our* generated one. `assemble` now loads the project's target itself when none is
+handed to it, which is also why a fifth caller cannot reintroduce it. Latent rather than
+harmful: no corpus on disk carries a `preamble.tex`. The feature's own tests passed `target=`
+explicitly -- an argument no caller supplies -- so nothing was testing the path a run takes.
+
+**Tagging:** a preamble may open with `\DocumentMetadata{...}`, which **must** precede
+`\documentclass`. When we supply the class line (`added_document_class`) it now goes *below*
+that directive; prepending it at the top was fatal -- `\DocumentMetadata should be used only
+before`, no PDF -- and that is exactly the case the added class line exists for. Measured:
+`tagging=on` builds under pdflatex as well as lualatex (`Tagged: yes`, PDF 2.0), so the engine
+derivation is unchanged.
+
 Or start in the browser — a new folder opens on a *New project* panel; choose a PDF and review
 page 1 while the rest are still being read:
 
@@ -141,7 +156,7 @@ Environment, verified on this machine:
 | `handzoo/core/assemble.py` | **Working.** Writes `chapter.tex` after a run — pages `\input` in order, failures as visible placeholders. A `--standalone` page cannot be assembled and says so. |
 | `handzoo-ui` — the review surface | **Working.** `handzoo-ui out/` serves a local page: page image and emitted text side by side, page list with gate state. Three panes — **ink | typeset | tex**, each collapsible. **A row says three things** (DESIGN §12.5): what the author did (the tick means *Looks right*, never "no gate complained"), what the gates found (including *not checked*, which is not a pass), and what work is left (crops outstanding, counted; a pasted capture to decide about). Typeset is the differentiator: proofing against the rendered page is faster than against markup, and it is served as a **PNG, not a PDF** (a browser PDF *extension* commonly will not render in an iframe). Compiles are cached on the source hash. **The actions are modes, not labels** (DESIGN §12.5, §12.7): the tex pane is read-only until *Fix transcription* or *Edit my notes* is entered, which is what makes the fix/author split structural and brackets the measured interval; ending a mode with no changes records nothing; leaving the page ends it. *Looks right* (`keep-reviewed`, GOLD) is offered only while the text is still the tool's output; *Done* (`final`) is the separate act that finishes a page you worked on — same tick, different row, because "the tool got this right" and "I fixed it" are different facts. *Flag* is the un-check. A crop enters fixing, since placing it needs the cursor and a crop is a correction. A corrected `.fail.tex` is **re-gated on save** and released from quarantine only if it now passes; the coverage gate cannot re-run (it needs the run's inventory), so a coverage-only failure stays quarantined rather than being promoted on faith. **A delimiter mismatch is a destination:** the gate keeps the opener's line as well as the closer's (`Failure.pair_line`), and the panel draws both as clickable lines that select and scroll to them. Only delimiter findings are clickable, because only they are recomputed against the text the pane is displaying -- every other number was recorded by the run and can outlive its text (measured: `l11` p3's row still points at line 19 of a page that has since been replaced). A chip dies on the first keystroke and returns after a save. Where the live result disagrees with what the run recorded, the panel prints the disagreement rather than absorbing it -- the badge and the quarantine still read from the run, so a silently clean panel under a FAIL header is the one thing it must not show. See DESIGN 12.8. Bound to 127.0.0.1; page images never leave the machine. **Ingests a PDF into a new project** (`handzoo/adapters/ingest.py`): the run goes on a thread, pages show *queued / reading / ready* and are reviewable as they land, with stop, resume and retry. **Adds pages from another PDF** to an existing project (*Add pages…*): a preview says how the file lines up by page-render hash — a hint, never identity — the author picks where to start, and *Undo import* takes the added pages back out. Backed by `core/store.py` + `core/project.py` (snapshots, an `extent` pointer, page births); append only — *Replace pages from…* is not built. See in-app ingestion D5–D6. |
 | `handzoo-review` — the correction loop | **Built** (PLAN Wave 5). Walks gate findings, records a verdict per page, and can **crop** a diagram from the source as vector (`c`) — the fix for 45 of 49 findings on a real run. **The M0 exit criterion has now been run through it** — see below. |
-| Tests | **458**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
+| Tests | **464**, plus the frozen `baseline/` corpus as a regression suite. CI never calls a model. |
 
 Measured state of the Normalizer, on identical raw recognizer output (Naive Math, the hardest
 document): 16/22 → **22/22**. Older Thinking-checkpoint corpora hold at 30/34 as a fixed

@@ -62,6 +62,20 @@ def assemble(out_dir: Path, outcomes: list[PageOutcome], *, name: str = MASTER,
     `--resume` or a page range is not necessarily in order, and sorting the caller's list would
     be relying on how it happened to be built.
     """
+    if target is None:
+        # Loaded here rather than asked of the caller, because three of the four callers
+        # forgot -- `cli_convert` among them, with `target` in scope, which is the command
+        # that takes `--preamble` in the first place. So a project built inside the author's
+        # preamble got a `chapter.tex` carrying *our* generated one, and the claim that
+        # `--preamble` governs what the project produces was false for the master document
+        # from the moment it shipped. The feature's own tests passed `target=` explicitly, so
+        # nothing was testing the path any caller actually takes.
+        #
+        # `Target.load` answers `generated()` for a project with no `preamble.tex`, which is
+        # every corpus on disk -- so this changes nothing for them, and a fifth caller cannot
+        # reintroduce it.
+        from .target import Target
+        target = Target.load(out_dir)
     body: list[str] = []
     included: list[str] = []
     usable = 0
