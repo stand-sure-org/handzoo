@@ -1919,6 +1919,73 @@ a build that proves nothing must not read as a build that proved something (cons
 **Measured, so the engine is not a guess:** `tagging=on` builds under **pdflatex** as well as
 lualatex — exit 0, `Tagged: yes`, PDF 2.0. Engine derivation is unchanged by tagging.
 
+#### 6.2.1b The manifest is a record, not the disk (2026-11-17)
+
+Every path `assemble` uses comes from a manifest row written at some earlier moment, and the
+file it names can be gone by the time the master is written — deleted, moved with the project,
+or renamed by a re-gate that quarantined the page. `assemble` read it unguarded.
+
+**What that cost, in three different shapes:**
+
+| caller | what the author saw | |
+|---|---|---|
+| `cli_convert` | a bare `FileNotFoundError` traceback at the end of a run, instead of a chapter — after every page had already been recognized and written | measured |
+| `ingest` (the surface) | `state: "failed"`, which is a **lie**: the run succeeded and only the assembly broke | read from the code |
+| `ui_server` (undo/import) | an uncaught exception in the handler, so the connection drops with no response at all — after the project has already been mutated | read from the code |
+
+Three surfaces, three wrong answers, one cause — so the fix belongs in `assemble` and so does
+the test. The invariant the three of them depend on is asserted once, directly: **no state of
+the disk makes assembly raise.** The guard is on `OSError`, not `FileNotFoundError`, which is
+the difference between handling what went wrong and handling the way it went wrong first.
+
+The knowledge was there and only the second read was unguarded: `_is_standalone` opened the
+same file one line earlier and swallowed `OSError` to return `False`. It is now a single read,
+with the decision made from what came back — asking `exists()` and then reading is two answers
+about one file with a gap between them, and the gap is real, because the surface re-gates and
+renames pages while a run may be assembling.
+
+**A page whose text is not on disk is the same kind of event as a page that failed a gate**: a
+visible placeholder, never a crash and never a silent hole. But it is worded as its own fact.
+*"a gate refused this"* and *"the file is gone"* send the author to different places, and
+collapsing them sends someone hunting in the wrong file — the same distinction `assemble`'s
+excluded marker already draws between a page the author *cut* and a page a gate *refused*.
+Four cases, four messages:
+
+- **missing**, with a `.fail.tex` sibling on disk → *in quarantine as `page-0002.fail.tex`*.
+  This is the realistic cause: a save re-gates the page and renames it while the manifest is
+  amended, two operations that can disagree, and `_amend_manifest`'s own docstring names the
+  cost — *"a rename it does not know about points them all at a file that is gone."* "Your text
+  is in quarantine" and "your text has vanished" are very different things to read.
+- **missing**, with nothing under the quarantine name → *text file missing*.
+- **empty** → *text file is empty*. An *emitted* page is never blank — it carries at least its
+  provenance comment — but the surface writes whatever the author types and does not refuse an
+  empty save, so a page can also be cleared on purpose. Either way `\input`ing it contributes
+  nothing and leaves a chapter that reads as complete, which is the case this module exists to
+  refuse, so the chapter says the page is empty and the author decides. Cutting a page properly
+  is `--exclude N`, which is recorded and says so in its own words.
+- **recorded as refused, but released** → *released from quarantine as `page-0001.tex`*. The
+  mirror of the first case, reachable the same way: a save that *fixes* a quarantined page
+  renames it back and amends the manifest, and if only the rename lands the newest row still
+  says `fail`. The page is still not included — the record says refused, and a filename is not
+  grounds to overrule that — but a bare failure placeholder would tell the author their page is
+  broken *after they fixed it*, which is the most discouraging thing this file could say.
+
+**The chapter still builds.** That is why a placeholder is right and a refusal is not: whatever
+has gone wrong with the files, the author gets a document they can open and a page they can
+point at. A test assembles a four-page chapter with one page deleted, one quarantined and one
+emptied, and compiles it for real.
+
+Two smaller consequences. The empty-chapter message no longer says *"no page passed its
+gates"* when the truth is that the pages passed and their text is missing — that wording sends
+the author to the recognizer, which is the wrong place. And `assemble` grew an `on_absent`
+callback, the same idiom as `convert`'s `on_kept` and for the same reason: this is the only
+moment the comparison can be made, and a warning computed and never printed is the same as
+none. The CLI prints the pages and says the document still builds.
+
+**Latent, not biting.** All 806 manifest rows across the nine projects on disk currently point
+at files that are there. Like the `--preamble` defects above, this is a path the corpus has not
+taken yet — and a re-gate that quarantines a page is exactly the one that takes it.
+
 #### 6.2.2 Describing a crop: the only text in the document no reader can check (2026-11-17)
 
 Constraint #4 says we never fabricate a drawing — we crop it, and the cropped path is
