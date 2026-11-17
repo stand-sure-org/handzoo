@@ -23,7 +23,7 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
 from . import rasterize, store
-from .corrections import protected_pages
+from .corrections import affirmations, protected_pages
 from .emit import Emission, emit
 from .normalize import chapter_preamble
 from .recognize.base import Recognition, Recognizer
@@ -119,6 +119,11 @@ class Kept:
     `drift` is one of `changed`, `unchanged`, `unknown`. The third is not a tidy default: a
     page recorded before `page_hash` existed, or read at a different DPI, cannot be compared,
     and saying so is the difference between this being information and being a lie (#6).
+
+    What it is compared *against* is `baseline_for`: the author's affirmation that the
+    correction still holds, if they have made one, and otherwise what the run recorded when the
+    text was written. Nothing else sets a baseline -- least of all a run noticing the page has
+    moved, which would be the tool clearing its own warning.
     """
 
     page: int
@@ -130,6 +135,44 @@ class Kept:
 def page_digest(image: Path) -> str:
     """The render's sha256. One definition, because two would compare unequal forever."""
     return hashlib.sha256(image.read_bytes()).hexdigest()
+
+
+def drift_between(*, was_hash: str, was_dpi: int, now_hash: str, now_dpi: int) -> str:
+    """`unchanged`, `changed` or `unknown` for one page. One definition, two callers.
+
+    The run computes this against the render it just made; the surface computes it against the
+    render sitting in `pages/`. Two implementations would disagree the day one of them learned
+    something, and the author would be reading a warning from one and clearing it in the other.
+
+    Every missing input yields `unknown`, never `unchanged`. A resolution is part of the
+    question, not a detail: the same page at another `--dpi` is a different image, so comparing
+    across them would report everything as changed, and a warning that fires on everything is
+    one the reader learns to scroll past. `unchanged` is the only answer that requires
+    positive evidence -- two hashes, taken at the same resolution, that match.
+    """
+    if not was_hash or not now_hash or not was_dpi or was_dpi != now_dpi:
+        return "unknown"
+    return "unchanged" if was_hash == now_hash else "changed"
+
+
+def baseline_for(out_dir: Path, page: int, recorded: PageOutcome | None) -> tuple[str, int]:
+    """What this page's text was last checked against: `(hash, dpi)`, or `("", 0)`.
+
+    The author's affirmation wins over the manifest, because it is the newer and the stronger
+    claim -- a person looked at the page as it then stood and said the correction still holds,
+    where the manifest only records what the recognizer was handed. Nothing else may set a
+    baseline: a run that *observes* a kept page's new render must not quietly adopt it, which
+    would be the tool clearing its own warning (DESIGN 11.1.3c).
+    """
+    said = affirmations(out_dir).get(page)
+    was = recorded.page_hash if recorded is not None else ""
+    # Only while it still describes the correction it was made about. `--replace N` re-reads
+    # the page and records a new hash, which retires the affirmation on its own -- otherwise a
+    # page the author had just had re-recognized would report `changed` against a render
+    # nobody was looking at any more.
+    if said is not None and said.supersedes == was:
+        return said.page_hash, said.render_dpi
+    return (recorded.page_hash, recorded.render_dpi) if recorded is not None else ("", 0)
 
 
 @dataclass
@@ -259,11 +302,9 @@ def convert(pdf: Path, out_dir: Path, recognizer: Recognizer, *,
         """
         if on_kept is None:
             return
-        was = recorded.get(n)
-        if was is None or not was.page_hash or was.render_dpi != dpi:
-            drift = "unknown"          # cannot compare; must not read as unchanged (#6)
-        else:
-            drift = "unchanged" if was.page_hash == page_digest(image) else "changed"
+        was_hash, was_dpi = baseline_for(out_dir, n, recorded.get(n))
+        drift = drift_between(was_hash=was_hash, was_dpi=was_dpi,
+                              now_hash=page_digest(image), now_dpi=dpi)
         on_kept(Kept(page=n, why=protected_pages(out_dir).get(n, ""), drift=drift))
 
     # `first`, `last` and the rasterized numbers are the *file's*; everything recorded -- the

@@ -32,10 +32,14 @@ from urllib.parse import parse_qs, urlparse
 
 from ..core import project, rasterize, store
 from ..core.assemble import assemble
-from ..core.corrections import Correction, CorrectionLog, current, pristine_path
+from ..core.corrections import (Affirmation, Correction, CorrectionLog, affirm,
+                                affirmations, current, pristine_path,
+                                protected_pages)
 from ..core.normalize import chapter_preamble
 from ..core.target import Target
-from ..core.pipeline import PageOutcome, append_manifest, parse_excluded, read_manifest
+from ..core.pipeline import (PageOutcome, append_manifest, baseline_for,
+                             drift_between, page_digest, parse_excluded,
+                             read_manifest)
 from ..core.validate.base import ADVISORY_GATES
 from ..core.validate import (ascii_gate, colour_gate, compile_gate, delimiter_gate,
                              pasted_gate, reference_gate, repetition_gate)
@@ -111,6 +115,40 @@ def _image_index(out_dir: Path) -> dict[int, Path]:
             if len(parts) > 1 and parts[1].isdigit():
                 index.setdefault(int(parts[1]), img)
     return index
+
+
+def page_drift(out_dir: Path, outcome: PageOutcome, image: Path | None) -> dict:
+    """Whether the page under a correction is still the page it was written against.
+
+    Asked per selected page rather than for the whole list: it hashes a render, and a 642-page
+    project polled on a timer would hash 60MB to answer a question about one page.
+
+    **Only for a page carrying the author's work.** Anything else is refreshed by the next run
+    anyway, so a drift report there would be noise -- and the whole point of the question is
+    text a run will *keep*.
+
+    `state` is empty when the question does not apply, which the surface must render as nothing
+    rather than as reassurance.
+    """
+    protected = protected_pages(out_dir)
+    if outcome.page not in protected:
+        return {"state": ""}
+    if image is None or not image.exists():
+        return {"state": "unknown", "why": protected[outcome.page],
+                "reason": "there is no stored render of this page to compare against"}
+    digest, dpi = page_digest(image), rasterize.png_dpi(image)
+    was_hash, was_dpi = baseline_for(out_dir, outcome.page, outcome)
+    said = affirmations(out_dir).get(outcome.page)
+    return {"state": drift_between(was_hash=was_hash, was_dpi=was_dpi,
+                                   now_hash=digest, now_dpi=dpi),
+            "digest": digest, "dpi": dpi, "why": protected[outcome.page],
+            "affirmed": said.at if said is not None else None,
+            # Named so the surface can say *why* it cannot tell, which is the difference
+            # between information and a shrug (`GateResult.note`, constraint #6).
+            "reason": "" if was_hash and dpi and was_dpi == dpi else
+                      "this render does not record its resolution" if not dpi else
+                      "no record of what this text was written against" if not was_hash else
+                      f"recorded at {was_dpi} dpi, this render is {dpi}"}
 
 
 REVIEW_STATE = {"keep-reviewed": "accepted", "final": "final", "keep-unreviewed": "kept-unread",
@@ -726,7 +764,9 @@ class Handler(BaseHTTPRequestHandler):
             # outlive the text they were computed against. The gate is a single regex pass,
             # so this costs nothing per page.
             self._json({"page": page, "text": text,
-                        "delimiters": delimiter_gate.check(text).as_dicts()})
+                        "delimiters": delimiter_gate.check(text).as_dicts(),
+                        "drift": page_drift(self.review.out_dir, match[0],
+                                            _image_index(self.review.out_dir).get(page))})
         elif url.path == "/api/typeset":
             page = int(q["page"][0])
             match = [o for o in self.review.outcomes() if o.page == page]
@@ -805,7 +845,7 @@ class Handler(BaseHTTPRequestHandler):
             self._post_import(url)
             return
         if url.path not in ("/api/save", "/api/autosave", "/api/crop",
-                            "/api/crop/confirm"):
+                            "/api/crop/confirm", "/api/affirm"):
             self._json({"error": "not found"}, 404)
             return
 
@@ -903,6 +943,53 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"saved": True, "verdict": "cropped", "released": released,
                         "restart_timer": True,
                         "remaining": len(_MARKER.findall(after))})
+            return
+
+        if url.path == "/api/affirm":
+            # "This correction still holds for the page as it now stands."
+            #
+            # The only act that ends a drift warning (author, 2026-11-17). Explicit and
+            # per-page by their decision: no bulk baseline, and a save does not quietly
+            # affirm, because the ink pane is collapsible and a fix can be made without the
+            # render on screen. What clears the warning is a person saying so.
+            page = int(payload["page"])
+            match = [o for o in self.review.outcomes() if o.page == page]
+            if not match:
+                self._json({"error": "no such page"}, 404)
+                return
+            if page not in protected_pages(self.review.out_dir):
+                # Affirming a page the author has not worked on would assert something about
+                # the recognizer's output, which is what the gates and the review verdicts
+                # are for. There is no correction here to still hold.
+                self._json({"error": "this page carries no correction to affirm"}, 409)
+                return
+            image = _image_index(self.review.out_dir).get(page)
+            if image is None or not image.exists():
+                self._json({"error": "there is no stored render of this page"}, 409)
+                return
+            digest = page_digest(image)
+            if payload.get("digest") != digest:
+                # The render moved between being shown and being vouched for -- an ingest or
+                # import thread re-renders pages while the author reviews. The affirmation
+                # must bind to the image they actually looked at, so this is refused rather
+                # than recorded against whatever is on disk now. Same lesson as keying the
+                # live delimiter findings by page *and* text (DESIGN 12.8).
+                self._json({"error": "this page was re-rendered while you were looking at it "
+                                     "— reload before saying the correction still holds"}, 409)
+                return
+            dpi = rasterize.png_dpi(image)
+            if not dpi:
+                # Recording 0 would store an affirmation nothing can ever compare against:
+                # the warning would stay, and the author would believe they had cleared it.
+                # Refusing with the reason is the honest half of constraint #6.
+                self._json({"error": "this render does not record its resolution, so an "
+                                     "affirmation could not be checked later"}, 409)
+                return
+            affirm(self.review.out_dir,
+                   Affirmation(page=page, page_hash=digest, render_dpi=dpi,
+                               supersedes=match[0].page_hash))
+            self._json({"saved": True,
+                        "drift": page_drift(self.review.out_dir, match[0], image)})
             return
 
         if url.path == "/api/autosave":

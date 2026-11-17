@@ -1003,3 +1003,162 @@ def test_the_text_endpoint_reports_both_ends_of_a_live_mismatch(server) -> None:
     (finding,) = [f for f in json.loads(body)["delimiters"]
                   if "not what is open" in f["detail"]]
     assert (finding["line"], finding["pair_line"]) == (4, 2)
+
+
+# ------------------ "this correction still holds for the page as it now stands"
+
+
+def _png_at(dpi: int) -> bytes:
+    """A PNG carrying a `pHYs` chunk, which is what a real `pdftoppm` render carries. The
+    surface reads the stored render's own resolution out of it rather than being told."""
+    px_per_metre = round(dpi / 0.0254)
+    return (b"\x89PNG\r\n\x1a\n"
+            + (13).to_bytes(4, "big") + b"IHDR" + bytes(13) + bytes(4)
+            + (9).to_bytes(4, "big") + b"pHYs"
+            + px_per_metre.to_bytes(4, "big") + px_per_metre.to_bytes(4, "big") + b"\x01"
+            + bytes(4)
+            + (1).to_bytes(4, "big") + b"IDAT" + b"\x00" + bytes(4))
+
+
+def _corrected_page_one(out_dir: Path, dpi: int = 150) -> None:
+    """Page 1 carries the author's work and a render that describes its own resolution. The
+    manifest row holds no `page_hash` -- which is every row in every project on disk."""
+    (out_dir / "pages" / "p-0001-01.png").write_bytes(_png_at(dpi))
+    from handzoo.core.corrections import Correction, CorrectionLog
+    CorrectionLog.for_run(out_dir).append(Correction(
+        page=1, verdict="edited", source_image="p.png", before="was", after="mine"))
+
+
+def test_a_page_with_no_correction_is_not_asked_about_drift(server) -> None:
+    """Drift is a question about text a run will *keep*. Anything else is refreshed by the
+    next run anyway, so reporting it there would be noise -- and an empty `state` must render
+    as nothing rather than as reassurance."""
+    base, _ = server
+    drift = json.loads(_get(base, "/api/text?page=1")[1])["drift"]
+    assert drift == {"state": ""}
+
+
+def test_a_correction_with_no_recorded_render_reads_not_checked(server) -> None:
+    """What the author will actually see first: every manifest row on disk predates
+    `page_hash`, so there is nothing to compare the page against and saying so is the only
+    honest answer (constraint #6)."""
+    base, out_dir = server
+    _corrected_page_one(out_dir)
+
+    drift = json.loads(_get(base, "/api/text?page=1")[1])["drift"]
+    assert drift["state"] == "unknown"
+    assert drift["dpi"] == 150, "read out of the render itself"
+    assert len(drift["digest"]) == 64
+    assert "no record of what this text was written against" in drift["reason"]
+
+
+def test_affirming_records_it_and_the_page_reads_unchanged(server) -> None:
+    """The act the whole feature exists for, and the only thing that ends the warning."""
+    base, out_dir = server
+    _corrected_page_one(out_dir)
+    drift = json.loads(_get(base, "/api/text?page=1")[1])["drift"]
+
+    answer = _post(base, "/api/affirm", {"page": 1, "digest": drift["digest"]})
+    assert answer["saved"] is True
+    assert answer["drift"]["state"] == "unchanged"
+
+    # And it survives the round trip, because the next run reads it from disk.
+    again = json.loads(_get(base, "/api/text?page=1")[1])["drift"]
+    assert again["state"] == "unchanged"
+    assert again["affirmed"], "the date is kept -- the row becomes it rather than vanishing"
+
+
+def test_affirming_a_render_that_has_moved_since_it_was_shown_is_refused(server) -> None:
+    """An ingest or import thread re-renders pages while a review is in progress, so the
+    image on disk is not necessarily the one the author looked at. The affirmation binds to
+    what they saw, or it is not recorded at all -- the same lesson as keying the live
+    delimiter findings by page *and* text."""
+    base, out_dir = server
+    _corrected_page_one(out_dir)
+
+    answer = _post_any(base, "/api/affirm", {"page": 1, "digest": "a" * 64})
+    assert "re-rendered while you were looking at it" in answer["error"]
+    assert json.loads(_get(base, "/api/text?page=1")[1])["drift"]["state"] == "unknown", \
+        "nothing was recorded"
+
+
+def test_affirming_a_page_that_carries_no_correction_is_refused(server) -> None:
+    """There is nothing here to still hold. Vouching for the recognizer's own output is what
+    the gates and the review verdicts are for, and it is a different claim."""
+    base, out_dir = server
+    (out_dir / "pages" / "p-0001-01.png").write_bytes(_png_at(150))
+
+    answer = _post_any(base, "/api/affirm", {"page": 1, "digest": "whatever"})
+    assert "no correction to affirm" in answer["error"]
+
+
+def test_a_render_that_does_not_record_its_resolution_cannot_be_affirmed(server) -> None:
+    """Recording a resolution of 0 would store an affirmation nothing can ever compare
+    against: the warning would stay and the author would believe they had cleared it. Refusing
+    with the reason is the honest half of constraint #6 -- and the surface withholds the
+    button rather than offering one that would be refused."""
+    base, out_dir = server
+    _corrected_page_one(out_dir)
+    (out_dir / "pages" / "p-0001-01.png").write_bytes(b"\x89PNG\r\n\x1a\n not really")
+
+    drift = json.loads(_get(base, "/api/text?page=1")[1])["drift"]
+    assert drift["state"] == "unknown"
+    assert drift["dpi"] == 0
+    assert "does not record its resolution" in drift["reason"]
+
+    answer = _post_any(base, "/api/affirm", {"page": 1, "digest": drift["digest"]})
+    assert "could not be checked later" in answer["error"]
+
+
+def _hashed_correction(out_dir: Path) -> str:
+    """Page 1 as every project made from today on will look: author work, plus a manifest row
+    recording the render its text was written against. Returns that render's digest."""
+    from dataclasses import replace as _replace
+
+    from handzoo.core.pipeline import append_manifest, page_digest
+    png = out_dir / "pages" / "p-0001-01.png"
+    png.write_bytes(_png_at(150))
+    row = next(o for o in read_manifest(out_dir) if o.page == 1)
+    append_manifest(out_dir, _replace(row, page_hash=page_digest(png), render_dpi=150))
+    from handzoo.core.corrections import Correction, CorrectionLog
+    CorrectionLog.for_run(out_dir).append(Correction(
+        page=1, verdict="edited", source_image="p.png", before="was", after="mine"))
+    return page_digest(png)
+
+
+def test_a_correction_still_on_the_render_it_was_written_against_says_nothing(server) -> None:
+    """The quiet majority, and the state every project will be in once it has been run under
+    this code. `unchanged` with no affirmation renders no row at all -- there is nothing to
+    tell the author, and a reassurance here would be the surface talking for the sake of it."""
+    base, out_dir = server
+    _hashed_correction(out_dir)
+
+    drift = json.loads(_get(base, "/api/text?page=1")[1])["drift"]
+    assert drift["state"] == "unchanged"
+    assert drift["affirmed"] is None, "nothing was affirmed; the row stays silent"
+
+
+def test_a_correction_whose_page_moved_under_it_reads_changed(server) -> None:
+    """The case the whole drift report exists for, over HTTP. Until now it had only ever been
+    exercised through `convert`, and the surface had no way to show it at all."""
+    base, out_dir = server
+    _hashed_correction(out_dir)
+    (out_dir / "pages" / "p-0001-01.png").write_bytes(_png_at(150) + b"\x00the page moved")
+
+    drift = json.loads(_get(base, "/api/text?page=1")[1])["drift"]
+    assert drift["state"] == "changed"
+    assert drift["dpi"] == 150, "a moved page is still read at a known resolution"
+
+
+def test_saving_a_fix_does_not_drop_the_page_into_not_checked(server) -> None:
+    """The save path appends a manifest row, and newest-row-wins. Had it built that row fresh
+    instead of amending the old one, every page the author fixed would have fallen to
+    *not checked* the moment they saved -- and the panel would have said so directly under
+    their own correction."""
+    base, out_dir = server
+    _hashed_correction(out_dir)
+
+    _post(base, "/api/save", {"page": 1, "mode": "fix", "text": "corrected\n", "seconds": 4})
+
+    drift = json.loads(_get(base, "/api/text?page=1")[1])["drift"]
+    assert drift["state"] == "unchanged", "the fix is about the text, not about the page"

@@ -198,15 +198,23 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
     # what became of the source underneath them.
     if changed := sorted(k.page for k in skipped if k.drift == "changed"):
         listed = ", ".join(str(n) for n in changed)
-        print(f"\n  ⚠ page {listed}: the source page has CHANGED since you corrected it.\n"
-              f"    Your text was kept and is unchanged — but it was written against a "
-              f"version of the page\n    that is no longer in this PDF. To re-read one: "
-              f"--replace {changed[0]}", file=stream)
+        # "since this correction was last checked against the page", not "since you wrote it":
+        # an affirmation moves that point forward, so the older wording would be false for
+        # any page the author has already vouched for once.
+        print(f"\n  ⚠ page {listed}: the source page has CHANGED since this correction was "
+              f"last checked against it.\n"
+              f"    Your text was kept and is untouched — but the page it describes has "
+              f"moved.\n    Open the page in handzoo-ui and say the correction still holds, "
+              f"or re-read it: --replace {changed[0]}", file=stream)
     if unknown := sorted(k.page for k in skipped if k.drift == "unknown"):
         # Not folded into "unchanged": a comparison that could not run must never read as one
-        # that found nothing (constraint #6).
+        # that found nothing (constraint #6). Every project on disk starts here, because their
+        # manifests predate `page_hash` -- and saying so forever, with no way out, is what the
+        # affirmation fixes. Per page, by the author's decision: no bulk baseline exists.
         print(f"  · page {', '.join(str(n) for n in unknown)}: not checked for drift — "
-              f"recorded before page hashes existed, or read at another --dpi.", file=stream)
+              f"recorded before page hashes existed, or read at another --dpi.\n"
+              f"    handzoo-ui can record that the correction still holds for the page as "
+              f"it now stands.", file=stream)
 
     if done:
         # The chapter is the run as it stands, not what this invocation happened to produce.

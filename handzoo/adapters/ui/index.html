@@ -117,6 +117,10 @@
   .jump { font:inherit; color:var(--accent); background:none; border:0; border-bottom:1px
           dotted currentColor; padding:0; cursor:pointer; }
   .jump:disabled { color:var(--dim); border-bottom-style:none; cursor:default; }
+  .affirm { font:inherit; font-size:11px; margin-left:.3rem; padding:.1rem .45rem;
+            border:1px solid var(--line); border-radius:4px; background:var(--panel);
+            color:inherit; cursor:pointer; }
+  .affirm:disabled { color:var(--dim); cursor:default; }
   .gate { font-family:ui-monospace,monospace; }
   .msg { margin-left:auto; font-size:12px; color:var(--dim); }
   /* Pages a run has not reached. Dim, never red: a queued page is not a defect. */
@@ -360,6 +364,37 @@ function mark(page) {
 // only refreshed the nav. The panel then showed the state from before the edit -- on ch22
 // p28 it listed compile failures under a header that said "re-gated clean". What you saw
 // depended on whether you looked before or after saving.
+// Whether the page a correction describes is still the page it was written against.
+//
+// This is not a gate finding and must not read as one: the gates judge the *text*, and this
+// judges the *source underneath it*. A correction that has drifted may still be perfectly
+// right -- it cost 77.3s against 4s of recognition -- so the run keeps it and says so, and
+// the only thing that ends the warning is the author looking at the page as it now stands.
+//
+// The button is withheld, rather than shown and refused, when the render cannot carry an
+// affirmation (no digest, or a PNG with no resolution in it). Offering an action that cannot
+// be honoured is the same error as a check that did not run reading as one that passed.
+function driftRow(page) {
+  if (liveDrift.page !== page || !liveDrift.info) return "";
+  const d = liveDrift.info;
+  const can = Boolean(d.digest) && Boolean(d.dpi);
+  const button = can
+    ? `<button class="affirm" data-page="${page}">This correction still holds</button>`
+    : "";
+  const why = d.reason ? ` — ${escapeHtml(d.reason)}` : "";
+  if (d.state === "changed")
+    return `<div><span class="gate fail">[source]</span> the page under this correction has ` +
+      `CHANGED since it was last checked against it. Your text is untouched.${button}</div>`;
+  if (d.state === "unknown")
+    return `<div><span class="gate flag">[source]</span> this correction has not been checked ` +
+      `against the page it describes${why}.${button}</div>`;
+  if (d.state === "unchanged" && d.affirmed)
+    return `<div class="done">You confirmed this correction still holds on ` +
+      `${new Date(d.affirmed * 1000).toLocaleDateString()}; the page has not changed since.` +
+      `</div>`;
+  return "";
+}
+
 function renderFindings(page) {
   const p = pages.find(x => x.page === page);
   if (p && p.error) {
@@ -414,10 +449,13 @@ function renderFindings(page) {
     rows.push(`<div><span class="gate flag">[delimiters]</span> the run recorded ` +
       `${recorded.length} here; the file on disk has ${liveDelims.findings.length}. The page's ` +
       `badge and its quarantine still read from the run — finish a fix to re-gate it.</div>`);
-  $("findings").innerHTML = rows.length
+  // Above the gate findings, and *in addition* to "Nothing flagged" rather than instead of
+  // it: one is a claim about the text, the other about the page beneath it, and a page can
+  // easily be clean on the first and adrift on the second.
+  $("findings").innerHTML = driftRow(page) + (rows.length
     ? rows.join("")
     : `<div class="done">Nothing flagged. The gates cannot see substitution, so this is not a
-       statement that the page is correct.</div>`;
+       statement that the page is correct.</div>`);
 }
 
 // Put the caret on a line and show it. Selecting the whole line rather than scrolling alone
@@ -466,7 +504,36 @@ function lineTop(el, line) {
 $("findings").addEventListener("click", e => {
   const b = e.target.closest(".jump");
   if (b) jumpTo(Number(b.dataset.line));
+  const a = e.target.closest(".affirm");
+  if (a) affirm(Number(a.dataset.page), a);
 });
+
+// "This correction still holds for the page as it now stands."
+//
+// The digest the server sent with the page goes back with the answer, so an affirmation binds
+// to the render the author actually looked at: an ingest or import thread re-renders pages
+// while a review is in progress, and the server refuses rather than record a statement about
+// an image that has since been replaced.
+async function affirm(page, button) {
+  if (!liveDrift.info || liveDrift.page !== page) return;
+  button.disabled = true;
+  const r = await fetch("/api/affirm", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ page, digest: liveDrift.info.digest })
+  });
+  if (!r.ok) {
+    button.disabled = false;
+    say("not recorded: " + ((await r.json().catch(() => ({}))).error || r.statusText));
+    return;
+  }
+  const d = await r.json();
+  liveDrift = { page, info: d.drift || null };
+  renderFindings(page);
+  // It does not simply vanish. The row becomes the date it was confirmed, because "nobody
+  // ever checked" and "a person checked, on this day" are different facts and the second one
+  // is the one worth keeping.
+  say("recorded — this correction still holds for the page as it now stands");
+}
 
 // The surface is a state machine (DESIGN 12.7): reading, fixing, authoring. A mode is entered
 // *before* typing -- which is what makes the fix/author split structural rather than a label
@@ -549,6 +616,7 @@ async function select(page, { auto = false } = {}) {
   current = page; original = d.text;
   // Computed by the server from this exact string, and stored with it.
   liveDelims = { page, text: d.text, findings: d.delimiters || [] };
+  liveDrift = { page, info: d.drift || null };
   $("tex").value = d.text;
   $("img").src = "/api/image?page=" + page;
   renderFindings(page);
@@ -865,6 +933,11 @@ let pending = null, dirty = false;
 // under the post-crop file for a frame. Matching on page *and* text makes the invariant
 // structural -- there is no ordering a caller can get wrong.
 let liveDelims = { page: null, text: null, findings: [] };
+// What the server said about the page *under* the selected correction. Keyed by page for the
+// same reason `liveDelims` is: `renderFindings` has several callers and one of them runs
+// before the new page has been selected, so trusting call order would draw one page's drift
+// beside another page's text.
+let liveDrift = { page: null, info: null };
 // Returns whether the author's text is on disk. It used to return nothing and clear `dirty`
 // before the POST, so a rejected save still read as "autosaved" -- constraint #6 in the one
 // place the author is most likely to believe us. It matters more now that Cmd+Enter flushes

@@ -337,3 +337,54 @@ def test_an_svg_that_cannot_be_read_says_so() -> None:
     assert rasterize.ink_paths("<svg><path d=") is None
     assert rasterize.ink_colours_from_svg("<svg><path d=") is None
     assert rasterize.blocks_from_svg("<svg><path d=") == ()
+
+
+# ------------------------------------------- a render that says what resolution it is
+
+
+def test_png_dpi_reads_the_resolution_the_render_was_made_at(three_page_pdf: Path,
+                                                             tmp_path: Path) -> None:
+    """`pdftoppm` writes a PNG `pHYs` chunk, so a stored render describes itself and nothing
+    has to remember its resolution alongside. That is what makes drift answerable for the nine
+    projects on disk, whose manifests predate `render_dpi` entirely.
+
+    **Several resolutions on purpose.** Every render on this machine is 150, so a reader that
+    returned 150 for everything would pass any single-value check -- the same mistake as the
+    `/Alt` detector that reported zero hits because it looked for the wrong encoding. The
+    control is that the answer *moves*.
+    """
+    for dpi in (72, 150, 200, 300):
+        page = next(iter(rasterize.rasterize(three_page_pdf, tmp_path / str(dpi),
+                                             first=1, last=1, dpi=dpi)))
+        assert rasterize.png_dpi(page.image) == dpi, f"at {dpi} dpi"
+
+
+def test_png_dpi_says_zero_rather_than_guessing(tmp_path: Path) -> None:
+    """Zero is "cannot tell", and it compares equal to nothing -- so this can only ever push a
+    drift comparison to *unknown*. It can never manufacture an `unchanged`, which still needs
+    two hashes that match. That asymmetry is the whole safety argument (constraint #6)."""
+    missing = tmp_path / "nope.png"
+    assert rasterize.png_dpi(missing) == 0
+
+    not_png = tmp_path / "x.png"
+    not_png.write_bytes(b"GIF89a and the rest")
+    assert rasterize.png_dpi(not_png) == 0
+
+    # A real PNG with no `pHYs`: header, then straight to the pixels.
+    bare = tmp_path / "bare.png"
+    bare.write_bytes(b"\x89PNG\r\n\x1a\n"
+                     + (13).to_bytes(4, "big") + b"IHDR" + bytes(13) + bytes(4)
+                     + (1).to_bytes(4, "big") + b"IDAT" + b"\x00" + bytes(4))
+    assert rasterize.png_dpi(bare) == 0, "absent is not 150"
+
+
+def test_png_dpi_ignores_a_pHYs_that_is_not_in_metres(tmp_path: Path) -> None:
+    """Unit 0 means "aspect ratio only" -- the numbers are a ratio, not a resolution. Reading
+    them as pixels per metre would invent a dpi out of a shape."""
+    ratio = tmp_path / "ratio.png"
+    ratio.write_bytes(b"\x89PNG\r\n\x1a\n"
+                      + (13).to_bytes(4, "big") + b"IHDR" + bytes(13) + bytes(4)
+                      + (9).to_bytes(4, "big") + b"pHYs"
+                      + (5905).to_bytes(4, "big") + (5905).to_bytes(4, "big") + b"\x00"
+                      + bytes(4))
+    assert rasterize.png_dpi(ratio) == 0
