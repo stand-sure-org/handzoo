@@ -177,9 +177,10 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
 
     failed = unverified = errored = excluded_seen = 0
     done: list[pipeline.PageOutcome] = []
+    skipped: list[pipeline.Kept] = []
     for outcome in pipeline.convert(args.pdf, args.out, recognizer, target=target,
                                     first=first, last=last, exclude=excluded,
-                                    replacing=replacing,
+                                    replacing=replacing, on_kept=skipped.append,
                                     mode=args.mode, resume=args.resume, dpi=args.dpi):
         print(_format(outcome), file=stream, flush=True)
         done.append(outcome)
@@ -190,6 +191,22 @@ def main(argv: list[str] | None = None, *, stream=None) -> int:
                 continue
             failed += outcome.verdict == "fail"
             unverified += outcome.verdict == "unverified"
+
+    # Reported after the run, because only the run knows: the comparison needs the fresh
+    # render and the recorded one in the same moment, and by the time anyone looks afterwards
+    # the stored image is the new one. Kept pages were announced before the run; this says
+    # what became of the source underneath them.
+    if changed := sorted(k.page for k in skipped if k.drift == "changed"):
+        listed = ", ".join(str(n) for n in changed)
+        print(f"\n  ⚠ page {listed}: the source page has CHANGED since you corrected it.\n"
+              f"    Your text was kept and is unchanged — but it was written against a "
+              f"version of the page\n    that is no longer in this PDF. To re-read one: "
+              f"--replace {changed[0]}", file=stream)
+    if unknown := sorted(k.page for k in skipped if k.drift == "unknown"):
+        # Not folded into "unchanged": a comparison that could not run must never read as one
+        # that found nothing (constraint #6).
+        print(f"  · page {', '.join(str(n) for n in unknown)}: not checked for drift — "
+              f"recorded before page hashes existed, or read at another --dpi.", file=stream)
 
     if done:
         # The chapter is the run as it stands, not what this invocation happened to produce.

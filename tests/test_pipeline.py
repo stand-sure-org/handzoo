@@ -114,6 +114,22 @@ def pdf(tmp_path_factory) -> Path:
     return tmp / "d.pdf"
 
 
+@pytest.fixture(scope="session")
+def other_pdf(tmp_path_factory) -> Path:
+    """The same page count, different marks on every page -- a re-export after editing."""
+    import subprocess
+    tmp = tmp_path_factory.mktemp("other-pdf")
+    (tmp / "d.tex").write_text(
+        "\\documentclass{article}\\begin{document}A\\newpage "
+        "B and a correction the author made\\newpage C\\end{document}\n",
+        encoding="utf-8")
+    subprocess.run(["pdflatex", "-interaction=nonstopmode", "d.tex"],
+                   cwd=tmp, capture_output=True, check=False)
+    if not (tmp / "d.pdf").exists():
+        pytest.skip("pdflatex produced no PDF")
+    return tmp / "d.pdf"
+
+
 @pytestmark_pdf
 def test_pages_stream_as_they_finish(pdf: Path, tmp_path: Path) -> None:
     """A run that reveals its work only at the end is one you cannot interrupt or trust."""
@@ -394,6 +410,49 @@ def test_the_cli_says_which_pages_it_kept_and_how_to_replace_one(
     assert "--replace" in text
 
 
+@pytestmark_pdf
+def test_the_cli_warns_when_a_kept_pages_source_moved(
+        pdf: Path, other_pdf: Path, tmp_path: Path, monkeypatch) -> None:
+    """Through the CLI, not the callback: the callback firing proves the run noticed, and the
+    author reads the terminal. A warning computed and never printed is the same as none."""
+    monkeypatch.setattr(cli_convert, "OllamaRecognizer", lambda **_: _StubRecognizer())
+    out = tmp_path / "run"
+    cli_convert.main([str(pdf), "-o", str(out)], stream=io.StringIO())
+    _corrected(out, 2, "edited", "mine\n")
+
+    said = io.StringIO()
+    cli_convert.main([str(other_pdf), "-o", str(out)], stream=said)
+    text = said.getvalue()
+
+    assert "CHANGED since you corrected it" in text
+    assert "--replace 2" in text
+    assert "Your text was kept" in text, "the warning must not read as a threat to their work"
+
+
+@pytestmark_pdf
+def test_the_cli_does_not_claim_an_unchecked_page_is_unchanged(
+        pdf: Path, tmp_path: Path, monkeypatch) -> None:
+    """Constraint #6 at the surface. Every project on the author's disk predates `page_hash`,
+    so this is what they will actually see on the first run after upgrading."""
+    monkeypatch.setattr(cli_convert, "OllamaRecognizer", lambda **_: _StubRecognizer())
+    out = tmp_path / "run"
+    cli_convert.main([str(pdf), "-o", str(out)], stream=io.StringIO())
+    _corrected(out, 2, "edited", "mine\n")
+    rows = [json.loads(ln) for ln in
+            (out / pipeline.MANIFEST).read_text(encoding="utf-8").splitlines() if ln.strip()]
+    for r in rows:
+        r.pop("page_hash", None); r.pop("render_dpi", None)
+    (out / pipeline.MANIFEST).write_text(
+        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+    said = io.StringIO()
+    cli_convert.main([str(pdf), "-o", str(out)], stream=said)
+    text = said.getvalue()
+
+    assert "not checked for drift" in text
+    assert "CHANGED" not in text, "an unchecked page is not a changed one either"
+
+
 # --------------------------------------------------------------------------- cli
 
 
@@ -517,3 +576,87 @@ def test_the_source_pdf_is_not_dragged_into_the_project(tmp_path) -> None:
         page=1, output=str(project / "page-0001.tex"), verdict="pass", gates={}, source=str(pdf)))
     (outcome,) = pipeline.read_manifest(project)
     assert outcome.source == str(pdf), "the PDF stays where it is"
+
+
+# ------------------------------- a kept page whose source moved underneath it
+
+@pytestmark_pdf
+def test_a_rerun_reports_that_a_kept_pages_source_is_unchanged(pdf: Path, tmp_path: Path) -> None:
+    """The baseline for the interesting case. Re-running over the same PDF must say the
+    protected pages still describe what is on the source, or the warning below means nothing."""
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer()))
+    _corrected(tmp_path, 2, "edited", "what the author made it\n")
+
+    kept: list[pipeline.Kept] = []
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer(), on_kept=kept.append))
+
+    assert [(k.page, k.drift) for k in kept] == [(2, "unchanged")]
+
+
+@pytestmark_pdf
+def test_a_rerun_says_when_a_kept_pages_source_changed_under_it(
+        pdf: Path, other_pdf: Path, tmp_path: Path) -> None:
+    """The hole this closes. A run rasterizes a protected page and then skips it with a bare
+    `continue`, so the fresh render was in hand and nothing looked at it.
+
+    Edit page 2 on the reMarkable, re-export, re-run: the correction is kept -- correctly, it
+    is the most expensive artefact in the system -- and nothing said the page underneath it
+    moved. The author's text quietly becomes a description of content that is no longer there.
+
+    Kept and warned, never refused: the correction may still be right, and discarding the
+    author's work because the source moved would be a worse answer than telling them.
+    """
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer()))
+    _corrected(tmp_path, 2, "edited", "what the author made it\n")
+
+    kept: list[pipeline.Kept] = []
+    list(pipeline.convert(other_pdf, tmp_path, _StubRecognizer(), on_kept=kept.append))
+
+    assert [(k.page, k.drift) for k in kept] == [(2, "changed")]
+    assert (tmp_path / "page-0002.tex").read_text(encoding="utf-8") == \
+        "what the author made it\n", "warned, not overwritten"
+
+
+@pytestmark_pdf
+def test_a_page_recorded_before_hashes_existed_reads_not_checked(
+        pdf: Path, tmp_path: Path) -> None:
+    """Constraint #6, for this gate's worth of information: a comparison that could not run
+    must never read as one that found nothing. Manifests written before `page_hash` carry no
+    render to compare, and 823 such rows are on the author's disk today."""
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer()))
+    _corrected(tmp_path, 2, "edited", "mine\n")
+    rows = [json.loads(ln) for ln in
+            (tmp_path / pipeline.MANIFEST).read_text(encoding="utf-8").splitlines() if ln.strip()]
+    for r in rows:
+        r.pop("page_hash", None); r.pop("render_dpi", None)
+    (tmp_path / pipeline.MANIFEST).write_text(
+        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+    kept: list[pipeline.Kept] = []
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer(), on_kept=kept.append))
+
+    assert [(k.page, k.drift) for k in kept] == [(2, "unknown")]
+
+
+@pytestmark_pdf
+def test_a_different_dpi_is_not_reported_as_a_changed_page(pdf: Path, tmp_path: Path) -> None:
+    """A render at another resolution is a different image of the same page. Calling that
+    "changed" would cry wolf on every page of the run, and a warning that fires on everything
+    is one the author learns to scroll past -- so it reads as not-checked instead."""
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer()))
+    _corrected(tmp_path, 2, "edited", "mine\n")
+
+    kept: list[pipeline.Kept] = []
+    list(pipeline.convert(pdf, tmp_path, _StubRecognizer(),
+                          dpi=pipeline.rasterize.DEFAULT_DPI + 50, on_kept=kept.append))
+
+    assert [(k.page, k.drift) for k in kept] == [(2, "unknown")]
+
+
+@pytestmark_pdf
+def test_a_run_records_what_the_page_looked_like(pdf: Path, tmp_path: Path) -> None:
+    """Nothing can be compared later that was not recorded now."""
+    (outcome, *_) = list(pipeline.convert(pdf, tmp_path, _StubRecognizer(), last=1))
+    assert len(outcome.page_hash) == 64, "a sha256 of the page render"
+    assert outcome.render_dpi == pipeline.rasterize.DEFAULT_DPI
+    assert pipeline.read_manifest(tmp_path)[0].page_hash == outcome.page_hash, "and it persists"

@@ -3361,6 +3361,48 @@ Worth stating plainly, because it is the project's own thesis turned inward: thi
 corruption of exactly the kind the gates exist to refuse, in the tool that refuses it. The
 gates watch what the recognizer writes into a page. Nothing was watching which page.
 
+#### Drift: the half of bug 1 that can be answered now (built 2026-11-16)
+
+Bugs 2 and 3 were fixed by making a run keep any page that carries author work. That is the
+right behaviour and it introduced a quieter failure in the other direction: **kept is not the
+same as still true.** Edit page 7 on the reMarkable, re-export, re-run — the correction is
+kept, and nothing says the page underneath it moved. The author's text quietly becomes a
+description of content that is no longer there. The CLI said *"keeping 3 page(s) with your
+work on them"* and nothing about whether those pages still matched the source.
+
+The run was already holding the answer. `convert` rasterizes a protected page and then skips
+it with a bare `continue`, so the fresh render was in hand at exactly the moment the recorded
+one was available — and nothing compared them. `PageOutcome` recorded no hash, so there was
+nothing to compare against.
+
+`PageOutcome.page_hash` (plus `render_dpi`) now records what each page looked like when its
+text was written. On a re-run, a skipped page is compared and reported:
+
+| | |
+|---|---|
+| `changed` | loud warning, naming the page and `--replace N` |
+| `unchanged` | silent |
+| `unknown` | said out loud, never folded into `unchanged` |
+
+`unknown` covers a manifest written before `page_hash` existed — which is **every project on
+disk today**, 823 rows — and a run at a different `--dpi`, where the render differs for a
+reason that is not the page changing. Reporting a DPI change as drift would fire on every
+page of the run, and a warning that fires on everything is one the author learns to scroll
+past.
+
+**Warned, never refused** (the author's call, 2026-11-16). A drifted correction may still be
+right, and the correction is the most expensive artefact in the system — 77.3s median against
+4s of recognition (§11.0.1). Refusing the page, or discarding the text, would answer a
+question the tool is not entitled to answer. This is information, and `--replace N` remains
+the explicit instruction of §11.1.3a.
+
+**This does not close bug 1.** Identity is still the ordinal: insert a page and every later
+page still shifts, and drift detection will then report a long run of `changed` pages that
+are really the same pages in new positions — correctly, since from the manifest's point of
+view the content at those numbers did change. Hashing answers *whether* a page changed, never
+*what a changed page corresponds to*; §11.1.3a is clear that the author asserts that, and the
+identity rework remains out of M0.
+
 ### 11.1.3a Explicit replacement dissolves the hard case rather than solving it
 
 The author's proposal (2026-08-25): *require the user to tell us to replace page 2 with a

@@ -893,3 +893,28 @@ def test_autosaving_in_a_copied_project_does_not_write_through_to_the_original(
     assert (copy / "page-0001.tex").read_text(encoding="utf-8") == "edited inside the copy\n"
     assert (run_dir / "page-0001.tex").read_text(encoding="utf-8") == original_text, \
         "the project that was copied FROM must not have been touched"
+
+
+def test_a_save_in_the_surface_keeps_what_the_page_looked_like(server) -> None:
+    """A re-gate on save appends a manifest row, and that row becomes the newest one -- which
+    is the one a later run compares against for drift. Built from scratch rather than copied
+    forward, every page corrected in the surface would read "not checked" forever, and the
+    most common protected page is exactly one corrected here.
+
+    No test could have caught this from the pipeline side: `_corrected()` writes a correction
+    log row and never a manifest row, so the save path is the only place it shows.
+    """
+    base, run_dir = server
+    rows = [json.loads(ln) for ln in
+            (run_dir / "manifest.jsonl").read_text(encoding="utf-8").splitlines() if ln.strip()]
+    for r in rows:
+        r["page_hash"], r["render_dpi"] = "a" * 64, 150
+    (run_dir / "manifest.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+    _post(base, "/api/save", {"page": 1, "mode": "fix", "text": "corrected here\n",
+                              "seconds": 12.0})
+
+    (newest,) = [o for o in read_manifest(run_dir) if o.page == 1]
+    assert newest.page_hash == "a" * 64, "the render this text was written against survives"
+    assert newest.render_dpi == 150

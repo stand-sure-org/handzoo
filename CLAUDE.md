@@ -350,7 +350,16 @@ consequences; #2 and #3 fixed 2026-09-11, #1 open:
 
 1. **Page number is not page identity.** `PageOutcome.page` and `Correction.page` are both
    ordinals. Insert a page anywhere but the end and the manifest, correction log, crops, and
-   the `--transcribe`/`--fix` guards all silently point at different content.
+   the `--transcribe`/`--fix` guards all silently point at different content. **Still open** —
+   but the half of it that hashing *can* answer is now built: see 1b.
+1b. **Drift — "kept" is not "still true".** Fixing #2 and #3 introduced a quieter failure the
+   other way: a re-run keeps a corrected page and never said the source moved under it.
+   `PageOutcome.page_hash`/`render_dpi` record what each page looked like when its text was
+   written, and a re-run compares the fresh render it already holds. `changed` warns loudly
+   and names `--replace N`; `unknown` (a manifest predating the field — every project on disk
+   — or another `--dpi`) says so rather than passing as `unchanged`, per constraint #6.
+   **Warned, never refused:** a drifted correction may still be right, and it cost 77.3s
+   against 4s of recognition.
 2. ~~A re-run overwrites author corrections.~~ **Fixed.** `convert` keeps any page with a GOLD
    or `authored` row, or an edit in progress (the `.pristine` snapshot autosave leaves), and
    the CLI says which it kept. `--replace N` is the explicit override. Enforced inside
