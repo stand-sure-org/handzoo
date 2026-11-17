@@ -696,10 +696,12 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/pages":
             ingest = self._ingest()
             out = self.review.out_dir
-            # `tagging` decides whether a description is worth asking for at all: measured,
-            # `alt=` without `\DocumentMetadata{tagging=on}` compiles clean and the PDF
-            # carries no `/Alt`, so the surface must say so rather than collect prose that
-            # reaches nobody.
+            # `tagging` decides how the description field is *labelled*, not whether it is
+            # offered: measured, `alt=` without `\DocumentMetadata{tagging=on}` compiles
+            # clean, warns nothing and the PDF carries no `/Alt`. The author's call
+            # (2026-11-17) is to collect the words either way -- they start working the day
+            # the directive goes in -- and to say on screen and in the file when they are
+            # inert. Collecting them in silence is the one option that was ruled out.
             self._json({"dir": str(out), "pages": _pages(self.review, ingest),
                         "tagging": Target.load(out).tagging,
                         "ingest": ingest.status(),

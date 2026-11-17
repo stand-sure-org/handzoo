@@ -172,16 +172,26 @@ def figure_tex(name: str, *, width: str, description: str = "", tagging: bool = 
     starts working the day they add `\DocumentMetadata{tagging=on}` -- but a surface that
     took it without saying so would be promising a reader who is never reached.
 
-    The missing-description note is written only under tagging. Without it the remark would
-    be true of every crop in every project on disk, which is noise rather than information.
+    Both notes exist because the file is the only place that can carry them. Under tagging an
+    undescribed figure says it is unlabelled; without tagging a *described* figure says the
+    description is inert. The pair is deliberate (author, 2026-11-17): the surface accepts the
+    text either way, so the one thing it must not do is take it in silence and let the author
+    believe a reader is being reached. The missing-description note stays out of an untagged
+    project, where it would be true of every crop on disk and therefore information about
+    nothing.
     """
     keys = f"width={width}"
     if description.strip():
         keys += f", alt={{{describe(description)}}}"
     figure = f"\\includegraphics[{keys}]{{{name}}}"
+    # Each note goes on its own line: the marker it replaces can sit mid-sentence, and a
+    # trailing `%` would comment out whatever followed it on that line.
     if tagging and not description.strip():
-        # On its own line: the marker it replaces can sit mid-sentence, and a trailing `%`
-        # would comment out whatever followed it on that line.
         figure += "\n% handzoo: no description given -- this figure is unlabelled for a "
         figure += "screen reader.\n"
+    elif description.strip() and not tagging:
+        figure += "\n% handzoo: this description is inert -- the preamble has no "
+        figure += "\\DocumentMetadata{tagging=on},\n"
+        figure += "% so the PDF carries no /Alt and no screen reader reaches it. The text is "
+        figure += "kept, and\n% starts working the day tagging goes on.\n"
     return figure

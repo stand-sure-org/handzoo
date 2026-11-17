@@ -1930,15 +1930,34 @@ decide *how* it is offered, because every obvious implementation of it is wrong.
 description compiles clean, exit 0, **no warning**, and the PDF comes out `Tagged: no`, PDF
 1.7, with zero `/Alt` entries. Measured under both engines. So a surface that took a
 description and said nothing would be collecting the author's words on behalf of a reader who
-never receives them — constraint #6 with a person on the end of it. The field is therefore
-offered **only when the project's preamble turns tagging on**, and `Target.tagging` is derived
-from inside `\DocumentMetadata`'s own braces (`tagging=off` is the documented way to turn it
-back off, so the value is parsed rather than the key merely found).
+never receives them — constraint #6 with a person on the end of it. So the surface **says which
+case it is in**, and `Target.tagging` is derived from inside `\DocumentMetadata`'s own braces
+(`tagging=off` is the documented way to turn it back off, so the value is parsed rather than the
+key merely found).
 
 A description that already exists is still emitted on an untagged project. It is the author's
 work, it costs nothing, and it starts working the day they add the directive. We do **not** add
 `\DocumentMetadata` ourselves: that turns the whole document into tagged PDF 2.0, which is
 theirs to decide.
+
+**Where the field is offered — the author's call, 2026-11-17, and a correction.** The first
+implementation hid the field on an untagged project, on the reasoning that a description nobody
+reads is not worth the author's time. Put to the author as three options — refuse the field,
+collect it silently, collect it and say so — the answer was **collect it and say so**. The
+field is offered on every project, in the crop bar and at the CLI prompt, and labelled *inert
+until tagging is on* where that is true.
+
+The reasoning that changed: refusing costs a re-description of every crop made before the
+directive goes in, which is a real cost paid by the person the feature is for, while keeping
+the text costs nothing and it starts working the day they add the line. **Silence is the only
+option actually ruled out** — the description's whole purpose is a reader who cannot check it
+against the drawing, so the author is the one person in a position to know it is currently
+unread, and a surface that takes the words without saying so removes exactly that.
+
+Recorded because it was decided on a wrong premise and nearly shipped that way: the question
+was put to the author as though the field were still being offered everywhere, when the
+previous commit had already hidden it. The answer read against what was actually built means
+*un*-hiding it, not merely annotating output nothing produced.
 
 **The description is author-typed or absent.** The recognizer's own `[[DIAGRAM: ...]]` prose is
 never offered as a default, not even as something to edit. §5.5.6b measured model-written
@@ -1964,10 +1983,18 @@ The PDF-string conversion does not expand text commands, which is why the three 
 escapes put LaTeX source into the text a screen reader speaks. `\string\` absorbs one
 following space when a backslash runs into letters; that is the only loss and it is cosmetic.
 
-**A missing description is written into the file**, as a `% handzoo: no description given`
-comment on its own line — the marker a crop replaces can sit mid-sentence, so a trailing `%`
-would comment out whatever followed it. Only under tagging: without it the remark would be true
-of every crop in every project on disk, which is noise rather than information.
+**Both facts are written into the file, and never both at once.** Under tagging an undescribed
+figure carries `% handzoo: no description given`; without tagging a *described* figure carries
+`% handzoo: this description is inert`. Each sits on its own line — the marker a crop replaces
+can sit mid-sentence, so a trailing `%` would comment out whatever followed it — and the inert
+note names `\DocumentMetadata{tagging=on}`, which puts braces inside a comment the delimiter
+gate has to skip. The missing-description note stays out of an untagged project, where it would
+be true of every crop on disk and so information about nothing.
+
+Four quadrants, three of which say exactly one thing, and the bug that fell out of it is worth
+recording: the second note went in as an `elif` on the first one's negation, which printed
+*inert* over a description that works. The case that caught it is the **correct** one — tagging
+on, description given, nothing to say. A matrix test over all four is what holds it.
 
 **Tagging breaks `tikzcd`, and the fix is one hook.** `\DocumentMetadata{tagging=on}` plus a
 `tikzcd` environment dies with `File ended while scanning use of

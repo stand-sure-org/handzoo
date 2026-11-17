@@ -307,3 +307,29 @@ def test_an_untagged_project_is_left_exactly_as_it_is_today(cropserver) -> None:
     written = page.read_text(encoding="utf-8")
     assert "\\includegraphics[width=0.6\\textwidth]{fig-p0001-1.pdf}" in written
     assert "alt={" not in written and "unlabelled" not in written
+    assert "inert" not in written, "nothing was described, so there is nothing to call inert"
+
+
+def test_an_untagged_description_is_kept_and_the_file_says_it_is_inert(cropserver) -> None:
+    """The author's call, 2026-11-17, driven over HTTP because that is the path the surface
+    takes. The field is offered on an untagged project and the words are kept -- they start
+    working the day `\\DocumentMetadata{tagging=on}` goes in -- but the file says that until
+    then the PDF carries no `/Alt` and nobody is reached.
+
+    The previous commit hid the field here instead. Collecting it in silence was never on the
+    table; this test is the difference between the two options that were.
+    """
+    from handzoo.core.validate import delimiter_gate
+
+    base, out_dir = cropserver
+    page = out_dir / "page-0001.tex"
+    _post(base, "/api/crop/confirm",
+          {"page": 1, "name": "fig-p0001-1.pdf",
+           "alt": "a square with 50% of one side doubled", "seconds": 4.0})
+
+    written = page.read_text(encoding="utf-8")
+    assert "alt={a square with 50\\% of one side doubled}" in written, written
+    assert "inert" in written and "tagging=on" in written, written
+    assert "unlabelled" not in written, "described, so the other note must stay away"
+    # The note names a macro with braces, inside a comment the gate has to skip.
+    assert delimiter_gate.check(written).passed, delimiter_gate.check(written).report()
