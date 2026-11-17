@@ -255,6 +255,7 @@ def configure(out_dir: Path, *, recognizer=None) -> None:
 # Shared with the CLI rather than restated: the two paths must agree about what a marker is,
 # or a crop made in one tool is invisible to the other.
 from .cli_review import CROP_WIDTH, _MARKER  # noqa: E402
+from ..core.emit import figure_tex  # noqa: E402
 
 
 def _region_fractions(region: dict, *, page_width: float, page_height: float) -> dict:
@@ -293,7 +294,8 @@ def _fabrications_cleared(findings: list[dict], text: str) -> bool:
     return not _MARKER.search(text)
 
 
-def _replace_marker(text: str, figure_name: str) -> str:
+def _replace_marker(text: str, figure_name: str, *, description: str = "",
+                    tagging: bool = False) -> str:
     r"""Put the figure where the marker was — **one** marker, the first.
 
     A function replacement, not a string: `re.sub` treats backslashes in a replacement string
@@ -303,11 +305,13 @@ def _replace_marker(text: str, figure_name: str) -> str:
     One at a time because a page can carry several invented drawings and they are different
     regions. Replacing them all with one crop would be a fabrication of our own.
     """
-    figure = f"\\includegraphics[width={CROP_WIDTH}]{{{figure_name}}}"
+    figure = figure_tex(figure_name, width=CROP_WIDTH, description=description,
+                        tagging=tagging)
     return _MARKER.sub(lambda _m: figure, text, count=1)
 
 
-def _insert_at(text: str, figure_name: str, at: int) -> str:
+def _insert_at(text: str, figure_name: str, at: int, *, description: str = "",
+               tagging: bool = False) -> str:
     """Place a figure at a position the author chose.
 
     The marker path replaces something the gates objected to. This one exists because not
@@ -319,8 +323,10 @@ def _insert_at(text: str, figure_name: str, at: int) -> str:
     Clamped rather than raising: a cursor offset can be stale by the time it arrives, and
     landing at the end of the document is recoverable where an error is just lost work.
     """
-    figure = (f"\n\\begin{{center}}\n    "
-              f"\\includegraphics[width={CROP_WIDTH}]{{{figure_name}}}\n\\end{{center}}\n")
+    figure = ("\n\\begin{center}\n    "
+              + figure_tex(figure_name, width=CROP_WIDTH, description=description,
+                           tagging=tagging)
+              + "\n\\end{center}\n")
     at = max(0, min(int(at), len(text)))
     return text[:at] + figure + text[at:]
 
@@ -690,7 +696,12 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/pages":
             ingest = self._ingest()
             out = self.review.out_dir
+            # `tagging` decides whether a description is worth asking for at all: measured,
+            # `alt=` without `\DocumentMetadata{tagging=on}` compiles clean and the PDF
+            # carries no `/Alt`, so the surface must say so rather than collect prose that
+            # reaches nobody.
             self._json({"dir": str(out), "pages": _pages(self.review, ingest),
+                        "tagging": Target.load(out).tagging,
                         "ingest": ingest.status(),
                         "imports": {"undo": project.last_import(out),
                                     "pending": project.pending(out) is not None}})
@@ -847,9 +858,15 @@ class Handler(BaseHTTPRequestHandler):
             target = Path(match[0].output)
             before = target.read_text(encoding="utf-8")
             at = payload.get("at")
-            after = _replace_marker(before, name)
+            # The author's own words, or nothing. Never the recognizer's `[[DIAGRAM: ...]]`
+            # text: model-written diagram descriptions are the measured fabrication class
+            # (DESIGN 5.5.6b), and alt text is read by the one person who cannot check it
+            # against the drawing.
+            described = str(payload.get("alt", ""))
+            tagging = Target.load(self.review.out_dir).tagging
+            after = _replace_marker(before, name, description=described, tagging=tagging)
             if after == before and at is not None:
-                after = _insert_at(before, name, at)
+                after = _insert_at(before, name, at, description=described, tagging=tagging)
             if after == before:
                 self._send(b"no marker was replaced", "text/plain", 409)
                 return

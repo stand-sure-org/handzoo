@@ -231,3 +231,79 @@ def test_the_typeset_pane_shows_the_page_not_an_assembly_placeholder(tmp_path: P
     assert pdf is None, "a page with an unclosed environment must not typeset"
     assert "MISSING" not in err, "the reason must be the compile error, not an assembly note"
     assert err.strip(), "and it must say something"
+
+
+@pytest.fixture
+def taggedcrop(tmp_path: Path):
+    """A crop server on a project whose preamble turns tagging on.
+
+    The description only reaches a reader under tagging -- measured, `alt=` without
+    `\\DocumentMetadata{tagging=on}` compiles clean and the PDF carries no `/Alt` -- so the
+    tagging case is the one worth driving over HTTP.
+    """
+    from handzoo.core.target import Target
+
+    marked = tmp_path / "page-0001.tex"
+    marked.write_text("Before it.\n\n\\texttt{[TODO diagram: an invented drawing]}\n\nAfter.\n",
+                      encoding="utf-8")
+    (tmp_path / "manifest.jsonl").write_text(json.dumps({
+        "page": 1, "output": str(marked), "verdict": "fail", "gates": {}, "source": "",
+        "findings": [{"gate": "coverage", "detail": "recognizer fabricated a drawing here"}],
+    }) + "\n", encoding="utf-8")
+    Target.from_text("\\DocumentMetadata{tagging=on}\n"
+                     "\\usepackage{graphicx}\n").save(tmp_path)
+
+    Handler.review = Review(tmp_path)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{srv.server_address[1]}", tmp_path, marked
+    srv.shutdown()
+    srv.server_close()
+
+
+def test_the_authors_description_reaches_the_page_escaped(taggedcrop) -> None:
+    """Over HTTP, because the escaping is only useful if it survives the request.
+
+    The description is the one place author prose crosses into LaTeX syntax: an unbalanced
+    `}` ends the key early and a `%` comments out the rest of the line, so a page could be
+    refused -- or fail its own delimiter gate -- over words the author never wrote as markup.
+    """
+    from handzoo.core.validate import delimiter_gate
+
+    base, out_dir, page = taggedcrop
+    _post(base, "/api/crop/confirm",
+          {"page": 1, "name": "fig-p0001-1.pdf",
+           "alt": "50% of {x} & $y$ — a commutative square", "seconds": 4.0})
+
+    written = page.read_text(encoding="utf-8")
+    assert "\\includegraphics[" in written
+    assert "alt={" in written, "the description never reached the page"
+    assert "50\\% of \\{x\\} \\& \\$y\\$" in written, written
+    assert "unlabelled" not in written, "it was described, so there is nothing to note"
+    assert delimiter_gate.check(written).passed, delimiter_gate.check(written).report()
+
+
+def test_a_crop_with_no_description_says_so_in_the_file(taggedcrop) -> None:
+    """Under tagging the silence is a real gap, and the file is where a later reader looks."""
+    base, out_dir, page = taggedcrop
+    _post(base, "/api/crop/confirm",
+          {"page": 1, "name": "fig-p0001-1.pdf", "seconds": 4.0})
+
+    written = page.read_text(encoding="utf-8")
+    assert "alt={" not in written
+    assert "unlabelled for a screen reader" in written
+    # The note must not swallow the prose that followed the marker on its line.
+    assert "After." in written
+
+
+def test_an_untagged_project_is_left_exactly_as_it_is_today(cropserver) -> None:
+    """Every crop in all nine projects on disk goes through this path, and none of them turns
+    tagging on. The a11y work must not rewrite a single one of them."""
+    base, out_dir = cropserver
+    page = out_dir / "page-0001.tex"
+    _post(base, "/api/crop/confirm",
+          {"page": 1, "name": "fig-p0001-1.pdf", "seconds": 4.0})
+
+    written = page.read_text(encoding="utf-8")
+    assert "\\includegraphics[width=0.6\\textwidth]{fig-p0001-1.pdf}" in written
+    assert "alt={" not in written and "unlabelled" not in written

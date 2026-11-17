@@ -1919,6 +1919,83 @@ a build that proves nothing must not read as a build that proved something (cons
 **Measured, so the engine is not a guess:** `tagging=on` builds under **pdflatex** as well as
 lualatex — exit 0, `Tagged: yes`, PDF 2.0. Engine derivation is unchanged by tagging.
 
+#### 6.2.2 Describing a crop: the only text in the document no reader can check (2026-11-17)
+
+Constraint #4 says we never fabricate a drawing — we crop it, and the cropped path is
+`\includegraphics`, which is exactly where `alt=` works. The accessible path and the honest
+path turn out to be the same one. What this section records is the three measurements that
+decide *how* it is offered, because every obvious implementation of it is wrong.
+
+**`alt=` is silent without tagging, and silent in the worst way.** A page carrying a
+description compiles clean, exit 0, **no warning**, and the PDF comes out `Tagged: no`, PDF
+1.7, with zero `/Alt` entries. Measured under both engines. So a surface that took a
+description and said nothing would be collecting the author's words on behalf of a reader who
+never receives them — constraint #6 with a person on the end of it. The field is therefore
+offered **only when the project's preamble turns tagging on**, and `Target.tagging` is derived
+from inside `\DocumentMetadata`'s own braces (`tagging=off` is the documented way to turn it
+back off, so the value is parsed rather than the key merely found).
+
+A description that already exists is still emitted on an untagged project. It is the author's
+work, it costs nothing, and it starts working the day they add the directive. We do **not** add
+`\DocumentMetadata` ourselves: that turns the whole document into tagged PDF 2.0, which is
+theirs to decide.
+
+**The description is author-typed or absent.** The recognizer's own `[[DIAGRAM: ...]]` prose is
+never offered as a default, not even as something to edit. §5.5.6b measured model-written
+diagram descriptions as *the* fabrication class — `book-of-why` p6 carried 94 invented content
+words through every gate — and alt text is read by the one person who cannot compare it against
+the drawing. An invented description aimed there is the worst instance of the class we have.
+
+**Escaping is the real correctness risk, and the obvious escapes are wrong.** This is the one
+place author prose crosses into LaTeX syntax: an unbalanced `}` ends the key early and a `%`
+comments out the rest of the line, so a description could fail a page's compile — or its own
+delimiter gate — over words never written as markup. Measured by reading `/Alt` back out of the
+PDF rather than trusting the source:
+
+| written as | arrives as | verdict |
+|---|---|---|
+| `\%` `\{` `\}` `\&` `\$` `\#` `\_` | `%` `{` `}` `&` `$` `#` `_` | exact |
+| `\textbackslash`, `\textasciitilde`, `\textasciicircum` | the literal words | **unusable** |
+| `^` raw | `^` | safe, left alone |
+| `~` raw | a space | made a space up front |
+| `\string\` | one backslash | safe before letters, before a space, and at the very end |
+
+The PDF-string conversion does not expand text commands, which is why the three habitual
+escapes put LaTeX source into the text a screen reader speaks. `\string\` absorbs one
+following space when a backslash runs into letters; that is the only loss and it is cosmetic.
+
+**A missing description is written into the file**, as a `% handzoo: no description given`
+comment on its own line — the marker a crop replaces can sit mid-sentence, so a trailing `%`
+would comment out whatever followed it. Only under tagging: without it the remark would be true
+of every crop in every project on disk, which is noise rather than information.
+
+**Tagging breaks `tikzcd`, and the fix is one hook.** `\DocumentMetadata{tagging=on}` plus a
+`tikzcd` environment dies with `File ended while scanning use of
+\__math_grab_dollar_delim:w` and produces no PDF — under **both** engines, so this is not a
+lualatex quirk. The cause is narrower than "tikz-cd is incompatible": a plain `tikzpicture`
+with math nodes compiles fine, and it is `matrix of math nodes` that collides with the kernel's
+math collection. tikz-cd is built on one. `\AddToHook{env/tikzcd/begin}{\MathCollectFalse}`
+fixes it, and `alt={...}` then works on the `tikzcd` environment itself.
+
+It is emitted on `tagging` alone rather than on finding `tikzcd` in the text — the author can
+draw a diagram after the preamble was written — and both halves of that risk were measured
+away: the hook is inert when `tikz-cd` is never loaded, and `\MathCollectFalse` is defined even
+with tagging off. It lives in `compatibility_for`, deliberately **not** in `declarations_for`,
+whose block is headed *"every one is a mark the recognizer could not justify"* and this is not
+one.
+
+**Not covered, on purpose:** a raw `matrix of math nodes` outside tikz-cd fails identically and
+is fixed by the same hook on `env/tikzpicture/begin`. That is left out because it would turn
+math collection off inside *every* picture, including the ones that work, to rescue a
+construction no corpus here uses. One line in the author's own preamble if it ever does.
+
+**Engine note.** `tagging=on` builds under **pdflatex** as well as lualatex (exit 0,
+`Tagged: yes`, PDF 2.0), so tagging does not imply an engine and derivation is unchanged.
+
+**A note for §11.2.6a:** `\ding{55}` and `\textcircled` draw correctly and do not extract as
+their codepoints, where `\checkmark` does. A repair can be faithful to the eye and lossy to a
+screen reader — the same split this section is about, one layer down.
+
 ## 7. `handzoo review` — the correction loop (in M0 scope)
 
 Added per binding condition 2. Usability: *"a validator with no way to act on what it validates is not a product, it's a linter."*

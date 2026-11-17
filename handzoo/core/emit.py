@@ -14,6 +14,7 @@ less six months from now, when the model has moved and the output has not.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from dataclasses import dataclass
@@ -120,3 +121,67 @@ def report(emission: Emission) -> str:
         "Semantic substitution is not checked."
     )
     return "\n".join(lines)
+
+
+# ----------------------------------------------------------------- figures and descriptions
+
+_WHITESPACE = re.compile(r"\s+")
+
+# Measured on TeX Live 2026, reading the `/Alt` string back out of the PDF rather than
+# trusting the source. `\%`, `\{`, `\}`, `\&`, `\$`, `\#` and `\_` round-trip exactly.
+# `\textbackslash`, `\textasciitilde` and `\textasciicircum` do **not**: the PDF-string
+# conversion does not expand text commands and they arrive literally, as the words
+# "\textbackslash" and so on. So those three are not usable here, whatever LaTeX habit says.
+_ALT_ESCAPES = (
+    ("\\", "\\string\\"),   # first: every rule below introduces backslashes of its own
+    ("{", "\\{"), ("}", "\\}"),
+    ("%", "\\%"), ("&", "\\&"), ("$", "\\$"), ("#", "\\#"), ("_", "\\_"),
+)
+
+
+def describe(description: str) -> str:
+    r"""The author's prose, made safe to sit inside `alt={...}`.
+
+    This is the one place author text crosses into LaTeX syntax, and getting it wrong does
+    not fail loudly: an unbalanced `}` ends the key early and a `%` comments out the rest of
+    the line, so a description could fail a page's compile -- or its delimiter gate -- over
+    something the author never wrote as markup.
+
+    `^` is passed through, and a `~` becomes a space, because that is what each already does:
+    measured, both compile clean and `^` reaches `/Alt` unchanged while `~` arrives as a
+    space either way. A backslash becomes `\string\`, which yields exactly one backslash and
+    is safe in the three places that looked fragile -- before letters, before a space, and at
+    the very end, where eating the key's closing brace was the worry. It absorbs one following
+    space when the backslash runs into letters, which is the only loss here and is cosmetic.
+
+    Newlines collapse: the description is one string in the PDF, and a blank line inside a
+    macro argument would end the paragraph and take the argument with it.
+    """
+    text = _WHITESPACE.sub(" ", description.replace("~", " ")).strip()
+    for char, escape in _ALT_ESCAPES:
+        text = text.replace(char, escape)
+    return text
+
+
+def figure_tex(name: str, *, width: str, description: str = "", tagging: bool = False) -> str:
+    r"""The `\includegraphics` for a crop, and what it says about being described.
+
+    `alt=` is **silent without tagging**: measured, a page carrying a description compiles
+    clean, exit 0, no warning, and the PDF comes out `Tagged: no` with zero `/Alt` entries.
+    The description is still emitted -- it is the author's work, it costs nothing, and it
+    starts working the day they add `\DocumentMetadata{tagging=on}` -- but a surface that
+    took it without saying so would be promising a reader who is never reached.
+
+    The missing-description note is written only under tagging. Without it the remark would
+    be true of every crop in every project on disk, which is noise rather than information.
+    """
+    keys = f"width={width}"
+    if description.strip():
+        keys += f", alt={{{describe(description)}}}"
+    figure = f"\\includegraphics[{keys}]{{{name}}}"
+    if tagging and not description.strip():
+        # On its own line: the marker it replaces can sit mid-sentence, and a trailing `%`
+        # would comment out whatever followed it on that line.
+        figure += "\n% handzoo: no description given -- this figure is unlabelled for a "
+        figure += "screen reader.\n"
+    return figure
