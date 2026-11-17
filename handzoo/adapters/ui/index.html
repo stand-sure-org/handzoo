@@ -684,7 +684,53 @@ async function record(mode, text, seconds, extra = {}) {
 
 // Pane sizing. Persisted per pane: a comfortable size on one screen is not comfortable on
 // the next, and re-setting it every session is the kind of friction that stops a review run.
-const scales = JSON.parse(localStorage.getItem("hz-scales") || '{"ink":1,"set":1,"tex":1}');
+const DEFAULT_SCALES = { ink: 1, set: 1, tex: 1 };
+const MIN_SCALE = 0.5, MAX_SCALE = 4;
+
+// Read defensively, and *validate* rather than merely parse.
+//
+// This read used to be bare, at top level, in a classic script -- so any throw here took the
+// whole surface with it. Everything below this line binds the page: the pane toggles, the crop
+// handlers, the drift affirmation. The author would not have got a pane at the wrong size,
+// they would have got a blank page.
+//
+// Three ways it throws, and only the first is the obvious one:
+//
+//   1. `localStorage` **throws on access** rather than returning null -- a private window, or
+//      site data blocked for this origin. It is not a value that comes back empty; the
+//      property access itself raises.
+//   2. A corrupt or truncated value throws inside `JSON.parse`.
+//   3. A value that parses but is not the expected shape -- `null`, a string, an array, an
+//      object missing a key -- so `scales[k]` is `undefined`. That one does not throw here at
+//      all: it reaches `Math.round(undefined * 100)` and puts `NaN%` on a label and an invalid
+//      `--scale` on the pane, and `applyScale` runs at top level too, so a `null` takes the
+//      page down from a line that looks like arithmetic.
+//
+// The matching *write* was already wrapped in try/catch. That asymmetry was backwards: a
+// failed write costs one preference, a failed read cost the surface.
+function storedScales() {
+  let raw = null;
+  try {
+    raw = localStorage.getItem("hz-scales");
+  } catch (e) {
+    return { ...DEFAULT_SCALES };     // storage unavailable: a default is not a failure
+  }
+  let saved = null;
+  try { saved = JSON.parse(raw || "null"); } catch (e) { saved = null; }
+  const out = { ...DEFAULT_SCALES };
+  if (saved && typeof saved === "object" && !Array.isArray(saved)) {
+    for (const k of Object.keys(DEFAULT_SCALES)) {
+      const v = Number(saved[k]);
+      // Replaced, not clamped into plausibility. What is in storage is whatever an older
+      // build wrote or a person edited, and a number outside the range the buttons themselves
+      // enforce is not a preference this page ever offered -- so the default is the honest
+      // answer, rather than the nearest value that happens to render.
+      if (Number.isFinite(v) && v >= MIN_SCALE && v <= MAX_SCALE) out[k] = v;
+    }
+  }
+  return out;
+}
+const scales = storedScales();
 // `fit` on the ink pane, kept independent of scale: it is how you see a page at its natural
 // size without changing the zoom you chose.
 const manualZoom = { ink: false, set: false };
@@ -706,7 +752,8 @@ function applyScale(k) {
 for (const b of document.querySelectorAll(".sizer button[data-scale]")) {
   b.onclick = () => {
     const k = b.dataset.scale;
-    scales[k] = Math.min(4, Math.max(0.5, scales[k] + Number(b.dataset.d) * 0.15));
+    scales[k] = Math.min(MAX_SCALE,
+                         Math.max(MIN_SCALE, scales[k] + Number(b.dataset.d) * 0.15));
     applyScale(k);
   };
 }
