@@ -4580,6 +4580,77 @@ the author — or their coffee — cannot be counted as correcting. The *accept*
 and still measures reading time from when the page was opened, so §11.4a's rule (a page the
 surface opened is timed from the author's first touch) still guards it.
 
+### 12.8 A finding's line number is a destination, but only while it is true (2026-11-17)
+
+The author's list after trying Overleaf and TeXstudio opened with *"highlighting of left/right
+pairs is useful when there is a mismatch."* The answer did not need an editor component: the
+delimiter gate already keeps a stack with a line per opener, so both ends of a mismatch were
+computed and one of them was being thrown away. `Failure.pair_line` keeps it, and the panel
+draws it as a second line you can click.
+
+**What is clickable, and why it is only one gate.** The chips are drawn for `delimiters` and
+nothing else, and the reason is **freshness, not coordinates**. `/api/text` recomputes the
+delimiter findings from the exact string it is about to hand the pane, so the finding and the
+buffer come out of one response; every other number in the panel was recorded by the run and
+can outlive the text it described. Measured on the author's own `l11` p3: its newest manifest
+row still reports `\end{itemize} closes array` at line 19, where the file now holds
+`\end{center}` and the gate finds nothing at all. A chip on that number would have been a
+confident pointer at a line nothing was ever wrong with.
+
+This is **not** a coordinate-system problem, and an earlier reading of it as one was wrong.
+`compile_gate.check_fragment` already subtracts the wrapper's preamble and drops the line
+entirely when the error lands outside the page — `valenza-la2` p36 records `line: null` and
+keeps pdflatex's raw *"input line 77"* in the message text only, which is what made the field
+look offset. Extending the chips to the other text-only gates is the same three lines; what is
+missing is the recomputation on open, not the arithmetic.
+
+**The trust test is one condition.** A chip is live only while `$("tex").value === original` —
+the string the findings describe. The first keystroke redraws the panel once and every chip
+goes dead together, rather than one of them quietly landing in the wrong place (constraint #6
+applied to navigation). They come back on the next save, because the re-gate's findings were
+computed against exactly what was written.
+
+**Scoped honestly against the request.** `delimiter_gate` checks `$`, `$$`, `\(`, `\[` and
+environments — not braces, and not `\left`/`\right`. Across the 804 emitted pages on this
+machine, brace imbalance occurs on **1** and `\left`/`\right` mismatch on **1**, and both are
+already quarantined `.fail.tex` files. **No page passed every gate while carrying either.** So
+extending the gate would add no detection on this corpus, and it would be a hard-gate verdict
+change made on no evidence. Left alone, deliberately.
+
+**The scroll had to be measured, not calculated.** Focusing a textarea scrolls its caret into
+view only when it was not already focused, so the *second* chip — the pair, which is the whole
+feature — selected the right line and left the pane where it was: line 43 then "opened line 2"
+both ended at `scrollTop` 794, and `blur()` then `focus()` does not revive it. Line-height
+arithmetic is not the fix either, because the pane soft-wraps: on a 600-character line, line 3
+sits at 202px where `padding + 2 x line-height` says 56 — seven lines out. A mirror element
+laid out under the same font, width and padding gets it right, and summed over the whole text
+reproduces the pane's own `scrollHeight` to within a rounding pixel (257.4 against 258).
+
+**Swapping the run's findings for live ones can make the panel disagree with the badge, and
+it says so.** The row's gate state and the page's quarantine both read from the manifest. On a
+page whose only hard findings were delimiter findings, replacing them with a clean live result
+would have left the panel reading *"Nothing flagged"* under a header saying FAIL, with the file
+still named `.fail.tex` — the exact ch22 p28 failure `renderFindings` was written to stop,
+reintroduced from the other direction. Measured: **1 of the 804 emitted pages** is in that
+state (`l11` p3, 4 recorded against 0 live), and it is shielded today only by an unrelated
+repetition finding, which is luck rather than design. So the disagreement is printed as its own
+line — *"the run recorded 4 here; the file on disk has 0"* — and *"Nothing flagged"* cannot
+render beside it.
+
+**`liveDelims` is keyed by page and by text, not by call order.** `renderFindings` has four
+callers and the crop path renders *before* it re-selects, so a bare list would have drawn the
+pre-crop lines under the post-crop file for a frame. Matching on both makes the invariant
+structural: when either differs, the panel falls back to the run's recorded findings with every
+line disabled. The Option+↑/↓ line move from the editor-keys work is covered by the same
+condition — `splice` goes through `execCommand("insertText")` and falls back to `setRangeText`
+plus an explicit `input` event, so either path fires the redraw.
+
+**One consolidation came with it.** `Failure` → `dict` was hand-rolled at three call sites —
+`pipeline.convert` and both halves of the surface's re-gate — so a field added to `Failure` was
+dropped by all three while every test stayed green. `GateResult.as_dicts()` is now the one
+shape, and the HTTP-level tests assert the new field arrives at the surface rather than merely
+existing on the gate.
+
 ### 12.4 The ordering this implies
 
 1. **Round-trip fidelity test** — mechanical, no UI, and it decides the format question.

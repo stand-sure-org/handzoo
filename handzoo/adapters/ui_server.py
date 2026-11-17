@@ -463,12 +463,8 @@ def _revalidate(text: str, path: Path, outcome: PageOutcome | None = None,
                                                   engine=engine,
                                                   base_dir=path.parent))
 
-    findings = [{"gate": g.gate, "detail": f.detail, "line": f.line, "excerpt": f.excerpt}
-                for g in gates if g.checked and not g.advisory
-                for f in g.failures]
-    advisory = [{"gate": g.gate, "detail": f.detail, "line": f.line, "excerpt": f.excerpt}
-                for g in gates if g.checked and g.advisory
-                for f in g.failures]
+    findings = [d for g in gates if g.checked and not g.advisory for d in g.as_dicts()]
+    advisory = [d for g in gates if g.checked and g.advisory for d in g.as_dicts()]
     state = {g.gate: ("pass" if g.passed else "skipped" if not g.checked else "fail")
              for g in gates}
     # Not re-runnable here, and silence would read as a pass.
@@ -706,8 +702,18 @@ class Handler(BaseHTTPRequestHandler):
             if not match or not match[0].output or not Path(match[0].output).exists():
                 self._json({"error": "no output on disk for this page"}, 404)
                 return
-            self._json({"page": page,
-                        "text": Path(match[0].output).read_text(encoding="utf-8")})
+            text = Path(match[0].output).read_text(encoding="utf-8")
+            # Delimiter findings are recomputed here rather than read from the manifest,
+            # and handed back in the same response as the text they describe. That is what
+            # lets the panel offer a line to jump to: the finding and the buffer come from
+            # one string, so the number cannot point into a version of the page the author
+            # is not looking at. Measured on the author's own `l11` p3, whose newest
+            # manifest row still reports `\end{itemize} closes array` at line 19 where the
+            # file now has `\end{center}` and the gate finds nothing -- recorded findings
+            # outlive the text they were computed against. The gate is a single regex pass,
+            # so this costs nothing per page.
+            self._json({"page": page, "text": text,
+                        "delimiters": delimiter_gate.check(text).as_dicts()})
         elif url.path == "/api/typeset":
             page = int(q["page"][0])
             match = [o for o in self.review.outcomes() if o.page == page]
